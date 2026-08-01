@@ -32,12 +32,14 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^7.18.2",
     "simple-git": "^3.27.0",
+    "turndown": "^7.2.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
+    "@types/turndown": "^5.0.6",
     "@vitejs/plugin-react": "^4.3.2",
     "drizzle-kit": "0.31.10",
     "tsx": "^4.19.1",
