@@ -7,6 +7,8 @@ import LinkExtension from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import { api, ApiError, type PageContent, type HistoryEntry } from "../../api/client.js";
 import { Toolbar } from "./Toolbar.js";
+import { getEditorExtensions } from "./pluginEngine.js";
+import "./editorPlugins.js"; // populates the registry with core commands
 
 export function Editor({ branchId }: { branchId: string }) {
   const [page, setPage] = useState<PageContent | null>(null);
@@ -39,12 +41,15 @@ export function Editor({ branchId }: { branchId: string }) {
   // explicit toggle required to start typing.
   const [isEditing, setIsEditing] = useState(false);
 
+  const engineExtensions = getEditorExtensions();
+
   const editor = useEditor({
     extensions: [
       StarterKit,
       Image,
       LinkExtension.configure({ openOnClick: false, autolink: true }),
       Underline,
+      ...engineExtensions,
     ],
     content: undefined,
     editable: isEditing && (page?.access === "editor" || page?.access === "admin"),

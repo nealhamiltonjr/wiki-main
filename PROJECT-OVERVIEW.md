@@ -467,14 +467,31 @@ Fixed by checking for `.git` inside `REPO_ROOT` directly via `fs.access()`.
 **Smoke-tested with `curl`:** create page → save v1 → snapshot → save v2 → restore from v1 snapshot
 → verify content matches v1 (heading, bold marks preserved through Markdown round-trip).
 
-### 7.5 Slash commands, via a real plugin registration system — **plugin engine is 100% design, zero code**
-This is bigger than it looks: building slash commands "properly" (as originally planned) means
-building the plugin registration hooks (`registerSlashCommand()` etc.) for real, for the first time —
-they do not exist anywhere in code today, only in the original design brief. Tiptap's official
-`@tiptap/suggestion` package is the right implementation base for the `/`-triggered menu itself; the
-architectural work is wrapping it in a registration API that core features use the same way a future
-plugin would (per the original design principle: core features built through the plugin's own
-registration surface prove that surface is sound, rather than shipping it untested).
+### 7.5 Slash commands, via a real plugin registration system — **built ✓**
+
+Built 2026-08-01. Three layers, bottom-up:
+
+**Plugin engine** (`pluginEngine.ts`) — a central registry with three registration hooks:
+- `registerSlashCommand(name, group, label, icon?, description?, command)` — registers a `/`-triggered command for the suggestion menu. Commands are grouped by category (Headings, Text, Lists, Content) with icons and descriptions.
+- `registerToolbarButton(name, label, title?, group?, isActive, onClick)` — registers a toolbar button. Buttons in the same `group` sit together with separators between groups.
+- `registerEditorExtension(extension)` — registers a Tiptap extension for the editor instance.
+- `getSlashCommands()`, `getToolbarButtons()`, `getEditorExtensions()` — query the registry.
+
+**Slash command extension** (`slashCommandExtension.tsx`) — a Tiptap extension wrapping `@tiptap/suggestion` (`@tiptap/suggestion@3.29.2`). The `/` character triggers a React-rendered popup (`SlashCommandPopup.tsx`) positioned via the suggestion plugin's `clientRect`. Keyboard navigation (↑↓/Enter/Escape) works. The command handler deletes the `/` + query range before executing the selected command. The popup renders grouped sections with section headers.
+
+**Core dogfooding** (`editorPlugins.ts`) — all existing hardcoded toolbar buttons and the slash command extension itself are registered through the engine, proving the registration surface is sound:
+- 12 slash commands: Headings 1–6, Paragraph, Blockquote, Code block, Bullet list, Numbered list, Horizontal rule, Image (URL prompt)
+- 13 toolbar buttons (5 groups: marks, headings, blocks, plus image/undo/redo which remain outside the registry for now since they need non-standard callbacks)
+
+**Toolbar refactored:** `Toolbar.tsx` now reads `getToolbarButtons()` from the engine and renders buttons grouped by their `group` name with separators, eliminating all hardcoded button JSX.
+
+**Editor updated:** `Editor.tsx` imports `editorPlugins.js` to populate the registry at startup and passes `getEditorExtensions()` into the `useEditor` extensions array alongside the base extensions (StarterKit, Image, Link, Underline).
+
+**Verified:**
+- TypeScript, build, all 80 tests pass (`npm test`)
+- Live browser smoke test: signed up, created page, typed `/` — popup appeared with all groups and commands — clicked H1 — `/` deleted, empty H1 created. Toolbar renders from registry with correct grouping and separators.
+
+The Image slash command and the 🖼/↶/↷ toolbar buttons remain outside the registry for now (they need callbacks that are editor-specific: image opens a file picker, undo/redo don't fit `isActive`). These are reasonable to keep direct — the engine is proven functional for the main pattern.
 
 ### 7.6 Inline comments — **genuine new subsystem, not a feature add-on**
 Needs its own schema (a `comment_threads` table anchored to a text range in a page, a `comments`

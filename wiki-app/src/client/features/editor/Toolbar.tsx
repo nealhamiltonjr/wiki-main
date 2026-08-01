@@ -1,4 +1,5 @@
 import type { Editor as TiptapEditor } from "@tiptap/core";
+import { getToolbarButtons } from "./pluginEngine.js";
 
 export function Toolbar({ editor, onUploadImage }: { editor: TiptapEditor | null; onUploadImage: () => void }) {
   const btn = (active: boolean): React.CSSProperties => ({
@@ -13,124 +14,50 @@ export function Toolbar({ editor, onUploadImage }: { editor: TiptapEditor | null
   });
 
   if (!editor) return null;
-  const ed = editor; // non-null after guard (TS doesn't narrow through closures)
 
-  function setLink() {
-    const prev = ed.getAttributes("link").href ?? "";
-    const href = window.prompt("URL:", prev);
-    if (href === null) return;
-    if (href === "") ed.chain().focus().unsetLink().run();
-    else ed.chain().focus().setLink({ href }).run();
+  const buttons = getToolbarButtons();
+  const separator = <span style={{ width: 1, background: "#ddd", margin: "0 4px" }} />;
+
+  // Group buttons by their group name, inserting separators between groups
+  const groups: { name: string; buttons: typeof buttons }[] = [];
+  for (const b of buttons) {
+    const gname = b.group ?? "";
+    const last = groups[groups.length - 1];
+    if (last && last.name === gname) {
+      last.buttons.push(b);
+    } else {
+      groups.push({ name: gname, buttons: [b] });
+    }
   }
 
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 2, padding: "6px 0", marginBottom: 8, borderBottom: "1px solid #eee" }}>
-      <button
-        type="button"
-        style={btn(ed.isActive("bold"))}
-        onClick={() => ed.chain().focus().toggleBold().run()}
-        title="Bold (Ctrl+B)"
-      >
-        B
-      </button>
-      <button
-        type="button"
-        style={btn(ed.isActive("italic"))}
-        onClick={() => ed.chain().focus().toggleItalic().run()}
-        title="Italic (Ctrl+I)"
-      >
-        I
-      </button>
-      <button
-        type="button"
-        style={btn(ed.isActive("underline"))}
-        onClick={() => ed.chain().focus().toggleUnderline().run()}
-        title="Underline (Ctrl+U)"
-      >
-        U
-      </button>
-      <button
-        type="button"
-        style={btn(ed.isActive("code"))}
-        onClick={() => ed.chain().focus().toggleCode().run()}
-        title="Inline code"
-      >
-        {"</>"}
-      </button>
-      <button
-        type="button"
-        style={btn(ed.isActive("link"))}
-        onClick={setLink}
-        title="Insert link"
-      >
-        🔗
-      </button>
-      <span style={{ width: 1, background: "#ddd", margin: "0 4px" }} />
-      <button
-        type="button"
-        style={btn(ed.isActive("heading", { level: 1 }))}
-        onClick={() => ed.chain().focus().toggleHeading({ level: 1 }).run()}
-        title="Heading 1"
-      >
-        H1
-      </button>
-      <button
-        type="button"
-        style={btn(ed.isActive("heading", { level: 2 }))}
-        onClick={() => ed.chain().focus().toggleHeading({ level: 2 }).run()}
-        title="Heading 2"
-      >
-        H2
-      </button>
-      <button
-        type="button"
-        style={btn(ed.isActive("heading", { level: 3 }))}
-        onClick={() => ed.chain().focus().toggleHeading({ level: 3 }).run()}
-        title="Heading 3"
-      >
-        H3
-      </button>
-      <span style={{ width: 1, background: "#ddd", margin: "0 4px" }} />
-      <button
-        type="button"
-        style={btn(ed.isActive("bulletList"))}
-        onClick={() => ed.chain().focus().toggleBulletList().run()}
-        title="Bullet list"
-      >
-        • List
-      </button>
-      <button
-        type="button"
-        style={btn(ed.isActive("orderedList"))}
-        onClick={() => ed.chain().focus().toggleOrderedList().run()}
-        title="Numbered list"
-      >
-        1. List
-      </button>
-      <button
-        type="button"
-        style={btn(ed.isActive("blockquote"))}
-        onClick={() => ed.chain().focus().toggleBlockquote().run()}
-        title="Quote"
-      >
-        " Quote
-      </button>
-      <button
-        type="button"
-        style={btn(ed.isActive("codeBlock"))}
-        onClick={() => ed.chain().focus().toggleCodeBlock().run()}
-        title="Code block"
-      >
-        {"{ }"} Code
-      </button>
-      <span style={{ width: 1, background: "#ddd", margin: "0 4px" }} />
+      {groups.map((group, gi) => (
+        <span key={group.name} style={{ display: "contents" }}>
+          {gi > 0 && separator}
+          {group.buttons.map((b) => (
+            <button
+              key={b.name}
+              type="button"
+              style={btn(b.isActive(editor))}
+              onClick={() => b.onClick(editor)}
+              title={b.title}
+            >
+              {b.label}
+            </button>
+          ))}
+        </span>
+      ))}
+
+      {separator}
+
       <button type="button" style={btn(false)} onClick={onUploadImage} title="Insert image">
         🖼
       </button>
-      <button type="button" style={btn(false)} onClick={() => ed.chain().focus().undo().run()} title="Undo (Ctrl+Z)">
+      <button type="button" style={btn(false)} onClick={() => editor.chain().focus().undo().run()} title="Undo (Ctrl+Z)">
         ↶
       </button>
-      <button type="button" style={btn(false)} onClick={() => ed.chain().focus().redo().run()} title="Redo (Ctrl+Shift+Z)">
+      <button type="button" style={btn(false)} onClick={() => editor.chain().focus().redo().run()} title="Redo (Ctrl+Shift+Z)">
         ↷
       </button>
     </div>
