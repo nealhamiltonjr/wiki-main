@@ -59,9 +59,14 @@ export function PublicView() {
         <h1 style={{ margin: 0, fontSize: "18px", cursor: "pointer" }} onClick={() => navigate("/")}>
           {config.siteName}
         </h1>
-        <button onClick={toggleLightDark} style={{ fontSize: 12 }}>
-          {theme === "dark" ? "☀ Light" : "🌙 Dark"}
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={() => navigate("/login")} style={{ fontSize: 12 }}>
+            Sign in
+          </button>
+          <button onClick={toggleLightDark} style={{ fontSize: 12 }}>
+            {theme === "dark" ? "☀ Light" : "🌙 Dark"}
+          </button>
+        </div>
       </header>
 
       <div style={{ flex: 1, overflow: "auto" }}>
