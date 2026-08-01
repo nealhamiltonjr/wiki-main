@@ -67,7 +67,14 @@ export default function App() {
 
   // Public mode: unauthenticated visitors see the public-facing site
   if (!session) {
-    if (publicMode) return <PublicView />;
+    if (publicMode) {
+      return (
+        <Routes>
+          <Route path="/login" element={<Login onAuthed={() => refetch()} />} />
+          <Route path="*" element={<PublicView />} />
+        </Routes>
+      );
+    }
     return <Login onAuthed={() => refetch()} />;
   }
 
