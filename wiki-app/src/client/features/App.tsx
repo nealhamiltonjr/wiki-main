@@ -5,6 +5,8 @@ import { Tree } from "./tree/Tree.js";
 import { Editor } from "./editor/Editor.js";
 import { AdminSettings } from "./settings/AdminSettings.js";
 import { useTheme } from "./theme/ThemeContext.js";
+import { PublicView } from "./public/PublicView.js";
+import { useState, useEffect } from "react";
 
 function Sidebar() {
   const navigate = useNavigate();
@@ -52,9 +54,22 @@ function EditorRoute() {
 
 export default function App() {
   const { data: session, isPending, refetch } = useSession();
+  const [publicMode, setPublicMode] = useState<boolean | null>(null);
 
-  if (isPending) return null;
-  if (!session) return <Login onAuthed={() => refetch()} />;
+  useEffect(() => {
+    fetch("/api/public/config")
+      .then((r) => r.json())
+      .then((c) => setPublicMode(c.publicMode))
+      .catch(() => setPublicMode(false));
+  }, []);
+
+  if (isPending || publicMode === null) return null;
+
+  // Public mode: unauthenticated visitors see the public-facing site
+  if (!session) {
+    if (publicMode) return <PublicView />;
+    return <Login onAuthed={() => refetch()} />;
+  }
 
   return (
     <div style={{ display: "flex", height: "100vh" }}>
