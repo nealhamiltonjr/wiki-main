@@ -9,8 +9,12 @@ import { CommentExtension } from "@sereneinserenade/tiptap-comment-extension";
 import { api, ApiError, type PageContent, type HistoryEntry } from "../../api/client.js";
 import { Toolbar } from "./Toolbar.js";
 import { getEditorExtensions } from "./pluginEngine.js";
-import "./editorPlugins.js"; // populates the registry with core commands
+import "./editorPlugins.js";
 import { CommentPanel } from "./CommentPanel.js";
+import { useCollab } from "./useCollab.js";
+import { useSession } from "../../api/authClient.js";
+
+const USER_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#be185d", "#4f46e5"];
 
 export function Editor({ branchId }: { branchId: string }) {
   const [page, setPage] = useState<PageContent | null>(null);
@@ -18,11 +22,8 @@ export function Editor({ branchId }: { branchId: string }) {
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { data: session } = useSession();
 
-  // Full-width by default (per feedback that our editor looked cramped next
-  // to other wiki tools), with a per-user, persisted toggle for the narrower
-  // reading width some people prefer for code-heavy pages. First real use of
-  // the user_settings table, which existed unused since the original schema.
   const [editorWidth, setEditorWidth] = useState<"full" | "narrow">("full");
   useEffect(() => {
     api.getUserSettings().then((s) => {
@@ -37,13 +38,23 @@ export function Editor({ branchId }: { branchId: string }) {
     api.setUserSetting("editor.width", next);
   }
 
-  // Read-by-default, click-to-edit (SiYuan-style) - previously the editor was
-  // always live-editable for anyone with edit permission, which meant a stray
-  // keystroke could silently trigger an autosave. Defaults to view mode;
-  // explicit toggle required to start typing.
   const [isEditing, setIsEditing] = useState(false);
 
-  // Comment state (§7.6)
+  // Collaboration state
+  const [useCollabMode, setUseCollabMode] = useState(false);
+  const userName = session?.user.name ?? "Anonymous";
+  const userColor = USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)] ?? "#2563eb";
+
+  // Only enable collab when page is loaded AND user toggled it
+  const collabEnabled = useCollabMode && !!page;
+  const collabExtensions = useCollab({
+    pageId: page?.pageId ?? "",
+    userName,
+    userColor,
+    enabled: collabEnabled,
+  });
+
+  // Comment state
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
 
   const engineExtensions = getEditorExtensions();
@@ -61,12 +72,14 @@ export function Editor({ branchId }: { branchId: string }) {
         },
       }),
       ...engineExtensions,
+      ...(collabExtensions ?? []),
     ],
     content: undefined,
     editable: isEditing && (page?.access === "editor" || page?.access === "admin"),
     onUpdate: ({ editor }) => {
+      if (collabEnabled) return; // collab mode handles save via WebSocket
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => save(editor.getJSON()), 800); // debounced autosave
+      saveTimer.current = setTimeout(() => save(editor.getJSON()), 800);
     },
   });
 
@@ -74,10 +87,14 @@ export function Editor({ branchId }: { branchId: string }) {
     setPage(null);
     setStatus("idle");
     setHistory(null);
-    setIsEditing(false); // opening a different page always starts in view mode
+    setIsEditing(false);
+    setUseCollabMode(false);
     api.getPage(branchId).then((p) => {
       setPage(p);
-      editor?.commands.setContent(p.content as any);
+      // In collab mode, don't setContent — the Collaboration extension owns the document
+      if (!useCollabMode) {
+        editor?.commands.setContent(p.content as any);
+      }
       editor?.setEditable(false);
     });
   }, [branchId]);
@@ -93,7 +110,7 @@ export function Editor({ branchId }: { branchId: string }) {
       setStatus("saving");
       try {
         await api.savePage(page.pageId, page.branchId, content, page.updatedAt);
-        const fresh = await api.getPage(branchId); // pick up the new updatedAt for the next save's OCC check
+        const fresh = await api.getPage(branchId);
         setPage(fresh);
         setStatus("saved");
       } catch (err) {
@@ -136,7 +153,6 @@ export function Editor({ branchId }: { branchId: string }) {
     if (!file) return;
     const result = await api.uploadFile(page.branchId, file);
     const url = `/api/branches/${page.branchId}/files/${result.id}`;
-    // Images render as actual img nodes; everything else inserts a link.
     if (file.type.startsWith("image/")) {
       editor?.chain().focus().setImage({ src: url, alt: result.filename }).run();
     } else {
@@ -160,11 +176,10 @@ export function Editor({ branchId }: { branchId: string }) {
     }
   }
 
-  /** Add a comment on the current text selection (§7.6). */
   async function addCommentOnSelection() {
     if (!page || !editor) return;
     const { from, to } = editor.state.selection;
-    if (from === to) return; // no text selected
+    if (from === to) return;
     const body = window.prompt("Comment:");
     if (!body) return;
     try {
@@ -198,8 +213,15 @@ export function Editor({ branchId }: { branchId: string }) {
               <button onClick={() => setIsEditing((v) => !v)} style={{ fontSize: 12, fontWeight: isEditing ? "bold" : "normal" }}>
                 {isEditing ? "Done editing" : "Edit"}
               </button>
+              {isEditing && (
+                <button
+                  onClick={() => setUseCollabMode((v) => !v)}
+                  style={{ fontSize: 12, fontWeight: useCollabMode ? "bold" : "normal", color: useCollabMode ? "#16a34a" : undefined }}
+                >
+                  {useCollabMode ? "Collab ON" : "Collab OFF"}
+                </button>
+              )}
               <button onClick={triggerUpload} style={{ fontSize: 12 }}>Upload file</button>
-              <input ref={fileInputRef} type="file" onChange={uploadFile} style={{ display: "none" }} />
               <button onClick={takeSnapshot} style={{ fontSize: 12 }}>Snapshot</button>
             </>
           )}
