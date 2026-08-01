@@ -109,6 +109,33 @@ export const groupPermissions = sqliteTable("group_permissions", {
 });
 
 // ---------------------------------------------------------------------------
+// Comments - brief §7.6. Threads are anchored to a text range on a page;
+// individual replies live in the comments table. The range is stored as
+// {from, to} ProseMirror positions — the Comment extension stores these as
+// marks so they're embedded in the Tiptap JSON; the DB copy is the
+// authoritative record for rendering the sidebar panel independent of content.
+// ---------------------------------------------------------------------------
+export const commentThreads = sqliteTable("comment_threads", {
+  id: id(),
+  pageId: text("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
+  rangeFrom: integer("range_from").notNull(),
+  rangeTo: integer("range_to").notNull(),
+  resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
+  resolvedBy: text("resolved_by").references(() => users.id),
+  createdBy: text("created_by").notNull().references(() => users.id),
+  ...timestamps,
+});
+
+export const comments = sqliteTable("comments", {
+  id: id(),
+  threadId: text("thread_id").notNull().references(() => commentThreads.id, { onDelete: "cascade" }),
+  body: text("body").notNull(),
+  userId: text("user_id").notNull().references(() => users.id),
+  ...timestamps,
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+// ---------------------------------------------------------------------------
 // Files - brief §3.13a. Served with branch-context (not just file id) so a page
 // cloned into multiple security contexts can't be used to view a private file
 // via its public clone's ID.

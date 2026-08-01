@@ -27,6 +27,15 @@ export interface PageContent {
 export interface HistoryEntry { hash: string; message: string; date: string }
 export interface FileUploadResult { id: string; filename: string }
 export interface ShareLinkResult { id: string; token: string }
+export interface CommentThread {
+  id: string; pageId: string; rangeFrom: number; rangeTo: number;
+  resolvedAt: string | null; resolvedBy: string | null; createdBy: string;
+  createdAt: string; comments: Comment[];
+}
+export interface Comment {
+  id: string; threadId: string; body: string; userId: string;
+  createdAt: string; updatedAt: string;
+}
 
 export const api = {
   getUserSettings: () => request<Record<string, unknown>>("/api/user-settings"),
@@ -67,4 +76,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ scopeType: "branch", scopeId: branchId, ...opts }),
     }),
+  // Comments (§7.6)
+  getComments: (branchId: string) => request<CommentThread[]>(`/api/branches/${branchId}/comments`),
+  createCommentThread: (branchId: string, rangeFrom: number, rangeTo: number, body: string) =>
+    request<{ threadId: string }>(`/api/branches/${branchId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ rangeFrom, rangeTo, body }),
+    }),
+  addCommentReply: (branchId: string, threadId: string, body: string) =>
+    request<Comment>(`/api/branches/${branchId}/comments/${threadId}`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }),
+  editComment: (commentId: string, body: string) =>
+    request<{ ok: true }>(`/api/comments/${commentId}`, {
+      method: "PUT",
+      body: JSON.stringify({ body }),
+    }),
+  deleteComment: (commentId: string) =>
+    request<{ ok: true }>(`/api/comments/${commentId}`, { method: "DELETE" }),
+  resolveCommentThread: (threadId: string) =>
+    request<{ resolved: boolean }>(`/api/comment-threads/${threadId}/resolve`, { method: "PUT" }),
 };

@@ -1,7 +1,7 @@
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import { getToolbarButtons } from "./pluginEngine.js";
 
-export function Toolbar({ editor, onUploadImage }: { editor: TiptapEditor | null; onUploadImage: () => void }) {
+export function Toolbar({ editor, onUploadImage, onAddComment }: { editor: TiptapEditor | null; onUploadImage: () => void; onAddComment: () => void }) {
   const btn = (active: boolean): React.CSSProperties => ({
     padding: "4px 8px",
     marginRight: 4,
@@ -48,6 +48,12 @@ export function Toolbar({ editor, onUploadImage }: { editor: TiptapEditor | null
           ))}
         </span>
       ))}
+
+      {separator}
+
+      <button type="button" style={btn(false)} onClick={onAddComment} title="Add comment on selection">
+        💬
+      </button>
 
       {separator}
 

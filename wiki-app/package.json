@@ -16,6 +16,7 @@
     "@fastify/cookie": "^11.0.0",
     "@fastify/multipart": "^9.0.0",
     "@fastify/static": "^10.1.2",
+    "@sereneinserenade/tiptap-comment-extension": "^0.2.0",
     "@tiptap/core": "^3.29.2",
     "@tiptap/extension-image": "^3.29.2",
     "@tiptap/extension-link": "^3.29.2",

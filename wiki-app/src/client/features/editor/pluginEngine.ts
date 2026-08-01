@@ -1,5 +1,5 @@
 import type { Editor as TiptapEditor } from "@tiptap/core";
-import type { Extension } from "@tiptap/core";
+import type { AnyExtension } from "@tiptap/core";
 
 // ---------------------------------------------------------------------------
 // Plugin Engine — the central registration surface for editor plugins.
@@ -66,12 +66,12 @@ export function getToolbarButtons(): ToolbarButton[] {
 
 // -- Editor extensions -------------------------------------------------------
 
-const editorExtensions: Extension[] = [];
+const editorExtensions: AnyExtension[] = [];
 
-export function registerEditorExtension(ext: Extension): void {
+export function registerEditorExtension(ext: AnyExtension): void {
   editorExtensions.push(ext);
 }
 
-export function getEditorExtensions(): Extension[] {
+export function getEditorExtensions(): AnyExtension[] {
   return editorExtensions;
 }

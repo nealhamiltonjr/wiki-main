@@ -5,10 +5,12 @@ import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import LinkExtension from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
+import { CommentExtension } from "@sereneinserenade/tiptap-comment-extension";
 import { api, ApiError, type PageContent, type HistoryEntry } from "../../api/client.js";
 import { Toolbar } from "./Toolbar.js";
 import { getEditorExtensions } from "./pluginEngine.js";
 import "./editorPlugins.js"; // populates the registry with core commands
+import { CommentPanel } from "./CommentPanel.js";
 
 export function Editor({ branchId }: { branchId: string }) {
   const [page, setPage] = useState<PageContent | null>(null);
@@ -41,6 +43,9 @@ export function Editor({ branchId }: { branchId: string }) {
   // explicit toggle required to start typing.
   const [isEditing, setIsEditing] = useState(false);
 
+  // Comment state (§7.6)
+  const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+
   const engineExtensions = getEditorExtensions();
 
   const editor = useEditor({
@@ -49,6 +54,12 @@ export function Editor({ branchId }: { branchId: string }) {
       Image,
       LinkExtension.configure({ openOnClick: false, autolink: true }),
       Underline,
+      CommentExtension.configure({
+        HTMLAttributes: { class: "wiki-comment" },
+        onCommentActivated: (commentId: string) => {
+          setActiveCommentId((prev) => (prev === commentId ? null : commentId));
+        },
+      }),
       ...engineExtensions,
     ],
     content: undefined,
@@ -149,6 +160,24 @@ export function Editor({ branchId }: { branchId: string }) {
     }
   }
 
+  /** Add a comment on the current text selection (§7.6). */
+  async function addCommentOnSelection() {
+    if (!page || !editor) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) return; // no text selected
+    const body = window.prompt("Comment:");
+    if (!body) return;
+    try {
+      const { threadId } = await api.createCommentThread(page.branchId, from, to, body);
+      editor.chain().focus().setComment(threadId).run();
+      setActiveCommentId(threadId);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        window.alert((err.body as any)?.error ?? "Failed to create comment");
+      }
+    }
+  }
+
   if (!page) return <div style={{ padding: 24 }}>Loading…</div>;
   const canEdit = page.access === "editor" || page.access === "admin";
 
@@ -220,7 +249,7 @@ export function Editor({ branchId }: { branchId: string }) {
         </div>
       )}
 
-      {canEdit && isEditing && <Toolbar editor={editor} onUploadImage={triggerUpload} />}
+      {canEdit && isEditing && <Toolbar editor={editor} onUploadImage={triggerUpload} onAddComment={addCommentOnSelection} />}
 
       {editor && canEdit && isEditing && (
         <BubbleMenu editor={editor}>
@@ -235,20 +264,28 @@ export function Editor({ branchId }: { branchId: string }) {
               if (href === "") editor.chain().focus().unsetLink().run();
               else editor.chain().focus().setLink({ href }).run();
             }} />
+            <BubbleBtn active={false} label="💬" title="Add comment" onClick={addCommentOnSelection} />
           </div>
         </BubbleMenu>
       )}
 
-      <EditorContent
-        editor={editor}
-        style={{
-          border: "1px solid #ddd",
-          borderRadius: 6,
-          minHeight: 300,
-          padding: "12px 16px",
-          background: isEditing ? "#fff" : "#fafafa", // subtle visual cue for which mode you're in
-        }}
-      />
+      <div style={{ display: "flex", gap: 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <EditorContent
+            editor={editor}
+            style={{
+              border: "1px solid #ddd",
+              borderRadius: 6,
+              minHeight: 300,
+              padding: "12px 16px",
+              background: isEditing ? "#fff" : "#fafafa",
+            }}
+          />
+        </div>
+        {activeCommentId && (
+          <CommentPanel threadId={activeCommentId} branchId={page.branchId} onClose={() => setActiveCommentId(null)} />
+        )}
+      </div>
     </div>
   );
 }
