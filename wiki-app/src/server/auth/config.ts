@@ -21,7 +21,17 @@ export const auth = betterAuth({
   // direct request that better-auth's origin-derivation logic threw instead of
   // just failing the session lookup.
   baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
-  trustedOrigins: [process.env.BETTER_AUTH_URL ?? "http://localhost:3000", "http://localhost:5173"], // :5173 = Vite dev server
+  // Additional origins that are allowed to make authenticated requests (e.g.
+  // the LAN-facing host IP in a dev deployment, or a Vite dev server). Without
+  // these, better-auth's CSRF check rejects sign-in/sign-up from any origin not
+  // listed here. Values are comma-separated.
+  trustedOrigins: [
+    process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    ...(process.env.BETTER_EXTRA_TRUSTED_ORIGINS
+      ? process.env.BETTER_EXTRA_TRUSTED_ORIGINS.split(",").map((o) => o.trim())
+      : []),
+    "http://localhost:5173", // :5173 = Vite dev server
+  ],
   database: drizzleAdapter(db, { provider: "sqlite", schema }),
   emailAndPassword: {
     enabled: true,
