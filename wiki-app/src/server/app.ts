@@ -19,6 +19,7 @@ import { userSettingsRoutes } from "./routes/user-settings.routes.js";
 import { adminRoutes } from "./routes/admin.routes.js";
 import { commentRoutes } from "./routes/comment.routes.js";
 import { clipRoutes } from "./routes/clip.routes.js";
+import { mcpRoutes } from "./routes/mcp.routes.js";
 import { authRoutes } from "./auth/routes.js";
 import { registerPermissionMiddleware } from "./middleware/permissions.js";
 
@@ -88,6 +89,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(adminRoutes);
   await app.register(commentRoutes);
   await app.register(clipRoutes);
+  await app.register(mcpRoutes);
 
   // Production only - in dev, Vite's own server (with its /api proxy) serves the
   // frontend instead, so this doesn't run and doesn't need `npm run build:client`
