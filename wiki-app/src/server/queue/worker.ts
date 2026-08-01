@@ -1,8 +1,10 @@
 import { eq, and, lte, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { jobQueue } from "../db/schema.js";
+import { users } from "../db/schema.js";
 import { commitPageChange, commitManualSnapshot } from "../services/git.service.js";
 import { runShareLinkWatchdog } from "../services/token.service.js";
+import { sendShareLinkWarning } from "../services/mailer.service.js";
 import { log } from "../services/log.service.js";
 
 const POLL_INTERVAL_MS = 1000;
@@ -17,11 +19,13 @@ export async function runWorkerLoop() {
 
     if (Date.now() - lastWatchdogRun > WATCHDOG_INTERVAL_MS) {
       lastWatchdogRun = Date.now();
-      await runShareLinkWatchdog((tokenId, createdBy, warningCount) => {
-        // Real email delivery is a Phase 1.5 item (brief's mailer abstraction,
-        // not yet built) - logged for now so the mechanism is provably working
-        // end to end, with the actual notification channel swapped in later.
-        log("info", "watchdog", `share link ${tokenId} (owner ${createdBy}) warning ${warningCount}/3`);
+      await runShareLinkWatchdog(async (tokenId, createdBy, warningCount) => {
+        const [user] = await db.select({ email: users.email }).from(users).where(eq(users.id, createdBy));
+        if (user?.email) {
+          await sendShareLinkWarning(user.email, tokenId, warningCount, tokenId);
+        } else {
+          log("warn", "watchdog", `share link ${tokenId}: no email for owner ${createdBy}, warning ${warningCount}/3`);
+        }
       });
     }
 
