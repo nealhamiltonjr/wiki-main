@@ -2,7 +2,7 @@ import { eq, and, lte, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { jobQueue } from "../db/schema.js";
 import { users } from "../db/schema.js";
-import { commitPageChange, commitManualSnapshot } from "../services/git.service.js";
+import { commitPageChange, commitManualSnapshot, pushToRemote, pullFromRemote } from "../services/git.service.js";
 import { runShareLinkWatchdog } from "../services/token.service.js";
 import { sendShareLinkWarning } from "../services/mailer.service.js";
 import { log } from "../services/log.service.js";
@@ -69,6 +69,12 @@ async function runJob(kind: string, payload: any) {
       } else {
         await commitPageChange(payload.pageId, payload.branchId);
       }
+      return;
+    case "git_push":
+      await pushToRemote({ force: payload.force === true });
+      return;
+    case "git_pull":
+      await pullFromRemote();
       return;
     default:
       throw new Error(`Unknown job kind: ${kind}`);

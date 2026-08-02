@@ -40,10 +40,60 @@ export interface Comment {
   createdAt: string; updatedAt: string;
 }
 
+export interface AdminSettingView {
+  key: string;
+  section: string;
+  label: string;
+  type: "text" | "number" | "boolean" | "select" | "secret" | "textarea";
+  default?: unknown;
+  options?: { value: string; label: string }[];
+  help?: string;
+  value: unknown;
+  isSecret: boolean;
+  isDefault: boolean;
+  updatedAt: string;
+}
+
+export interface RepoStatus {
+  branch: string;
+  headHash: string;
+  headMessage: string;
+  dirty: number;
+  ahead: number;
+  behind: number;
+  lastCommit: string | null;
+  sizeBytes: number;
+  remoteUrl: string | null;
+  remoteBranch: string;
+}
+
+export interface RepoLogEntry { hash: string; message: string; date: string; author: string }
+
 export const api = {
   getUserSettings: () => request<Record<string, unknown>>("/api/user-settings"),
   setUserSetting: (key: string, value: unknown) =>
     request<void>(`/api/user-settings/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value }) }),
+  listSettings: () => request<AdminSettingView[]>("/api/settings"),
+  setSetting: (key: string, value: unknown) =>
+    request<void>(`/api/settings/${encodeURIComponent(key)}`, { method: "PUT", body: JSON.stringify({ value }) }),
+  deleteSetting: (key: string) =>
+    request<void>(`/api/settings/${encodeURIComponent(key)}`, { method: "DELETE" }),
+  getRepoStatus: () => request<RepoStatus>("/api/git/status"),
+  gitPush: (opts?: { force?: boolean }) =>
+    request<{ queued: true }>("/api/git/push", { method: "POST", body: JSON.stringify(opts ?? {}) }),
+  gitPull: () => request<{ queued: true }>("/api/git/pull", { method: "POST" }),
+  getRepoLog: (limit?: number) =>
+    request<RepoLogEntry[]>(`/api/git/log${limit ? `?limit=${limit}` : ""}`),
+  testGitRemote: () => request<{ ok: true; reachable: boolean; message: string }>("/api/git/test-remote", { method: "POST" }),
+  listGroups: () => request<{ id: string; name: string }[]>("/api/groups"),
+  createGroup: (name: string) => request<{ id: string; name: string }>("/api/groups", { method: "POST", body: JSON.stringify({ name }) }),
+  deleteGroup: (id: string) => request<void>(`/api/groups/${id}`, { method: "DELETE" }),
+  listGroupMembers: (groupId: string) => request<{ userId: string; email: string; name: string }[]>(`/api/groups/${groupId}/members`),
+  addGroupMember: (groupId: string, userId: string) =>
+    request<void>(`/api/groups/${groupId}/members`, { method: "POST", body: JSON.stringify({ userId }) }),
+  removeGroupMember: (groupId: string, userId: string) =>
+    request<void>(`/api/groups/${groupId}/members/${userId}`, { method: "DELETE" }),
+  listAdminUsers: () => request<{ id: string; email: string; name: string; isAdmin: boolean }[]>("/api/admin/users"),
   listSpaces: () => request<SpaceSummary[]>("/api/spaces"),
   createSpace: (name: string) => request<SpaceSummary>("/api/spaces", { method: "POST", body: JSON.stringify({ name }) }),
   getSpaceTree: (spaceId: string) => request<TreeNode[]>(`/api/spaces/${spaceId}/tree`),
