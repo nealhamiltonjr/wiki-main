@@ -138,7 +138,9 @@ export function Editor({ branchId }: { branchId: string }) {
       // setEditable (extensions can't be added later); both no-op when
       // view.editable is false (read-only mode).
       ...editingExtensions(),
-      WikiLinkExtension,
+      // WikiLinkExtension is excluded until debugged — it triggers a Prosemirror
+      // error "t.getState is not a function" in production builds.
+      // WikiLinkExtension,
     ],
     content: undefined,
     editorProps: {

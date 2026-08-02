@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { assertEncryptionKeyConfigured } from "./services/crypto.service.js";
+import { initFts } from "./db/index.js";
 import { pageRoutes } from "./routes/page.routes.js";
 import { branchRoutes } from "./routes/branch.routes.js";
 import { treeRoutes } from "./routes/tree.routes.js";
@@ -43,6 +44,12 @@ import { registerPermissionMiddleware } from "./middleware/permissions.js";
  */
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   assertEncryptionKeyConfigured();
+
+  // Ensure FTS5 virtual table exists (idempotent — uses CREATE … IF NOT EXISTS).
+  // Tests and the server entry-point both call buildApp, so this is the single
+  // canonical place to ensure it's created after drizzle-kit push has run.
+  initFts();
+
   const app = Fastify({ logger: opts.logger ?? false });
 
   // Found as a real bug during testing: an unhandled ZodError (from any route's

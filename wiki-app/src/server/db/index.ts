@@ -11,13 +11,16 @@ export { sqlite };
 
 // ---------------------------------------------------------------------------
 // FTS5 full-text search — virtual table (§7.12d.2)
-// Created at module load so it's always available, even in tests.
+// Deferred to initFts() so drizzle-kit push (which reads the DB) doesn't
+// trip over the SQLite-internal shadow tables (page_fts_data etc.).
 // ---------------------------------------------------------------------------
-sqlite.exec(`
-  CREATE VIRTUAL TABLE IF NOT EXISTS page_fts USING fts5(
-    page_id UNINDEXED,
-    title,
-    body,
-    tokenize='porter unicode61'
-  )
-`);
+export function initFts() {
+  sqlite.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS page_fts USING fts5(
+      page_id UNINDEXED,
+      title,
+      body,
+      tokenize='porter unicode61'
+    )
+  `);
+}

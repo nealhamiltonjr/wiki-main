@@ -9,5 +9,6 @@ export default defineConfig({
     // and are unaffected by this.
     fileParallelism: false,
     testTimeout: 15000,
+    exclude: ["e2e/**", "node_modules/**"],
   },
 });

@@ -2,3 +2,5 @@ node_modules/
 data/
 drizzle/
 dist/
+e2e/auth-*.json
+test-results/

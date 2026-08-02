@@ -3,10 +3,15 @@ import { initGitRepo } from "./services/git.service.js";
 import { runWorkerLoop } from "./queue/worker.js";
 import { log } from "./services/log.service.js";
 import { hocuspocus } from "./services/collab.service.js";
+import { initFts } from "./db/index.js";
 import { WebSocketServer } from "ws";
 
 const start = async () => {
   const app = await buildApp({ logger: true });
+
+  // FTS5 virtual table — created after drizzle-kit push has run so the
+  // push tool doesn't trip over SQLite's internal shadow tables.
+  initFts();
 
   await initGitRepo();
   runWorkerLoop().catch((e) => log("error", "worker", "worker loop crashed", { error: String(e) }));
