@@ -3,6 +3,7 @@ import type { AdminSettingView } from "../../api/client.js";
 import { api } from "../../api/client.js";
 import { SettingRow } from "./SettingRow.js";
 import { GitSection } from "./GitSection.js";
+import { ClipperSection } from "./ClipperSection.js";
 
 interface Group { id: string; name: string }
 interface Member { userId: string; email: string; name: string }
@@ -91,6 +92,8 @@ export function AdminSettings() {
       {error && <div className="wiki-banner">{error}</div>}
 
       <GitSection />
+
+      <ClipperSection />
 
       <section className="settings-card">
         <h3>Groups</h3>
