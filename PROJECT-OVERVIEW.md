@@ -244,18 +244,24 @@ Tiptap bound to the canonical content, autosaving on a debounce. As of the most 
 - **Full-width by default**, with a persisted per-user toggle for a narrower reading width
 - **Read-only by default**, with an explicit "Edit"/"Done editing" toggle (SiYuan-style) rather than
   always being live-editable — reduces the risk of an accidental keystroke silently autosaving
-- A real, visible formatting toolbar (bold, italic, inline code, H1–H3, bullet/numbered lists,
-  blockquote, code block, undo/redo) — this did not exist for a meaningful stretch of development;
-  formatting only worked via keyboard shortcuts with zero visible UI, which was flagged as a real gap
-- **Zero custom CSS anywhere** — verified directly, no stylesheet exists for the editor content at
-  all. Headings, code blocks, and lists render with nothing but the browser's bare default styling,
-  which is the primary reason the app currently looks far plainer than comparable tools like Docmost
-  or SiYuan (this is a styling gap, not a functional one)
+- A real, visible formatting toolbar (bold, italic, underline, inline code, H1–H3, bullet/numbered/
+  task lists, blockquote, code block, highlight, align left/center/right, undo/redo) rendered from
+  the plugin registry (§7.5) — plus a drag-handle block menu and a search-&-replace popover
+- **Task lists** (checkbox toggle, nested), **highlight**, and **text alignment** all work and
+  persist — verified live: typing `/hig` filters the slash menu to Highlight and clicking it inserts
+  cleanly with no leftover query text; alignment center persists as `textAlign: center` on the block
+- **Slash command extension fixed for filtering + click** — the menu used to disappear once a
+  multi-character query was typed, and clicking a command after typing a query left the query text
+  behind; both fixed in `slashCommandExtension.tsx` (`allow` now checks the text before the caret
+  ends with `/` + query; the React renderer keeps a `latestProps` ref so the popup handlers always
+  use the current `range`/`command`)
 - As of the §7.3 work: Image, Link, and Underline extensions are installed. Uploading an image file
   renders an `<img>` node inline; non-image files insert a markdown-style link. The `LinkExtension`
   is configured with `openOnClick: false` (clicking doesn't navigate away) and `autolink: true`
   (pasted URLs auto-convert). A `BubbleMenu` appears on text selection with bold/italic/underline/
   link controls. Tables are still not installed (pending a specific need).
+- Styling status: the editor and app render with custom CSS in `src/client/theme.css`, but a formal
+  theming/token system (CSS variables, light/dark/contrast themes) is still on the board as §7.8a.
 
 ### 5.5 File uploads
 Upload and download both work, enforced with a specific security property: a file is only ever served
@@ -268,9 +274,11 @@ that both a 2MB upload succeeds and a genuinely oversized 30MB upload fails clea
 ### 5.6 Git versioning, snapshots, history
 Every save triggers a real Git commit of the page's Markdown export (verified: an actual `git log`
 inspection during testing showed real converted content, not a placeholder). Manual "Snapshot" with a
-user message works the same way. **History can be viewed (commit hash, message, date) but cannot be
-acted on** — there is no restore/revert endpoint at all. Viewable, not usable, is the honest
-description of this feature today.
+user message works the same way. **History is viewable (commit hash, message, date) and actionable** —
+each entry has a Restore button (editor access required) that reads the Markdown at that commit,
+converts it back to Tiptap JSON, and saves it as a new forward-moving version (§7.4). Verified live in
+this phase: restoring a commit whose Markdown contains task lists and `==highlight==` reconstructs the
+task items (with checked state) and highlight marks correctly, and the regenerated export matches.
 
 ### 5.7 Templates
 A page can be saved as a template (global, admin-only, or personal) and used to seed a new page's
@@ -291,7 +299,7 @@ explicit creation-time value; a regression test now confirms every page-creation
 template-seeded creation) always produces at least one block node.
 
 ### 5.10 Testing
-**80 tests, `vitest run` / `npm test`**, all passing from a clean install:
+**111 tests, `vitest run` / `npm test`**, all passing from a clean install:
 - `src/shared/permissions/__tests__/algorithm.test.ts` — the permission algorithm, all branches
 - `src/server/services/__tests__/{crypto,markdown,settings,token,user-settings}.test.ts` — service-
   level unit/integration tests against a real (isolated, disposable) SQLite database
@@ -441,8 +449,10 @@ History is viewable (§5.6) and now actionable. Built 2026-08-01:
 **Backend:**
 - `markdownToTiptap()` in `markdown.service.ts` — a dependency-free reverse converter handling all
   the same node and mark types as the forward converter (headings 1–6, paragraphs, code blocks,
-  blockquotes, bullet/ordered lists with nesting, horizontal rules, images, and inline bold/italic/
-  code/link marks). Built without remark/unified to mirror the forward converter's approach.
+  blockquotes, bullet/ordered lists with nesting, task lists (`- [ ]`/`- [x]`), horizontal rules,
+  images, and inline bold/italic/code/link/highlight (`==…==`) marks). Built without remark/unified
+  to mirror the forward converter's approach. Task-list and highlight support added in Phase 2
+  (2026-08-01) so restored history that contains them round-trips losslessly.
 - `getFileContentAtCommit(pageId, commitHash)` in `git.service.ts` — uses `git show` to retrieve
   a page's Markdown content at a specific commit, trying the snapshot path (`_snapshots/<pageId>.md`)
   first, then falling back to `diff-tree` to discover the space-path filename.
@@ -503,17 +513,94 @@ exists. This means comments' *data model and API* must be core code, not a plugi
 *UI* (sidebar thread panel, highlight mark on commented text) is a legitimate candidate to build via
 the plugin registration hooks from §7.5, once those exist.
 
-### 7.7 Web clipper — **backend piece is small; the browser extension is its own project**
+**Status: BUILT** (schema, permission-checked CRUD routes, CommentPanel sidebar, `@sereneinserenade/tiptap-comment-extension`
+mark rendered as `span[data-comment-id]`/`.wiki-comment`, resolve/reply/delete). Three anchoring bugs
+were found and fixed on 2026-08-01, verified live:
+- **Mark never applied at creation:** `addCommentOnSelection` captured `from`/`to`, then opened a
+  native `window.prompt()` — the prompt steals focus and collapses the editor selection, so
+  `editor.chain().setComment(threadId)` ran `setMark` against a collapsed selection and highlighted
+  nothing. Fix: re-select the captured range explicitly
+  (`setTextSelection({ from, to }).setComment(...)`) after the prompt returns. (Docmost — the closest
+  upstream reference, same Tiptap comment mark — never hits this because its comment entry is an
+  inline React popup, not a native prompt.)
+- **Highlights lost on reload:** the `comment_threads` row (with `rangeFrom`/`rangeTo`) is the
+  canonical anchor, but nothing re-applied marks from it — marks only rendered when they happened to
+  be serialized into the saved doc JSON. Fix: after `setContent`, `Editor` fetches the page's threads
+  and re-applies a `comment` mark at each thread's stored range (clamped to the current doc, skipping
+  ranges already anchored and preserving the user's selection). Marks applied this way are also
+  autosaved back into the doc JSON, so the JSON heals over time.
+- **Comments on code blocks were invisible (the Linux page bug):** ProseMirror's stock `codeBlock`
+  node forbids ALL marks (`marks: ""`), so `Transform.addMark` (which checks
+  `parent.type.allowsMarkType`) silently dropped the comment mark — the thread existed in the DB and
+  the panel, but no text was ever highlighted, and nothing was clickable. Fix: `baseExtensions.ts`
+  now registers a custom `CommentableCodeBlock` (`CodeBlock.extend({ marks: "comment" })`) that allows
+  only the `comment` mark inside code (bold/italic/underline still forbidden). This is a one-line
+  schema override; the same `setMark`/re-anchor paths then work in code blocks, and `$from.marks()`
+  still surfaces the mark to the comment extension's `onSelectionUpdate` (click-to-open works).
+- **`comment_threads.selection`** column added (nullable text): the exact selected text is captured at
+  creation and shown in the CommentPanel as an "ON SELECTION" block — so a note visibly states what it
+  references even if the position range later drifts. Backfilled for existing threads from their
+  current doc text via `prosemirror-model`. The block is clickable and scrolls the editor to the
+  highlighted span with a `comment-flash` pulse (mirrors Docmost's `.comment-highlight` jump behavior).
+
+Reference source for these choices was pulled into `../reference/` (workspace root, not part of this
+repo): `docmost`, `siyuan-note/siyuan`, `zadam/trilium` (all shallow clones). A deep-dive comparison
+of exactly how each tags a comment to its text, done 2026-08-01:
+
+**Docmost (closest upstream — same Tiptap comment mark, same `span[data-comment-id]`/`.comment-mark`):**
+- *Create:* bubble-menu "Comment" item generates a `uuid7()` client-side, applies an immediate
+  **ProseMirror `Decoration`** (`setCommentDecoration()`, `comment-decoration.ts`) so the user sees the
+  highlight while composing, shows an inline React popup (never a native prompt, so the selection is
+  never lost), then on save calls `setComment(createdComment.id)` + `unsetCommentDecoration()`. The
+  `selection` snippet is stored with the comment and rendered as a clickable `.textSelection` box.
+- *Click highlighted text → open comment:* the mark's `renderHTML` builds a **DOM element with a click
+  listener** that dispatches a bubbling `CustomEvent("ACTIVE_COMMENT_EVENT", {detail: {commentId}})`;
+  `page-editor.tsx` listens on `document` and opens the aside panel on that thread.
+- *Click comment in panel → find text:* `handleCommentClick` does
+  `document.querySelector('.comment-mark[data-comment-id=…]').scrollIntoView()` and adds a temporary
+  `.comment-highlight` class (red→gold 3s `flash-highlight` keyframe).
+- *Persistence:* mark serialized in the doc JSON; resolved state rendered as `.comment-mark.resolved`
+  (no styling).
+- *Code blocks:* Docmost's `CustomCodeBlock` also keeps `marks: ""` — so their comment mark has the
+  **same silent-drop limitation in code blocks**; they do not special-case it. Our
+  `CommentableCodeBlock` override is strictly better here.
+
+**SiYuan (block-ID model — most robust, structurally different):**
+- Every block (paragraph/heading/list/code) carries a stable `data-node-id`; cross-references are
+  block refs (`data-type="block-ref" data-id="…"`), not char ranges, so they never drift.
+- Inline notes are `inline-memo` marks (`data-type="inline-memo"`, content stored in
+  `data-inline-memo-content` on the element itself, written back through Lute to the .sy file);
+  clicking one opens `protyle.toolbar.showRender(...)` to view/edit. This is the closest analogue to
+  our comment mark, but the memo text is embedded in the doc rather than a separate thread table.
+- Block-level "备注" (remarks) attach to a block's `protyle-attr`, shown as a marker beside the block.
+
+**Trilium (CKEditor5 — different paradigm):**
+- References are **inline widgets** (`<span class="reference-link">`) inserted where text is allowed
+  (`allowWhere: '$text'`, `isObject: true`), holding a note `href`; they are chips, not marks over a
+  selection. No inline text-annotation system comparable to Docmost/SiYuan/our app.
+- Trilium is single-user; versioning/history is handled by its own note revision system, not relevant
+  to collaborative comment anchoring.
+
+**Net takeaways applied to this app:** (1) comment mark + stored selection snippet (Docmost) is the
+right model and is what we built; (2) the draft-time Decoration and inline popup are worth adopting if
+the native `window.prompt` ever causes selection loss again; (3) our `$from.marks()`-based click
+activation is equivalent to Docmost's DOM-event approach for normal text AND now works in code blocks
+too; (4) block-ID anchoring (SiYuan) or inline reference widgets (Trilium) would be a larger schema
+change — deferred; the `selection` snippet already mitigates range drift in the UI.
+
+### 7.7 Web clipper — **backend endpoint is built; the browser extension is its own project**
 Two genuinely separate pieces:
-- **Backend "clip" endpoint** (`POST /api/clip` — accepts HTML + source URL + title, creates a page):
-  the Markdown→Tiptap reverse converter now exists (built for §7.4, see above), so the conversion
-  pipeline is ready — what remains is the route itself plus an HTML→Markdown step (e.g. `turndown`
-  or `rehype-remark`). Building this both unblocks the clipper and was needed for version restore
-  (§7.4) — now built once, usable by both.
+- **Backend "clip" endpoint** — **BUILT** (`POST /api/clip`, `clip.routes.ts`): accepts HTML +
+  source URL + title + spaceId, converts via `turndown` (HTML→Markdown) then
+  `markdownToTiptap` (built for §7.4) into a new page. Validates editor access on the target space.
+  What it does NOT yet do (Trilium comparison, see §7.9): no Readability extraction server-side,
+  no de-dup by source URL (re-clipping the same page creates a duplicate instead of appending),
+  no image download/hosting, no selection/screenshot clip modes.
 - **An actual browser extension**: a real, separate codebase (its own `manifest.json`, a content
   script, its own build process) — not part of this app's frontend at all. Should authenticate back
   to the server using the API token engine (§4.4) as a `space`-scoped bearer token — the engine is
-  now genuinely functional (it was inert before the security pass; see §4.4).
+  now genuinely functional (it was inert before the security pass; see §4.4). Reference:
+  Trilium's web-clipper (`reference/trilium/apps/web-clipper`, wxt-based) is the model to imitate.
 
 ### 7.8 Not on the immediate list, but real, acknowledged gaps for later
 - **Real-time collaboration** (Hocuspocus/Yjs) — planned in the original design (with a specific,
@@ -524,7 +611,541 @@ Two genuinely separate pieces:
   original motivating use case for public publishing, not started
 - **Outbound email** — the share-link watchdog (§4.4) currently logs warnings to `system_logs` rather
   than emailing anyone; no mailer is wired up
-- **Theming engine** — no CSS variables/token system exists; tied to the CSS gap in §7.3
+- **Theming engine** — see §7.8a below
+
+#### 7.8a Theming — **COMPLETED (2026-08-02)**
+Status: done. A full design-token rewrite of `src/client/theme.css` plus class-hook refactors so the
+whole app is theme-driven. What shipped:
+- **Token system**: single `:root` block (light) with `[data-theme="dark"]` and `[data-theme="contrast"]`
+  overrides. Tokens cover surfaces (`--color-bg*`, `--color-surface*`), borders, text (3 shades +
+  placeholder), accent (`--color-primary*`, `--color-link`, `--color-focus-ring`), semantic
+  (danger/warning/success + tinted backgrounds), code/prose (code bg/text, inline-code, highlight,
+  blockquote, table header), selection, scrollbars, typography scale, spacing scale, radii, shadows,
+  layout vars, transitions, z-index. Native controls follow the theme via `color-scheme`.
+- **Global polish**: `::selection`, `:focus-visible` ring, thin theme-aware scrollbars, form-control
+  focus rings, button hover/active/disabled transitions.
+- **Component stylesheet** (class-based, replacing scattered inline styles): sidebar footer +
+  avatar chip + theme switcher, sidebar tree (hover/selected + primary indicator + reveal-on-hover
+  row actions), page chrome (slug pill, status colors, action buttons incl. primary/success variants,
+  conflict banner, history list), toolbar (grouped, active state), login card, settings page
+  (cards/pills/buttons), comment panel, share page, public shell, popups (slash menu, bubble menu,
+  drag-handle menu), editor typography (headings with subtle bottom borders, blockquote, code blocks,
+  tables, task-list checkboxes, `mark` highlight, comment marks + flash animation, drag handle,
+  search-result decorations).
+- **Bug fixed**: `SlashCommandPopup` previously hardcoded `#fff`/`#f0f0f0`/`#999` — it rendered as a
+  white card in dark/contrast themes. Now uses the shared `wiki-popup`/`popup-item` classes.
+- **Verified live** (Vite + API): light/dark/contrast all render correct token values (sampled pixels
+  match `#0d1117`/`#161b22`/`#1c2128` dark tokens and `#000` contrast); slash popup interior =
+  `--color-surface-elevated`, selected item = `--color-primary`; login card + settings cards render;
+  sign-up flow works. All 111 tests + typecheck + `vite build` pass.
+- Note: inline styles remain in a few spots (AdminSettings table rows, TreeItem clone row) but they
+  already reference CSS variables, so they theme correctly.
+
+---
+
+### 7.9 Planning record — plugin engines, web clipper, and the SiYuan block-ID model
+Deep-dive comparison done 2026-08-01 against the three shallow-cloned reference repos
+(`reference/{docmost,siyuan,trilium}`). User decision: **implement the SiYuan block-ID model**
+(block-stable anchoring for comments, plus block refs/backlinks) and **model the web clipper on
+Trilium's**. Planning only — no code changes yet.
+
+#### 7.9a Plugin engine: ours vs Trilium vs SiYuan — verdict: NOT comparable yet
+Our engine (`client/features/editor/pluginEngine.ts`) is a **first-party, compile-time registration
+surface** — three arrays (`registerSlashCommand`, `registerToolbarButton`, `registerEditorExtension`)
+populated at module load. Core features dogfood it (proving the shape is sound), but it has none of
+the runtime machinery of either reference:
+
+**Trilium** (`packages/trilium-core/src/services/script.ts`, `script_context.ts`, `handlers.ts`,
+`backend_script_api.ts`):
+- Notes of type "Code: JS backend/frontend" / "Render" / "Widget" are the plugins; they are executed
+  via `eval()` in a `ScriptContext` that injects a ~90-method `api.*` object (createNote, getNote,
+  searchForNotes, attributes, sql, cloning, launcher, options, backup, markdownToHtml, …).
+- **Attribute-based hooks**: relations on any note to a script note, e.g. `runOnNoteCreation`,
+  `runOnNoteTitleChange`, `runOnNoteContentChange`, `runOnAttributeChange`, `runOnBranchChange`,
+  `runOnNoteDeletion`; `handlers.ts` subscribes an internal `eventService` and dispatches. This is
+  the most valuable extension point we lack.
+- Security: `backendScriptingEnabled` global toggle is the real boundary; `ScriptContext` has a
+  module allowlist (dayjs, marked, turndown, cheerio, axios, …) and a hard blocklist
+  (child_process, fs, os, net, path, …).
+- ETAPI (token-based external HTTP CRUD for notes/branches/attributes/revisions) — our MCP server
+  (§7.8d) is the analogous external surface.
+
+**SiYuan** (`app/src/plugin/`): class-based, installable bundles.
+- `class MyPlugin extends Plugin` with lifecycle `onload()`, `onunload()`, `uninstall()`,
+  `onDataChanged()`; loaded by `loader.ts` via `/api/petal/loadPetals`, `eval`'d with
+  `require('siyuan')` returning the `API` object.
+- Rich API: `Constants`, `Dialog`, `Menu`, `Setting` (declarative settings UI), `Protyle`/
+  `ProtyleMethod` (editor manipulation), `openTab`/`openWindow` (doc by block id), `showMessage`,
+  `fetchPost`/`fetchSyncPost`, `getAllEditor`, `platformUtils`, `expandDocTree`, `openAttributePanel`.
+- **EventBus** per plugin (`on/once/off/emit`) for subscribing to app events (context menus, tabs…).
+- **Kernel plugins** (`kernel.rpc.call/notify/bind`, JSON-RPC over POST + WebSocket) extend the
+  backend, not just the UI.
+- UI surfaces a plugin can add: `topBarIcons`, `statusBarIcons`, `docks` (custom panels),
+  `models` (custom tab content), `protyleSlash` (slash commands — same concept as ours),
+  `customBlockRenders`, `commands` (keymap), `agentActions`, plus `plugin.data` key-value storage
+  and i18n. Distribution = bazaar marketplace.
+
+**What a realistic "comparable" upgrade looks like for us** (phased, first-party-first):
+1. **Lifecycle** — plugins get `onLoad`/`onUnload`/`onSettingsChange` instead of bare arrays.
+2. **Event bus** — a typed pub/sub (`on`/`off`/`emit`) for editor, document, and tree events
+   (Trilium's eventService, SiYuan's EventBus).
+3. **Server-side hooks** — `runOn*`-style hooks for first-party modules: `onPageCreated`,
+   `onPageContentChange`, `onCommentCreated`, `onBranchCloned`, … dispatched from the REST routes /
+   collab layer. This is the piece with the most practical value and the cheapest to build for
+   first-party code (no sandbox needed — the sandbox is only needed if third parties ship code).
+4. **Plugin data** — a key-value JSON store keyed by plugin name (SQLite, like SiYuan `plugin.data`).
+5. **Settings UI** — a declarative settings schema rendered by the existing admin/settings UI.
+Only *if* third-party distribution ever becomes a goal would we need sandboxing/eval (which is a
+security program of its own — Trilium guards it with a kill-switch and blocklist; SiYuan ships
+plugins as trusted marketplace bundles).
+
+#### 7.9b Web clipper — Trilium is the model; gaps to close
+Trilium's clipper (`apps/web-clipper`, wxt browser-extension framework):
+- **Clip modes**: save selection, save whole page, save tabs, cropped screenshot (drag-select
+  overlay), whole-page screenshot, save link-with-note; plus a "already clipped" popup status and a
+  search trigger.
+- **Extraction**: clones the DOM and runs Mozilla **Readability** (`lib/Readability.js`) to get the
+  readable article body; makes links absolute; rewrites `<img>` to uploaded attachments
+  (`entrypoints/content/index.ts` → `background` → server `POST /clippings`).
+- **Server-side** (`apps/server/src/routes/api/clipper.ts`): sanitizes HTML, downloads images via
+  `noteService.downloadImages`, and **de-dups by source URL** — a `pageUrl` label lookup means
+  re-clipping the same page *appends to the existing note* instead of duplicating. Clips land under
+  today's daily note or a `clipperInbox`-labeled note.
+Ours today: `POST /api/clip` exists but takes already-clean HTML; no Readability, no de-dup, no
+images, no selection/screenshot modes, no extension.
+**Direction agreed with user** (Trilium-style):
+1. Server: add **de-dup by `sourceUrl`** (store a `sourceUrl` column/label on the page; on re-clip,
+   append to the existing page instead of creating a duplicate); accept image data-URLs and persist
+   them via the existing file-upload path.
+2. Client: a real browser extension (or a bookmarklet first) that runs Readability in-page, offers
+   clip mode (article / selection), authenticates with a space-scoped token (§4.4), and POSTs to
+   `/api/clip`.
+3. Screenshot + tabs modes = later, optional (heaviest lift).
+
+#### 7.9c SiYuan block-ID model — the agreed implementation plan (Phases 1–3 DONE, Phase 4 = §8.2)
+**Status (2026-08-02):** Phases 1 (block IDs everywhere) and 3 (block-anchored comments) of the plan
+below are **implemented and tested**. Phase 2 (backfill) landed at the same time as Phase 1 via
+server-side `ensureBlockIds()` on every write path — see "Block-ID model — what shipped" at the end
+of this section. Phase 4 (block refs + backlinks) remains open as §8.2.
+
+Why: our comment threads anchor to **character offsets** (`comment_threads.range_from/range_to`),
+which drift on edit; the `selection` snippet only softens that. SiYuan solves it structurally:
+every block carries a stable `data-node-id`, and references point at the ID, never at a char range.
+
+**SiYuan mechanics observed in reference source:**
+- Block ID format `YYYYMMDDHHMMSS-XXXXXXX` — 14-digit local time + `-` + 7 random chars
+  (`kernel/util/path.go` `NodeIDByTime`; Lute's `ast.NewNodeID()`), sortable and collision-resistant.
+- IDs live on the DOM as `data-node-id`; references are `data-type="block-ref" data-id="…"` inline
+  spans; inline annotations are `data-type="inline-memo"` marks (`protyle/toolbar/InlineMemo.ts`).
+- Backlinks are computed by scanning all docs for refs to an ID and stored in a SQL `refs` table
+  (`kernel/sql/upsert.go`, `kernel/model/backlink.go` `RefreshBacklink`); a mention (`[[…]]`) is a
+  second reference flavor (`backmention`).
+
+**Plan phases for our app (Tiptap v3 / Yjs):**
+1. **Block IDs in the schema.** Tiptap v3 has no bundled global-attributes extension (checked; not
+   installed). Add a stable `id` attribute to every block-level node (paragraph, heading, codeBlock,
+   blockquote, listItem, image, …) — either a `withBlockId()` node factory mirroring the existing
+   `CommentableCodeBlock` pattern, or explicit per-node `addAttributes` that preserves an existing
+   `id` on parse and generates one on create (timestamp-prefixed like SiYuan for sortability).
+   Serialization is automatic (content is stored as Tiptap JSON), and Yjs syncs attrs natively.
+2. **Backfill migration.** Walk every page's stored JSON, assign missing block IDs, persist. Only
+   two real pages exist today, so this is cheap and safe.
+3. **Re-anchor comments to blocks.** Add `comment_threads.block_id` (nullable). On create, record
+   the block containing the selection start (+ relative offset within the block). On load,
+   find the block by ID and apply the comment mark at the absolute position derived from it; if the
+   block is gone, fall back to the existing `selection`-snippet search. This makes comments survive
+   insertions/edits that don't delete their block — the permanent highlight fix the user asked for.
+4. **Block refs + backlinks** (superset of the pending "internal page linking / backlinks" item).
+   Add an atomic inline `blockReference` node (id attr; renders as a chip with the target's text
+   preview). Slash command + search to insert. A server endpoint scans page JSONs for `blockReference`
+   ids and returns both "pages that reference this block" and "blocks this page references"
+   (SiYuan-style bidirectional). Click a ref → open target page and scroll to the block by id.
+5. **Deferred (not required):** SiYuan `inline-memo` (our comment mark already covers inline
+   annotation) and block-level `protyle-attr` remarks.
+
+**Sequencing / risks:** Phase 1 is the foundation and must land first (with backfill + a regression
+test that a comment survives edits to earlier text). Phase 3 is the user-visible payoff for the
+current comment bug. Phase 4 unlocks real wiki cross-linking. Risks: keeping IDs stable across
+ProseMirror join/split transforms (verify with tests), collab session vs. backfill interaction
+(both write the same JSON), and the `CommentableCodeBlock` override must also gain the id attribute.
+Minimal-change guardrail: keep `range_from/range_to` columns and add `block_id` alongside rather
+than replacing, so nothing breaks if a block lookup misses.
+
+**Block-ID model — what shipped (Phases 1–3, 2026-08-02):**
+- **`src/shared/blockIds.ts`** — pure, dependency-free JSON walkers used by BOTH server and client:
+  `ensureBlockIds()` (assigns ids to every block missing one, preserves existing, immutable),
+  `collectBlockIds()`, `blockRangeForId()` (ProseMirror position range for a block id, exact
+  PM size math), `blockIdAtPosition()`, `isBlockType()`, `defaultGenerateId()` (12-char nanoid-style,
+  matching the client extension so both sides produce the same id shape). 13 unit tests.
+- **Client:** `UniqueID` from `@tiptap/extension-unique-id` added to `baseEditorExtensions()` with
+  `types: "all"` (every block node type except doc/text) and `filterTransaction: !isChangeOrigin()`
+  so remote collab edits never regenerate ids on someone else's content. Because it lives in
+  `baseExtensions()`, the read-only ShareView gets the same id-bearing schema for free.
+- **Server backfill (§ plan step 2):** `ensureBlockIds()` runs on every write path — `createPage`
+  (new pages + template content), `savePageOCC` (restore/import/hand-crafted JSON that skipped a
+  live editor), and the collab `onLoadDocument` seed. Existing ids are preserved byte-for-byte;
+  only missing ones are added. No one-time migration script was needed — every write path
+  self-heals, which also covers the collab-vs-backfill interaction the plan flagged.
+- **Block-anchored comments (§ plan step 3):** `comment_threads.block_id` (nullable) added to the
+  schema; the create-thread route accepts and stores it; the GET response returns it. The client
+  captures the containing block id at creation (`doc.resolve(from).parent.attrs.id`) and, when
+  re-applying marks on load, re-anchors to the block's CURRENT range via a doc walk, falling back
+  to the stored `range_from/range_to` if the block id is missing or gone (pre-Phase-1 threads).
+  Guardrail respected: `range_from/range_to` columns untouched, so old clients/threads keep working.
+- **New deps:** `@tiptap/extension-unique-id` (v3, peer-clean). `nanoid` was already installed.
+- **Verification:** full suite 107/107 green (was 89 baseline): +13 `blockIds` unit tests and +5
+  integration tests covering default-content ids, save-time backfill, id stability across saves,
+  blockId round-trip, and pre-Phase-1 (blockId-less) thread acceptance. `tsc --noEmit` clean
+  (caught and fixed a real regression: the initial schema edit had accidentally dropped the
+  `selection` column — restored). Dev DB schema pushed (`block_id` column live).
+- **Follow-ups:** Phase 4 (block refs + backlinks, atomic `blockReference` node, backlink scan
+  endpoint) = §8.2. The vendored `search-and-replace` and `drag-handle` extensions are staged in
+  `src/client/features/editor/vendor/` (not yet wired into the editor; `@ts-nocheck` on the
+  search-and-replace file since it's unmaintained third-party code).
+
+---
+
+### 7.10 Planning record — robust Settings framework + Git management section (NOT started)
+User direction (2026-08-01): the wiki needs a proper Settings area to *setup, administer, and control*
+the app — and because git is now a core subsystem, Settings must include a comprehensive **Git**
+section that can push/pull/sync to a remote (internally hosted Git server or GitHub). Planning only —
+no code changes yet.
+
+#### 7.10a Current state (verified against code)
+- **Settings storage is generic key/value only.** `system_settings` (admin-only, `is_secret` flag,
+  AES-256-GCM at rest via `SETTINGS_ENCRYPTION_KEY`) and `user_settings` (per-user). No schema, no
+  validation, no typed controls. The admin UI is a raw text-input editor over the key/value table
+  (`AdminSettings.tsx` "System settings" section).
+- **Only one real consumer today:** `mailer.service.ts` reads `smtp_host/port/user/pass/from` at
+  first use. The settings table is currently **empty** (verified live).
+- **Git service (`git.service.ts`) is local-only.** `initGitRepo()` creates `./data/repo`, autosave
+  commits the page's **Markdown export** (`page:<id>: Update - …`), manual snapshots go to
+  `_snapshots/<pageId>.md`, `getPageHistory()` filters `git log` by message, `getFileContentAtCommit()`
+  does `git show`. **No remote, no push/pull/sync anywhere.** `git remote -v` is empty.
+- **§5.6 honesty check:** history is *viewable but not actionable* — there is no restore-from-history
+  UI (the restore endpoint exists at the API level, §7.4, but nothing in the UI reaches it).
+- **Instance sync exists separately** (`sync.routes.ts`): push a space to another instance as
+  Markdown via target URL + token — an HTTP-API sync, unrelated to git remotes.
+
+#### 7.10b Design — the Settings framework (first, because everything hangs off it)
+Replace the raw key/value editor with a **declarative settings registry**, mirroring the existing
+`pluginEngine.ts` pattern (§7.5): first-party modules `registerSetting({...})` and the framework
+drives both the UI (correct control per type) and the backend (validation + boot-time consumption).
+
+`SettingDef` shape: `{ key, section, label, type: "text"|"number"|"boolean"|"select"|"secret"|"textarea",
+ default, options?, help, isSecret?, validate? }`. Registry → admin Settings UI renders sections
+(Groups/Security, Email, Appearance, Collaboration, Storage, Git, Sync, Maintenance) with typed
+controls, and the server exposes a schema-validated `GET /api/settings` (defs + current values) and
+`PUT /api/settings/:key` (validates against the def). Secrets keep the existing mask-in-list +
+decrypt-only-internally behavior (§4.6).
+
+**Sections (proposed):**
+1. **General** — site name, public-mode, default theme, default editor width.
+2. **Authentication** — OAuth client IDs/secrets (GitHub, Google — already consumed from env today;
+   move to secrets stored in settings), registration policy, trusted origins.
+3. **Email** — SMTP host/port/user/pass/from, TLS mode, "test email" button (wires existing
+   `mailer.service.ts` + `resetMailer()` for live re-config).
+4. **Collaboration** — real-time collab enable, per-instance settings.
+5. **Storage** — read-only display of resolved `DB_PATH` / `FILES_ROOT` / `GIT_REPO_ROOT` (env
+   overrides win), plus usage/space stats.
+6. **Git** — the comprehensive section (§7.10c).
+7. **Sync** — instance-to-instance targets (URL/token) as secret settings.
+8. **Permissions/Security** — admin users, signup policy.
+9. **Appearance/Theming** — feeds §7.8a (theme tokens, default theme).
+10. **Maintenance** — backup DB now, view logs (`/api/admin/logs` exists), job queue status.
+
+#### 7.10c Design — the Git section in Settings (the centerpiece)
+Goal: full admin control over the content repo (`data/repo`), including push/pull/sync to a remote.
+
+**Repo status dashboard** (top of the section): branch, HEAD hash + short message, working-tree
+dirty count, ahead/behind vs remote, last commit date, total size. Backed by new `git.service.ts`
+status helpers (`getRepoStatus()`, `getBranchList()`, `getRemotes()`).
+
+**Remote configuration:**
+- Add/edit/remove remotes (URL + auth). Auth stored as **secret settings**:
+  `git_remote_url` (text), `git_remote_token` (secret, for HTTPS+token to GitHub/internal Git),
+  optionally `git_ssh_key` (secret, for SSH). Plain URL shown in list; token/private key never
+  serialized back (same masking rule as §4.6).
+- **Test connection** button — runs `git ls-remote <url>` and reports reachability + auth success.
+
+**Push / Pull / Sync controls:**
+- **Push** — manual "Push now" (which branches), plus a **schedule** (settings: autosave cadence,
+  snapshot cadence, DB-backup cadence). Branches per the storage model agreed in §7.9d/earlier:
+  `main` (code), `content` (lossless JSON), `assets` (uploads/clips/plugins), `db` (periodic
+  consistent SQLite `.backup` snapshots). Only the branches the admin selects are pushed.
+- **Pull** — fetch + bring remote content into the *shadow* repo, then **import** into the DB as a
+  restore/merge operation (NOT a live read path — DB stays the runtime truth; see hazards in the
+  earlier storage discussion: WAL sidecars, git-blind-to-binary, live-checkout hazard).
+- **Sync status** — per-branch last-push time, ahead/behind counts, error history (surfaces in the
+  existing `system_logs`).
+
+**History & restore (makes §5.6 usable):** per-page commit list with message/date/author, a diff
+preview, and a **Restore** action that calls the existing restore endpoint (Markdown→Tiptap, §7.4)
+or JSON restore once history is lossless. This closes the §5.6 gap.
+
+**Safeguards:** every destructive action (restore, pull-import, branch delete) requires a confirm
+with the current state; destructive git ops run through the worker queue (long-running) with
+progress/error surfaced in the UI; a "never auto-push" default so nothing leaves the box without an
+explicit admin action.
+
+#### 7.10d Design — server-side git service extensions
+- `setRemote(url)`, `push(branch, opts)`, `fetchAndImport(branch, opts)`, `getRepoStatus()`,
+  `getBranches()`, `testRemote(url)` — all wrapped as **queue jobs** (`git_push`, `git_pull`,
+  `git_backup`) so long operations never block an HTTP request and reuse the retry/backoff logic
+  in `queue/worker.ts`.
+- Settings are read at job-run time (not cached), so changing remote/auth never requires a restart
+  (mirrors `resetMailer()`).
+- History format migration: **JSON, not Markdown**, per the storage-model decision (block IDs,
+  comment marks, refs must survive history — Markdown export is lossy). Markdown stays as a
+  per-request export artifact.
+
+#### 7.10e Design decisions / honest tradeoffs (flagged, agreed direction)
+1. **The git repo is a shadow, never runtime truth** — SQLite + files directory stay the only thing
+   the server reads. Git is write-mostly; pull is an import/restore, not a live switch. This keeps
+   collab, OCC, and permissions untouched.
+2. **Remote auth lives in secret settings** (token/SSH key encrypted at rest) — never in the git
+   config file on disk, never in plaintext.
+3. **Two repos, two concerns** — the app *source* repo (where this document lives) and the *content*
+   repo (`data/repo`) are separate. The Settings Git section controls the **content** repo. If we
+   ever want code deploy from Settings, that's a separate, later feature (out of scope here).
+4. **Sync to GitHub vs internal Git are both just remotes** — one engine, configurable URL. GitHub
+   API features (issues/PRs) are NOT part of this; we use plain git protocol for content.
+5. **Pull conflicts** — import-merge policy for `content` branch collisions is last-write-wins with
+   a pre-import backup commit (documented), since the wiki is single-author per space today; a true
+   merge UI is explicitly deferred.
+
+**Sequencing:** (1) Settings framework (registry + typed UI + validation) → (2) Git service remote
+capabilities + queue jobs → (3) Git section UI (status, remote config, push/pull/sync, history
+restore) → (4) JSON history migration + DB backup branch → (5) scheduled cadence controls. Each
+step is independently shippable; nothing here breaks existing features.
+
+---
+
+### 7.11 Planning record — SSG-ready clean Markdown export (requirement clarified 2026-08-01)
+User requirement: the wiki must be able to **export clean Markdown with all wiki-internal metadata
+stripped**, for feeding a static site generator (SSG). This is a distinct artifact from the lossless
+JSON history (per the storage-model decision — §7.9d): git history stores JSON so block IDs / comment
+marks / refs survive; **export produces clean Markdown derived from the JSON at export time**.
+
+#### 7.11a What the current converter already does right (verified)
+`tiptapToMarkdown` (`markdown.service.ts`) is already deliberately clean: comment marks fall through
+the mark switch (plain text emitted — no highlight spans); heading anchor IDs are explicitly not
+emitted (brief §3.13); unknown node types degrade to inline text rather than raw HTML. The git
+working tree (`data/repo/<space>/<slug>.md`) is effectively today's export folder.
+
+**Phase 2 addition (verified live + unit tests):** task lists and highlight marks are now handled in
+both directions.
+- Export: `taskList`/`taskItem` nodes → `- [x]` / `- [ ]` markers; `highlight` marks → `==text==`.
+- Import (`markdownToTiptap`): `- [x]`/`- [ ]` lines → `taskList`/`taskItem` nodes with `checked`
+  attrs; `==text==` → highlight marks. Round-trip is byte-identical.
+- The list collector no longer swallows an unindented paragraph that immediately follows a list item
+  into that item (it only continues items on indented lines now), so a list followed by a normal
+  paragraph imports correctly.
+- **Parser-hang fix:** an unmatched special character (a lone `=`, `!`, `[`, `*`, or backtick that
+  doesn't open a valid mark/image/link) used to make `parseInline` loop forever — any page whose
+  restored/clipped markdown contained something like `key = value` would hang the request. The
+  fallback now emits such characters as literal text and advances. Verified live by restoring a
+  commit containing `key = value and a lone ! mark` — no hang, byte-identical re-export. (This
+  pre-existing bug was amplified by the new `==highlight==` parser adding `=` to the special-char
+  set, which is what surfaced it.)
+
+#### 7.11b Gaps to close for real SSG readiness
+1. **Images are not portable.** The editor stores image srcs as branch-scoped API URLs
+   (`/api/branches/<branchId>/files/<fileId>`, `Editor.tsx` upload flow). An export must copy the
+   referenced blobs from `data/files` and rewrite srcs to relative paths (e.g.
+   `assets/<page>/<file>`), or offer a "strip images" mode.
+2. **No frontmatter / title.** Pages have a `slug` but no `title` column; the title lives as the H1
+   in the doc JSON. SSGs generally want `title` (+ optional `date`, `slug`) in frontmatter. Decide:
+   auto frontmatter (from H1/`updatedAt`) vs. fully bare files.
+3. **No export endpoint exists.** The only Markdown output today is the git working tree. Need an
+   explicit export surface (per page / per space / whole instance → folder or zip), or a dedicated
+   git branch the SSG can clone/pull.
+4. **Future wiki-internal constructs need explicit stripping rules** (they don't exist yet, but the
+   converter should be written to handle them): internal `[[page]]` links (→ plain text or relative
+   link, decision needed), block refs (→ flatten to the referenced text), tags/labels/attributes
+   (never exported), underline (→ plain text, already), embeds (→ plain text or omit).
+5. **Code-block + comment interplay:** with `CommentableCodeBlock`, comment marks inside code blocks
+   must also be stripped (they fall through today, but confirm once re-anchoring lands).
+
+#### 7.11c Design direction (draft, to confirm)
+- `tiptapToMarkdown` gains an explicit **export mode** (`exportMarkdown(doc, opts)`): guaranteed
+  plain-text passthrough for every mark/node it doesn't render; a configurable
+  `stripInternalLinks`/`flattenBlockRefs`/`includeFrontmatter`/`imageMode: "copy"|"strip"|"raw"`.
+- Export path: `GET /api/spaces/:spaceId/export` → clean `.md` per page (tree-mirrored paths) +
+  copied assets, delivered as a zip; and/or a git `export`/`ssg` branch regenerated on demand so an
+  SSG pipeline can `git pull` a single branch.
+- Images: read `data/files/<pageId>/<uuid>-<name>` via `file.service`, copy into the export tree,
+  rewrite srcs. Relative structure follows the space/tree (SSG content folders mirror it).
+- Title: derive from first H1 (or slug) for frontmatter when enabled; otherwise zero frontmatter.
+
+Open questions for user: (1) which SSG (affects frontmatter + folder conventions); (2) images —
+copy-as-relative, strip, or both as options; (3) internal wiki-links once they exist — strip to
+plain text or emit as relative `.md` links; (4) per-page vs whole-space vs whole-instance export;
+(5) bare files vs frontmatter.
+
+---
+
+### 7.12 Full reference scan (2026-08-01) + v2 redesign plan
+Full-codebase scan of all three reference repos (~943K lines: Docmost 146K, SiYuan 342K,
+Trilium 456K) plus our own (~9.2K). Findings and the resulting redesign plan below. **Planning
+only — awaiting user approval before implementation.**
+
+#### 7.12a What the scan covered, subsystem by subsystem
+**Docmost** — every core module (auth, casl abilities, comment, favorite, group, label,
+notification+processor, page+page-access+page-history, search, session, share+SEO, space, user,
+watcher, workspace), the collaboration layer (authentication/persistence extensions, history
+processor, collab-history via Redis contributor tracking), the full `editor-ext` package (~13.5K
+lines: unique-id, mention, link, comment, tables+dnd, details, callout, columns, math, image/audio/
+video/pdf/attachment, subpages, transclusion, search-and-replace, markdown clipboard, drag handle,
+shared-storage, page-break, embed, drawio/excalidraw), export (page/space, Markdown+HTML, tree
+mirroring, attachment URL rewriting, internal link rewriting), share links (JWT-signed attachment
+URLs, includeSubPages), search (Postgres `tsvector`/`ts_rank`/`ts_headline`), favorites, per-page
+permissions (`pageAccess` + restricted-ancestor logic), trash retention cleanup.
+**SiYuan** — block ID model (`NodeIDByTime` = `YYYYMMDDHHMMSS-` + 7 random chars), refs/backlinks
+(`refs` SQL table + `RefreshBacklink`), inline-memo + block-ref toolbar, FTS5 search
+(`blocks_fts`, `content='blocks'` external-content tables, tokenizer chain), attribute-view
+databases (AV: table/kanban/gallery layouts, filters/sorts/relations — a Notion-style feature),
+file history (ticker + per-box history generation), plugin system + EventBus + kernel RPC,
+bazaar marketplace, MCP server (kernel/mcp — tools for blocks, search, SQL, web fetch, notebook,
+daily notes), LLM agent, appearance/theming (light/dark/OS mode, theme.js loading).
+**Trilium** — attribute system (label vs relation, `attributes` table, promoted attributes UI,
+attribute definitions, `getNotesWithLabel`), scripting engine (`eval` + ~90-method `api.*`,
+`runOn*` attribute hooks via `handlers.ts`, module allowlist/blocklist + kill-switch),
+note types (special notes: LLM chat, date notes, render/widget/code), link discovery on save
+(`saveLinks` scans content → `internalLink` labels + image download), search expression language
+(`#label=value`, `.property`, fulltext, ancestor/descendant), ETAPI (token CRUD for
+notes/branches/attributes/attachments/revisions/backups), MCP server, LLM chat w/ tools+skills,
+export (zip, share themes), note map (graph view), widgets (backlinks, promoted attributes, toc,
+collections, bulk actions, quick search), CSS-variable theming (theme-light/dark/next).
+
+#### 7.12b Feature matrix — what we adopt / defer / skip (the "superior app" set)
+| Capability | Reference | Verdict | Why |
+|---|---|---|---|
+| Block IDs on every node | Docmost `unique-id`, SiYuan | **ADOPT** | Foundation for stable comments, refs, links. Docmost's `@tiptap/extension-unique-id` + server-side `addUniqueIdsToDoc` is exactly our phase-1 answer — no hand-rolling |
+| Block-anchored comments | SiYuan (structural), Docmost (UX) | **ADOPT** | `comment_threads.block_id` + offset, range fallback |
+| Attributes (labels/relations) | Trilium, SiYuan | **ADOPT** | `attributes` table — tags, sourceUrl, isTemplate, sorting, promoted-attributes UI, runOn hook wiring |
+| Backlinks / block refs | SiYuan, Docmost, Trilium | **ADOPT** | `refs` table populated on save (Trilium `saveLinks` pattern); backlinks panel; block-reference chips |
+| Full-text search | SiYuan FTS5, Docmost tsvector | **ADOPT (FTS5)** | SQLite FTS5 external-content table keyed by page id — light, no new infra; Cmd+K palette UI |
+| Mentions → notifications → email | Docmost | **ADOPT (slim)** | mention node + notifications table + queue; email via existing mailer |
+| Favorites | Docmost | **ADOPT (tiny)** | `favorites(user_id, page_id)`; star in sidebar/tree |
+| SSG export | Docmost (best model) | **ADOPT** | per §7.11 — tree mirror, attachment rewrite, internal-link rewrite, clean Markdown |
+| Git remote push/pull/sync + Settings | (our §7.10) | **ADOPT** | settings framework + git section |
+| Instance sync | ours (MCP push) | **ADOPT (extend)** | per-page + idempotent + JSON payload (§7.12d) |
+| Search-and-replace, drag handle, markdown paste | Docmost | **ADOPT (small)** | vendored MIT extensions (same author as our comment ext) |
+| Task list, highlight, text-align, status, typography | Docmost/Tiptap | **ADOPT (small)** | cheap official Tiptap packages |
+| Slash menu expansion | Docmost | **ADOPT** | group existing + new commands |
+| Tables, columns, details, callout, math | Docmost | **DEFER** | real code+testing weight; revisit after v2 stable |
+| Transclusion / subpages embed | Docmost | **DEFER** | complex; block refs cover most value |
+| Page-level permissions | Docmost | **ADOPT (engine already exists)** | §4.2 `resolveAccess` step 4 is already a per-branch group-permission hard-stop boundary; `group_permissions` table + branch-context loading + algorithm tests all exist. Missing only: API surface, UI, per-user overrides, and restricted-ancestor integration for share/search (see §7.12g) |
+| Attribute-view databases (Notion-style) | SiYuan | **DEFER** | very heavy; would blow the "small" budget |
+| Scripting/eval plugins + sandbox | Trilium, SiYuan | **SKIP** | first-party hooks only; no third-party eval |
+| LLM chat / AI agent | Trilium, SiYuan | **SKIP** | out of scope; MCP already our AI surface |
+| Mobile clients, desktop shell | all three | **SKIP** | out of scope |
+| Watchers, page verification, audit UI, EE | Docmost | **SKIP** | heavy or enterprise |
+
+#### 7.12c v2 architecture (target: small, tight, maintainable)
+Keep the proven core unchanged: Fastify + better-sqlite3 + drizzle + better-auth + Hocuspocus/Yjs;
+the `pages`+`branches` tree model; the §4.2 permission algorithm; token engine; MCP server; worker
+queue; git JSON history (per §7.9d). Rebuild/restructure the rest:
+
+- **Single-package layout** (already one repo) with clean layering:
+  `shared/` (types, permission algorithm) · `server/{db,services,routes,queue}` (thin routes, logic
+  in services) · `client/{api,components,features,styles,lib}`.
+- **UI primitives** — hand-rolled `components/ui` (Button, Dialog, Input, Menu, Tabs, Toast,
+  CommandPalette, ConfirmDialog) built on the existing CSS-variable theme. **Kill the pervasive
+  inline styles** — move to CSS classes (the single biggest "professional UI" gap today). Add a
+  small icon set (lucide-react, tree-shakeable) to replace emoji buttons.
+- **App shell** — 3-pane: left tree (with Favorites on top), main content, right contextual panel
+  (page details: attributes + backlinks + info) toggled per page. Cmd+K command palette
+  (search pages/blocks + actions).
+- **No UI framework** — React 18 + hand-rolled CSS. Keeps bundle small and dependency count flat.
+- **Data model additions**: `attributes(entity,type,name,value)`, `refs(source,target,kind)`,
+  `favorites`, `notifications`, `comment_threads.block_id`, `page_fts` (FTS5), `text_content`
+  derived on save.
+- **New editor extension set** (`baseExtensions` grows deliberately): UniqueID, Mention (users +
+  pages), TaskList/TaskItem, Highlight, TextAlign, Status, Link(internal flag), SearchAndReplace,
+  MarkdownPaste, DragHandle, plus existing CommentableCodeBlock/Comment. Each behind the existing
+  `pluginEngine`-style registration so the set stays composable and testable.
+- **Plugin engine** stays first-party compile-time registration (§7.9a), plus the server-side
+  `runOn*`-style hook bus (§7.10d) — no eval, no sandbox.
+
+#### 7.12d Phased build plan (each phase ships + tests green)
+1. **Foundation: block IDs + backfill.** Add UniqueID extension; server `addUniqueIdsToDoc`
+   backfill on save/import; `comment_threads.block_id`; re-anchor comments by block w/ range
+   fallback. *Tests:* ID stability across edits, comment survives earlier-text edit, backfill of
+   existing pages, collab writes IDs.
+2. **Attributes + search.** `attributes` table + routes + promoted-attributes panel; `page_fts`
+   FTS5 + `GET /api/search` (space-scoped) + Cmd+K palette + editor search-and-replace. *Tests:*
+   attribute CRUD + permission scope, FTS ranking, palette query.
+3. **Links: internal `[[page]]`, block refs, backlinks.** Link internal flag; `blockReference`
+   node + slash search; `refs` population on save (Trilium `saveLinks` pattern); backlinks panel
+   in the right pane; click-to-navigate+scroll. *Tests:* refs round-trip, bidirectional queries,
+   anchor scroll.
+4. **Mentions + notifications + email.** Mention node (users), notifications table, queue →
+   in-app list + email (existing mailer). *Tests:* mention extraction, permission-safe delivery,
+   read/unread.
+5. **Settings framework (§7.10b) + Page permissions (§7.12g) + Git (§7.10c) + Sync.** Declarative
+   settings registry + typed UI; **per-page permissions**: branch group-permission routes + UI +
+   restricted-ancestor integration for share/search + algorithm tests for the boundary paths;
+   git remote push/pull/status UI; sync per-page + idempotent + lossless JSON. *Tests:* setting
+   validation/secret masking, per-page permission grant/deny + inheritance + share-link leak
+   guard, git remote job success/failure, sync idempotency.
+6. **SSG export (§7.11)** modeled on Docmost: page/space export to clean Markdown, tree-mirrored
+   paths, attachment copy+rewrite, internal-link rewrite, optional frontmatter. *Tests:* export
+   cleanliness (no comment/attrs/IDs leak), image portability, link rewriting.
+7. **UI/professional polish.** CSS-class conversion, 3-pane shell, Favorites, command palette
+   polish, empty states, focus/hover states, dark/light/contrast audit. *Tests:* Playwright E2E
+   pass over the whole flow.
+8. **E2E suite (Playwright, chromium already installed).** Browser tests simulating the full wiki:
+   auth, tree navigation, create/edit/save, comment + highlight, collab two-session editing,
+   share link + public mode, search palette, settings (incl. git remote against a local bare
+   repo), export download. Runs against the real dev server.
+
+#### 7.12e New dependencies (kept minimal, all official/MIT)
+`@tiptap/extension-unique-id`, `@tiptap/extension-mention`, `@tiptap/extension-task-list` +
+`task-item`, `@tiptap/extension-highlight`, `@tiptap/extension-text-align`,
+`@tiptap/extension-typography`, `@tiptap/extension-character-count`, `lucide-react`, `nanoid`,
+`@sereneinserenade/tiptap-drag-handle` (MIT, same author as our comment extension). Everything
+else is already installed.
+
+#### 7.12g Page-level permissions — clarification (2026-08-01)
+User confirmed: page-level permissions are required, not optional. Clarification of what "defer"
+meant and what the build actually needs:
+
+**Already in the engine (NOT deferred, verified):**
+- `group_permissions(branch_id, group_id, role: viewer|editor)` table exists.
+- `resolveAccess` (§4.2) step 4 is a **per-branch hard-stop boundary**: the nearest branch in the
+  chain with explicit group permissions fully replaces everything above it — a match grants that
+  role, a non-match denies. This is structurally the same restricted-boundary idea as Docmost's
+  `page_access`/`page_permissions` (nearest restricted ancestor wins), and the algorithm test suite
+  already covers it (the HR-only scenarios).
+
+**What's actually missing (the real "defer" was only about these):**
+1. **API surface** — no routes to set/read/remove per-branch group permissions (the table is
+   written by nothing today; only read when loading branch contexts).
+2. **UI** — no per-page "Permissions" control (page header or right pane): pick groups + role,
+   see current overrides, remove them.
+3. **Per-user overrides** — Docmost supports user_id OR group_id on a restriction; ours is
+   group-only today. Decide: keep group-only (simpler, recommended for v2) or add user rows.
+4. **Restricted-ancestor integration** — Docmost uses `hasRestrictedAncestor` to exclude
+   restricted subtrees from share links and search results. Our share links + public mode + MCP
+   search must consult the same boundary logic, or a shared link could leak a restricted child.
+5. **Semantics decision** — ours = nearest boundary fully decides (deny-by-default inside a
+   boundary). Docmost = every restricted ancestor must grant, edit from nearest. Ours is simpler
+   and already tested; keep it, document it.
+
+**Plan placement:** now a first-class phase (Phase 5 "Settings + Page permissions + Git + Sync"),
+before the SSG export and UI polish. It reuses the existing algorithm — this is additive (routes +
+UI + tests), not a redesign, and the security-critical core is unchanged.
+
+#### 7.12f Guardrails (what "small and tight" means operationally)
+- No new runtime infra (still SQLite+git+files on disk; no Redis/Postgres — Docmost's Redis
+  contributor tracking and Postgres tsvector are not needed at our scale).
+- Feature gates: the DEFER list stays out of v2; revisit only after the core is stable and
+  tested.
+- Every phase lands with its tests; the suite must stay green and fast (target: < ~60s full run).
+- The MCP server stays the AI surface (ahead of all three references); the export is the SSG
+  surface; git is the version/backup/sync surface; DB is the single runtime truth.
 
 ---
 

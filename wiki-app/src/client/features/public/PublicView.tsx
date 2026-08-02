@@ -47,26 +47,17 @@ export function PublicView() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <header style={{
-        padding: "12px 24px",
-        borderBottom: "1px solid var(--color-border)",
-        display: "flex",
-        justifyContent: "space-between",
-        alignItems: "center",
-        background: "var(--color-bg-secondary)",
-      }}>
-        <h1 style={{ margin: 0, fontSize: "18px", cursor: "pointer" }} onClick={() => navigate("/")}>
+    <div className="public-shell">
+      <header className="public-header">
+        <span className="public-brand" style={{ cursor: "pointer", fontSize: 18 }} onClick={() => navigate("/")}>
           {config.siteName}
-        </h1>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => navigate("/login")} style={{ fontSize: 12 }}>
-            Sign in
-          </button>
-          <button onClick={toggleLightDark} style={{ fontSize: 12 }}>
+        </span>
+        <nav className="public-nav">
+          <button className="wiki-icon-btn" onClick={() => navigate("/login")}>Sign in</button>
+          <button className="wiki-icon-btn" onClick={toggleLightDark}>
             {theme === "dark" ? "☀ Light" : "🌙 Dark"}
           </button>
-        </div>
+        </nav>
       </header>
 
       <div style={{ flex: 1, overflow: "auto" }}>

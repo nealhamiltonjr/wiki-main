@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
+import { baseEditorExtensions } from "../editor/baseExtensions.js";
 
 interface ShareContent {
   slug: string;
@@ -29,8 +29,11 @@ export function ShareView() {
       .then((d) => { if (d) setData(d); });
   }, [token]);
 
+  // Uses the same base extension set as the live editor (image/link/underline
+  // + comment marks) so shared pages that contain those nodes/marks render
+  // instead of failing to parse and showing a blank document.
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: baseEditorExtensions({ editable: false }),
     content: undefined,
     editable: false,
   });
@@ -57,7 +60,7 @@ export function ShareView() {
 
   if (error) {
     return (
-      <div style={{ padding: 40, fontFamily: "system-ui" }}>
+      <div style={{ padding: 40, fontFamily: "var(--font-sans)" }}>
         <h2>Shared Page</h2>
         {error === "Password required" ? (
           <div>
@@ -73,27 +76,29 @@ export function ShareView() {
             <button onClick={submitPassword} style={{ padding: "8px 16px" }}>View</button>
           </div>
         ) : (
-          <p style={{ color: "#c00" }}>{error}</p>
+          <p style={{ color: "var(--color-danger)" }}>{error}</p>
         )}
       </div>
     );
   }
 
   if (!data) {
-    return <div style={{ padding: 40, fontFamily: "system-ui" }}>Loading…</div>;
+    return <div style={{ padding: 40, fontFamily: "var(--font-sans)" }}>Loading…</div>;
   }
 
   return (
-    <div style={{ padding: 24, fontFamily: "system-ui", maxWidth: 760, margin: "0 auto" }}>
-      <h1 style={{ marginBottom: 16, fontSize: 24 }}>{data.slug}</h1>
+    <div className="share-page">
+      <div className="share-header">
+        <span style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
+          Shared page · read-only
+        </span>
+        <span className="share-title">{data.slug}</span>
+      </div>
       <EditorContent
         editor={editor}
+        className="wiki-editor-content"
         style={{
-          border: "1px solid #ddd",
-          borderRadius: 6,
           minHeight: 200,
-          padding: "12px 16px",
-          background: "#fafafa",
         }}
       />
     </div>

@@ -24,22 +24,13 @@ export function SlashCommandPopup({ items, command, selectedIndex }: Props) {
 
   return (
     <div
-      style={{
-        background: "#fff",
-        border: "1px solid #e0e0e0",
-        borderRadius: 8,
-        boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
-        overflow: "hidden",
-        minWidth: 240,
-        maxHeight: 320,
-        overflowY: "auto",
-        fontSize: 13,
-      }}
+      className="wiki-popup"
+      style={{ minWidth: 240, maxHeight: 320 }}
     >
       {groups.map((group, gi) => (
         <div key={group.name}>
-          {gi > 0 && <div style={{ height: 1, background: "#f0f0f0", margin: "0 8px" }} />}
-          <div style={{ padding: "4px 12px 2px", fontSize: 10, color: "#999", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+          {gi > 0 && <div className="popup-sep" />}
+          <div className="popup-group-title">
             {group.name}
           </div>
           {group.items.map((item) => {
@@ -50,23 +41,12 @@ export function SlashCommandPopup({ items, command, selectedIndex }: Props) {
                 key={item.name}
                 type="button"
                 onClick={() => command(item)}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  width: "100%",
-                  padding: "6px 12px",
-                  border: "none",
-                  background: isSelected ? "#f0f0f0" : "transparent",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontSize: 13,
-                }}
+                className={`popup-item${isSelected ? " selected" : ""}`}
               >
-                {item.icon && <span style={{ fontSize: 16, width: 20, textAlign: "center" }}>{item.icon}</span>}
+                {item.icon && <span className="popup-icon">{item.icon}</span>}
                 <div>
-                  <div style={{ fontWeight: 500 }}>{item.label}</div>
-                  {item.description && <div style={{ fontSize: 11, color: "#999" }}>{item.description}</div>}
+                  <div className="popup-label">{item.label}</div>
+                  {item.description && <div className="popup-desc">{item.description}</div>}
                 </div>
               </button>
             );

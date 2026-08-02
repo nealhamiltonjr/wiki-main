@@ -86,26 +86,26 @@ export function AdminSettings() {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 700, fontFamily: "system-ui", fontSize: 14 }}>
+    <div className="settings-page" style={{ padding: "24px 0", maxWidth: "none" }}>
       <h2>Admin settings</h2>
-      {error && <div style={{ background: "#fee", padding: 8, marginBottom: 12 }}>{error}</div>}
+      {error && <div className="wiki-banner">{error}</div>}
 
-      <section style={{ marginBottom: 32 }}>
+      <section className="settings-card">
         <h3>Groups</h3>
         {groups.map((g) => (
-          <div key={g.id} style={{ border: "1px solid #ddd", borderRadius: 6, padding: 10, marginBottom: 8 }}>
+          <div key={g.id} style={{ border: "1px solid var(--color-border)", borderRadius: "var(--radius-md)", padding: 10, marginBottom: 8, background: "var(--color-surface)" }}>
             <div style={{ display: "flex", justifyContent: "space-between" }}>
               <strong>{g.name}</strong>
-              <button onClick={() => deleteGroup(g.id)} style={{ fontSize: 12 }}>Delete group</button>
+              <button onClick={() => deleteGroup(g.id)} className="settings-btn danger" style={{ padding: "2px 10px" }}>Delete group</button>
             </div>
             <div style={{ marginTop: 6 }}>
               {(members[g.id] ?? []).map((m) => (
                 <div key={m.userId} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
                   <span>{m.name} ({m.email})</span>
-                  <button onClick={() => removeMember(g.id, m.userId)} style={{ fontSize: 11 }}>Remove</button>
+                  <button onClick={() => removeMember(g.id, m.userId)} className="wiki-icon-btn">Remove</button>
                 </div>
               ))}
-              <select defaultValue="" onChange={(e) => { addMember(g.id, e.target.value); e.target.value = ""; }} style={{ marginTop: 4 }}>
+              <select defaultValue="" onChange={(e) => { addMember(g.id, e.target.value); e.target.value = ""; }} style={{ marginTop: 4, padding: "4px 6px", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)", background: "var(--color-surface)", color: "var(--color-text)" }}>
                 <option value="" disabled>Add member…</option>
                 {users
                   .filter((u) => !(members[g.id] ?? []).some((m) => m.userId === u.id))
@@ -117,26 +117,26 @@ export function AdminSettings() {
           </div>
         ))}
         <div style={{ display: "flex", gap: 4 }}>
-          <input placeholder="New group name" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} />
-          <button onClick={createGroup}>Create group</button>
+          <input placeholder="New group name" value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} className="settings-text" style={{ marginBottom: 0 }} />
+          <button onClick={createGroup} className="settings-btn primary">Create group</button>
         </div>
       </section>
 
-      <section>
+      <section className="settings-card">
         <h3>System settings</h3>
         {settings.map((s) => (
-          <div key={s.key} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid #eee" }}>
+          <div key={s.key} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: "1px solid var(--color-border-light)" }}>
             <span><code>{s.key}</code>{s.isSecret ? " 🔒" : ""}: {String(s.value)}</span>
-            <button onClick={() => deleteSetting(s.key)} style={{ fontSize: 11 }}>Delete</button>
+            <button onClick={() => deleteSetting(s.key)} className="wiki-icon-btn">Delete</button>
           </div>
         ))}
-        <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
-          <input placeholder="key (e.g. email.apiKey)" value={newSettingKey} onChange={(e) => setNewSettingKey(e.target.value)} />
-          <input placeholder="value" value={newSettingValue} onChange={(e) => setNewSettingValue(e.target.value)} />
+        <div style={{ display: "flex", gap: 4, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <input placeholder="key (e.g. email.apiKey)" value={newSettingKey} onChange={(e) => setNewSettingKey(e.target.value)} className="settings-text" style={{ width: 220, marginBottom: 0 }} />
+          <input placeholder="value" value={newSettingValue} onChange={(e) => setNewSettingValue(e.target.value)} className="settings-text" style={{ width: 220, marginBottom: 0 }} />
           <label style={{ fontSize: 12 }}>
             <input type="checkbox" checked={newSettingSecret} onChange={(e) => setNewSettingSecret(e.target.checked)} /> secret
           </label>
-          <button onClick={saveSetting}>Save</button>
+          <button onClick={saveSetting} className="settings-btn primary">Save</button>
         </div>
       </section>
     </div>

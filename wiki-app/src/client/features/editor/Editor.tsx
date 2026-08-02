@@ -1,18 +1,18 @@
-import { useEffect, useState, useCallback, useRef } from "react";
-import { useEditor, EditorContent } from "@tiptap/react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useEditor, EditorContent, type Editor as TiptapEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import StarterKit from "@tiptap/starter-kit";
-import Image from "@tiptap/extension-image";
-import LinkExtension from "@tiptap/extension-link";
-import Underline from "@tiptap/extension-underline";
-import { CommentExtension } from "@sereneinserenade/tiptap-comment-extension";
-import { api, ApiError, type PageContent, type HistoryEntry } from "../../api/client.js";
+import { api, ApiError, type PageContent, type HistoryEntry, type CommentThread } from "../../api/client.js";
 import { Toolbar } from "./Toolbar.js";
+import { baseEditorExtensions } from "./baseExtensions.js";
+import { editingExtensions } from "./editingExtensions.js";
 import { getEditorExtensions } from "./pluginEngine.js";
 import "./editorPlugins.js";
 import { CommentPanel } from "./CommentPanel.js";
 import { useCollab } from "./useCollab.js";
 import { useSession } from "../../api/authClient.js";
+import { DragHandleMenu, blockAtPos, type BlockAnchor } from "./DragHandleMenu.js";
+import { SearchReplacePopup } from "./SearchReplacePopup.js";
+import { handleMarkdownPaste } from "./paste.js";
 
 const USER_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#be185d", "#4f46e5"];
 
@@ -23,6 +23,12 @@ export function Editor({ branchId }: { branchId: string }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { data: session } = useSession();
+
+  // Latest page content, tracked in a ref so effects that must NOT reset the
+  // editor on every autosave refresh of `page` can still read it.
+  const pageRef = useRef<PageContent | null>(null);
+  pageRef.current = page;
+  const collabEnabledRef = useRef(false);
 
   const [editorWidth, setEditorWidth] = useState<"full" | "narrow">("full");
   useEffect(() => {
@@ -43,10 +49,14 @@ export function Editor({ branchId }: { branchId: string }) {
   // Collaboration state
   const [useCollabMode, setUseCollabMode] = useState(false);
   const userName = session?.user.name ?? "Anonymous";
-  const userColor = USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)] ?? "#2563eb";
+  const userColor = useMemo(
+    () => USER_COLORS[Math.floor(Math.random() * USER_COLORS.length)] ?? "#2563eb",
+    []
+  );
 
   // Only enable collab when page is loaded AND user toggled it
   const collabEnabled = useCollabMode && !!page;
+  collabEnabledRef.current = collabEnabled;
   const collabExtensions = useCollab({
     pageId: page?.pageId ?? "",
     userName,
@@ -57,31 +67,158 @@ export function Editor({ branchId }: { branchId: string }) {
   // Comment state
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
 
+  // Phase 2: drag-handle block menu + search & replace popup
+  const [dragMenu, setDragMenu] = useState<{ x: number; y: number; block: BlockAnchor } | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  // The editor instance is created inside useEditor, so its options can't close
+  // over it directly - editorProps.handlePaste resolves it via this ref instead.
+  const editorRef = useRef<TiptapEditor | null>(null);
+
   const engineExtensions = getEditorExtensions();
 
   const editor = useEditor({
     extensions: [
-      StarterKit,
-      Image,
-      LinkExtension.configure({ openOnClick: false, autolink: true }),
-      Underline,
-      CommentExtension.configure({
-        HTMLAttributes: { class: "wiki-comment" },
+      ...baseEditorExtensions({
         onCommentActivated: (commentId: string) => {
-          setActiveCommentId((prev) => (prev === commentId ? null : commentId));
+          // Only open the panel when a comment is actually activated. Deliberately
+          // ignoring null keeps the panel open when the user clicks elsewhere in
+          // the document, so comments don't "disappear" the moment they deselect
+          // the commented text. Close is explicit (✕ / Resolve).
+          if (commentId) setActiveCommentId(commentId);
         },
       }),
       ...engineExtensions,
       ...(collabExtensions ?? []),
+      // Drag handle + search-and-replace are editing chrome - ProseMirror
+      // plugins over the DOM, never part of the shareable schema. They're added
+      // unconditionally because the editor is created once and toggled via
+      // setEditable (extensions can't be added later); both no-op when
+      // view.editable is false (read-only mode).
+      ...editingExtensions(),
     ],
     content: undefined,
+    editorProps: {
+      // Phase 2: convert pasted Markdown to Tiptap content through the same
+      // converter the server uses. Returns true when handled.
+      handlePaste: (_view, event) => (editorRef.current ? handleMarkdownPaste(editorRef.current, event as ClipboardEvent) : false),
+    },
     editable: isEditing && (page?.access === "editor" || page?.access === "admin"),
     onUpdate: ({ editor }) => {
       if (collabEnabled) return; // collab mode handles save via WebSocket
       if (saveTimer.current) clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => save(editor.getJSON()), 800);
     },
-  });
+    // The Collaboration extension can only be applied at editor creation time,
+    // so the editor is destroyed and re-created when collab mode or the target
+    // page changes. (Tiptap's setOptions cannot add extensions to a live editor.)
+  }, [collabEnabled, page?.pageId, collabExtensions]);
+
+  // Re-created editors (first mount, collab toggle, page switch) start empty;
+  // push the persisted content in when not in collab mode. Deliberately does
+  // NOT depend on `page`, so autosave refreshes of `page` don't reset the doc.
+  useEffect(() => {
+    if (!editor) return;
+    if (collabEnabledRef.current) return; // Collaboration extension owns the doc
+    const content = pageRef.current?.content;
+    if (!content) return;
+    editor.commands.setContent(content as any);
+    // Re-anchor comment highlights from the comment_threads table (the
+    // canonical anchor store). Marks serialized inside the saved doc JSON
+    // render automatically, but any thread whose mark was never written into
+    // the JSON (e.g. created before the selection-restore fix, or via a
+    // collab session) must be re-applied here from its stored range.
+    const branchId = pageRef.current?.branchId;
+    if (branchId) {
+      api
+        .getComments(branchId)
+        .then((threads) => applyCommentMarksFromThreads(editor, threads))
+        .catch(() => {});
+    }
+  }, [editor]);
+
+  // Phase 2: keep the editor instance available to editorProps (created inside
+  // useEditor) and wire the drag-handle click + Ctrl/Cmd+F shortcut.
+  useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const el = editor.view.dom.parentElement;
+    if (!el) return;
+
+    const onHandleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".drag-handle")) return;
+      e.preventDefault();
+      const pos = editor.view.posAtCoords({ left: e.clientX, top: e.clientY });
+      if (!pos) return;
+      const block = blockAtPos(editor, pos.pos);
+      if (!block) return;
+      setDragMenu({ x: e.clientX, y: e.clientY, block });
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+
+    el.addEventListener("click", onHandleClick);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      el.removeEventListener("click", onHandleClick);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [editor]);
+
+  // Re-applies a comment mark at each thread's anchor. Phase 1 (§7.12): a
+  // thread with a blockId is re-anchored to that block's CURRENT range in the
+  // document (the block id is stable across edits, so the highlight follows
+  // the content instead of drifting). Threads without a blockId (created before
+  // Phase 1) fall back to their stored [rangeFrom, rangeTo]. Anchors that no
+  // longer exist in the document are skipped - the thread stays in the DB and
+  // the panel, just not highlighted.
+  function applyCommentMarksFromThreads(ed: TiptapEditor, threads: CommentThread[]) {
+    if (!threads.length) return;
+    const maxPos = ed.state.doc.content.size;
+    const anchored = new Set<string>();
+    ed.state.doc.descendants((node) => {
+      if (node.isText && node.marks) {
+        for (const m of node.marks) {
+          if (m.type.name === "comment" && m.attrs.commentId) anchored.add(m.attrs.commentId as string);
+        }
+      }
+    });
+    const missing = threads.filter((t) => !anchored.has(t.id));
+    if (!missing.length) return;
+    // Preserve the user's selection - re-anchoring must not yank the cursor.
+    const prevFrom = ed.state.selection.from;
+    const prevTo = ed.state.selection.to;
+    for (const t of missing) {
+      // Block id is the primary anchor; stored range is the fallback.
+      let from: number | null = null;
+      let to: number | null = null;
+      if (t.blockId) {
+        ed.state.doc.descendants((node, pos) => {
+          if ((node.attrs as Record<string, unknown>)?.id === t.blockId) {
+            from = pos;
+            to = pos + node.nodeSize;
+            return false;
+          }
+          return true;
+        });
+      }
+      if (from === null || to === null || from >= to) {
+        from = Math.min(Math.max(t.rangeFrom, 1), maxPos);
+        to = Math.min(Math.max(t.rangeTo, from + 1), maxPos);
+      }
+      if (from >= to) continue;
+      ed.chain().setTextSelection({ from, to }).setComment(t.id).run();
+    }
+    ed.commands.setTextSelection({ from: prevFrom, to: prevTo });
+  }
 
   useEffect(() => {
     setPage(null);
@@ -91,10 +228,6 @@ export function Editor({ branchId }: { branchId: string }) {
     setUseCollabMode(false);
     api.getPage(branchId).then((p) => {
       setPage(p);
-      // In collab mode, don't setContent — the Collaboration extension owns the document
-      if (!useCollabMode) {
-        editor?.commands.setContent(p.content as any);
-      }
       editor?.setEditable(false);
     });
   }, [branchId]);
@@ -123,6 +256,16 @@ export function Editor({ branchId }: { branchId: string }) {
     },
     [page, branchId]
   );
+
+  async function toggleCollab() {
+    // Exiting collab mode: the Collaboration extension owns the document while
+    // enabled, so persist its current content back to the pages table before
+    // the editor is re-created without the extension.
+    if (useCollabMode && editor && page) {
+      await save(editor.getJSON());
+    }
+    setUseCollabMode((v) => !v);
+  }
 
   async function reloadAfterConflict() {
     const fresh = await api.getPage(branchId);
@@ -183,8 +326,25 @@ export function Editor({ branchId }: { branchId: string }) {
     const body = window.prompt("Comment:");
     if (!body) return;
     try {
-      const { threadId } = await api.createCommentThread(page.branchId, from, to, body);
-      editor.chain().focus().setComment(threadId).run();
+      const selectionText = editor.state.doc.textBetween(from, to, "\n").slice(0, 2000);
+      // Phase 1 (§7.12): capture the id of the block containing the selection
+      // so the highlight can be re-anchored to it later even if earlier edits
+      // shift the character range. `resolve(from).parent` is the innermost
+      // node at the selection start - for a text selection inside a paragraph
+      // that's the paragraph itself, which carries the UniqueID `id` attr.
+      const blockId = (editor.state.doc.resolve(from).parent.attrs as Record<string, unknown>)?.id as
+        | string
+        | null
+        | undefined;
+      const { threadId } = await api.createCommentThread(page.branchId, from, to, body, {
+        selection: selectionText,
+        blockId: blockId ?? undefined,
+      });
+      // The prompt dialog steals focus and collapses the editor's selection, so
+      // applying the mark to the LIVE selection would mark nothing (this is why
+      // notes were created with no visible reference). Restore the captured
+      // range explicitly before setting the comment mark.
+      editor.chain().focus().setTextSelection({ from, to }).setComment(threadId).run();
       setActiveCommentId(threadId);
     } catch (err) {
       if (err instanceof ApiError) {
@@ -193,59 +353,63 @@ export function Editor({ branchId }: { branchId: string }) {
     }
   }
 
-  if (!page) return <div style={{ padding: 24 }}>Loading…</div>;
+  if (!page) return <div className="loading-page">Loading…</div>;
   const canEdit = page.access === "editor" || page.access === "admin";
 
   const triggerUpload = () => fileInputRef.current?.click();
 
   return (
-    <div style={{ padding: 24, maxWidth: editorWidth === "full" ? "none" : 760, margin: editorWidth === "full" ? 0 : "0 auto" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, fontSize: 13, color: "#666" }}>
-        <span>/{page.slug}</span>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+    <div className="page-editor" style={{ padding: 24, maxWidth: editorWidth === "full" ? "none" : 760, margin: editorWidth === "full" ? 0 : "0 auto" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, alignItems: "center" }}>
+        <span className="wiki-page-slug">/{page.slug}</span>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <StatusLabel status={status} />
-          <button onClick={toggleWidth} style={{ fontSize: 12 }} title="Toggle full-width / narrow reading width">
+          <button onClick={toggleWidth} className="wiki-page-action" title="Toggle full-width / narrow reading width">
             {editorWidth === "full" ? "Narrow view" : "Full width"}
           </button>
-          <button onClick={createShareLink} style={{ fontSize: 12 }}>Share</button>
+          <button onClick={createShareLink} className="wiki-page-action">Share</button>
           {canEdit && (
             <>
-              <button onClick={() => setIsEditing((v) => !v)} style={{ fontSize: 12, fontWeight: isEditing ? "bold" : "normal" }}>
+              <button
+                onClick={() => setIsEditing((v) => !v)}
+                className={`wiki-page-action${isEditing ? " primary" : ""}`}
+              >
                 {isEditing ? "Done editing" : "Edit"}
               </button>
               {isEditing && (
                 <button
-                  onClick={() => setUseCollabMode((v) => !v)}
-                  style={{ fontSize: 12, fontWeight: useCollabMode ? "bold" : "normal", color: useCollabMode ? "#16a34a" : undefined }}
+                  onClick={toggleCollab}
+                  className={`wiki-page-action${useCollabMode ? " success" : ""}`}
                 >
                   {useCollabMode ? "Collab ON" : "Collab OFF"}
                 </button>
               )}
-              <button onClick={triggerUpload} style={{ fontSize: 12 }}>Upload file</button>
-              <button onClick={takeSnapshot} style={{ fontSize: 12 }}>Snapshot</button>
+              <button onClick={triggerUpload} className="wiki-page-action">Upload file</button>
+              <button onClick={takeSnapshot} className="wiki-page-action">Snapshot</button>
             </>
           )}
-          <button onClick={toggleHistory} style={{ fontSize: 12 }}>{history ? "Hide history" : "History"}</button>
+          <button onClick={toggleHistory} className="wiki-page-action">{history ? "Hide history" : "History"}</button>
         </div>
       </div>
 
       {status === "conflict" && (
-        <div style={{ background: "#fee", padding: 8, marginBottom: 12, fontSize: 13 }}>
+        <div className="wiki-banner">
           Someone else saved this page first.{" "}
-          <button onClick={reloadAfterConflict}>Reload their version</button>
+          <button className="banner-btn" onClick={reloadAfterConflict}>Reload their version</button>
         </div>
       )}
 
       {history && (
-        <div style={{ background: "#f7f7f7", padding: 8, marginBottom: 12, fontSize: 12 }}>
+        <div className="history-panel">
+          <div className="history-title">History</div>
           {history.length === 0 && <div>No history yet</div>}
           {history.map((h) => (
-            <div key={h.hash} style={{ padding: "2px 0", display: "flex", alignItems: "center", gap: 8 }}>
-              <code>{h.hash.slice(0, 7)}</code> — {h.message} <span style={{ color: "#999" }}>({h.date})</span>
+            <div key={h.hash} className="history-entry">
+              <code>{h.hash.slice(0, 7)}</code> — {h.message}{" "}
+              <span className="history-meta">({h.date})</span>
               {canEdit && (
                 <button
                   type="button"
-                  style={{ fontSize: 11, padding: "1px 6px", cursor: "pointer" }}
                   onClick={async () => {
                     if (!window.confirm(`Restore page content from "${h.message}"? Current content will be replaced.`)) return;
                     const ed = editor;
@@ -271,11 +435,16 @@ export function Editor({ branchId }: { branchId: string }) {
         </div>
       )}
 
-      {canEdit && isEditing && <Toolbar editor={editor} onUploadImage={triggerUpload} onAddComment={addCommentOnSelection} />}
+      {canEdit && isEditing && (
+        <>
+          <Toolbar editor={editor} onUploadImage={triggerUpload} onAddComment={addCommentOnSelection} onSearch={() => setSearchOpen(true)} />
+          {searchOpen && editor && <SearchReplacePopup editor={editor} onClose={() => setSearchOpen(false)} />}
+        </>
+      )}
 
       {editor && canEdit && isEditing && (
         <BubbleMenu editor={editor}>
-          <div style={{ display: "flex", gap: 2, padding: 4, background: "#fff", border: "1px solid #ddd", borderRadius: 6, boxShadow: "0 2px 8px rgba(0,0,0,0.12)" }}>
+          <div className="wiki-bubble-menu">
             <BubbleBtn active={editor.isActive("bold")} label="B" title="Bold" onClick={() => editor.chain().focus().toggleBold().run()} />
             <BubbleBtn active={editor.isActive("italic")} label="I" title="Italic" onClick={() => editor.chain().focus().toggleItalic().run()} />
             <BubbleBtn active={editor.isActive("underline")} label="U" title="Underline" onClick={() => editor.chain().focus().toggleUnderline().run()} />
@@ -295,12 +464,13 @@ export function Editor({ branchId }: { branchId: string }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <EditorContent
             editor={editor}
+            className="wiki-editor-content"
             style={{
-              border: "1px solid #ddd",
+              border: "1px solid var(--color-border)",
               borderRadius: 6,
               minHeight: 300,
               padding: "12px 16px",
-              background: isEditing ? "#fff" : "#fafafa",
+              background: isEditing ? "var(--color-surface)" : "var(--color-bg-secondary)",
             }}
           />
         </div>
@@ -308,6 +478,16 @@ export function Editor({ branchId }: { branchId: string }) {
           <CommentPanel threadId={activeCommentId} branchId={page.branchId} onClose={() => setActiveCommentId(null)} />
         )}
       </div>
+
+      {dragMenu && editor && (
+        <DragHandleMenu
+          editor={editor}
+          block={dragMenu.block}
+          x={dragMenu.x}
+          y={dragMenu.y}
+          onClose={() => setDragMenu(null)}
+        />
+      )}
     </div>
   );
 }
@@ -318,15 +498,7 @@ function BubbleBtn({ active, label, title, onClick }: { active: boolean; label: 
       type="button"
       onClick={onClick}
       title={title}
-      style={{
-        padding: "4px 8px",
-        fontSize: 13,
-        border: "none",
-        borderRadius: 4,
-        background: active ? "#333" : "transparent",
-        color: active ? "#fff" : "#333",
-        cursor: "pointer",
-      }}
+      className={active ? "active" : ""}
     >
       {label}
     </button>
@@ -335,5 +507,6 @@ function BubbleBtn({ active, label, title, onClick }: { active: boolean; label: 
 
 function StatusLabel({ status }: { status: string }) {
   const label = { idle: "", saving: "Saving…", saved: "Saved", conflict: "Conflict", error: "Error saving" }[status] ?? "";
-  return <span>{label}</span>;
+  const cls = status === "saved" ? "status-saved" : status === "saving" ? "status-saving" : status === "conflict" ? "status-conflict" : status === "error" ? "status-error" : "";
+  return <span className={`wiki-status ${cls}`}>{label}</span>;
 }

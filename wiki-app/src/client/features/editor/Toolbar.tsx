@@ -1,22 +1,11 @@
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import { getToolbarButtons } from "./pluginEngine.js";
 
-export function Toolbar({ editor, onUploadImage, onAddComment }: { editor: TiptapEditor | null; onUploadImage: () => void; onAddComment: () => void }) {
-  const btn = (active: boolean): React.CSSProperties => ({
-    padding: "4px 8px",
-    marginRight: 4,
-    fontSize: 13,
-    border: "1px solid #ccc",
-    borderRadius: 4,
-    background: active ? "#333" : "#fff",
-    color: active ? "#fff" : "#333",
-    cursor: "pointer",
-  });
-
+export function Toolbar({ editor, onUploadImage, onAddComment, onSearch }: { editor: TiptapEditor | null; onUploadImage: () => void; onAddComment: () => void; onSearch: () => void }) {
   if (!editor) return null;
 
   const buttons = getToolbarButtons();
-  const separator = <span style={{ width: 1, background: "#ddd", margin: "0 4px" }} />;
+  const separator = <span className="wiki-toolbar-sep" />;
 
   // Group buttons by their group name, inserting separators between groups
   const groups: { name: string; buttons: typeof buttons }[] = [];
@@ -30,42 +19,39 @@ export function Toolbar({ editor, onUploadImage, onAddComment }: { editor: Tipta
     }
   }
 
+  const toolBtn = (active: boolean, label: string, title: string, onClick: () => void, key: string) => (
+    <button
+      key={key}
+      type="button"
+      className={`wiki-toolbar-btn${active ? " active" : ""}`}
+      onClick={onClick}
+      title={title}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 2, padding: "6px 0", marginBottom: 8, borderBottom: "1px solid #eee" }}>
+    <div className="wiki-toolbar">
       {groups.map((group, gi) => (
         <span key={group.name} style={{ display: "contents" }}>
           {gi > 0 && separator}
-          {group.buttons.map((b) => (
-            <button
-              key={b.name}
-              type="button"
-              style={btn(b.isActive(editor))}
-              onClick={() => b.onClick(editor)}
-              title={b.title}
-            >
-              {b.label}
-            </button>
-          ))}
+          {group.buttons.map((b, bi) =>
+            toolBtn(b.isActive(editor), b.label, b.title ?? b.label, () => b.onClick(editor), b.name ?? `${group.name}-${bi}`)
+          )}
         </span>
       ))}
 
       {separator}
 
-      <button type="button" style={btn(false)} onClick={onAddComment} title="Add comment on selection">
-        💬
-      </button>
+      {toolBtn(false, "🔍", "Find & replace (Ctrl+F)", onSearch, "search")}
+      {toolBtn(false, "💬", "Add comment on selection", onAddComment, "comment")}
 
       {separator}
 
-      <button type="button" style={btn(false)} onClick={onUploadImage} title="Insert image">
-        🖼
-      </button>
-      <button type="button" style={btn(false)} onClick={() => editor.chain().focus().undo().run()} title="Undo (Ctrl+Z)">
-        ↶
-      </button>
-      <button type="button" style={btn(false)} onClick={() => editor.chain().focus().redo().run()} title="Redo (Ctrl+Shift+Z)">
-        ↷
-      </button>
+      {toolBtn(false, "🖼", "Insert image", onUploadImage, "image")}
+      {toolBtn(false, "↶", "Undo (Ctrl+Z)", () => editor.chain().focus().undo().run(), "undo")}
+      {toolBtn(false, "↷", "Redo (Ctrl+Shift+Z)", () => editor.chain().focus().redo().run(), "redo")}
     </div>
   );
 }

@@ -26,32 +26,50 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
   }
 
   return (
-    <div style={{ maxWidth: 320, margin: "80px auto", fontFamily: "system-ui" }}>
-      <h1 style={{ fontSize: 20 }}>{mode === "signin" ? "Sign in" : "Create account"}</h1>
-      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {mode === "signup" && (
-          <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
-        )}
-        <input placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <input
-          placeholder="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          required
-          minLength={8}
-        />
-        {error && <div style={{ color: "crimson", fontSize: 13 }}>{error}</div>}
-        <button type="submit" disabled={busy}>
-          {busy ? "..." : mode === "signin" ? "Sign in" : "Create account"}
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-brand">
+          <span className="logo">W</span>
+          <h1>{mode === "signin" ? "Welcome back" : "Create account"}</h1>
+        </div>
+        <div className="login-sub">
+          {mode === "signin" ? "Sign in to your wiki" : "Start your wiki in seconds"}
+        </div>
+        <form onSubmit={submit}>
+          {mode === "signup" && (
+            <div className="field">
+              <label htmlFor="login-name">Name</label>
+              <input id="login-name" placeholder="Ada Lovelace" value={name} onChange={(e) => setName(e.target.value)} required />
+            </div>
+          )}
+          <div className="field">
+            <label htmlFor="login-email">Email</label>
+            <input id="login-email" placeholder="you@example.com" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </div>
+          <div className="field">
+            <label htmlFor="login-password">Password</label>
+            <input
+              id="login-password"
+              placeholder="••••••••"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              minLength={8}
+            />
+          </div>
+          {error && <div className="error">{error}</div>}
+          <button type="submit" disabled={busy} className="submit-btn">
+            {busy ? "…" : mode === "signin" ? "Sign in" : "Create account"}
+          </button>
+        </form>
+        <button
+          className="switch-mode"
+          onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+        >
+          {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
         </button>
-      </form>
-      <button
-        style={{ marginTop: 12, background: "none", border: "none", color: "#555", cursor: "pointer" }}
-        onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-      >
-        {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
-      </button>
+      </div>
     </div>
   );
 }
