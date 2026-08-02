@@ -11,6 +11,7 @@ export, real-time collab (Hocuspocus/Yjs), group/space permissions. See
 - `npm run typecheck` — `tsc --noEmit`
 - `npm test` — vitest (18 files, 149 tests)
 - `npm run build:client` — vite build
+- `npx playwright test --config=e2e/playwright.config.ts` — E2E tests (5 tests, headless Chromium)
 
 ## Server boot requirements
 
@@ -65,7 +66,40 @@ Dev server started for UI work:
   drag-handle, search-replace, comment panel, permissions dialog, backlinks,
   attributes, collab toggle), `CommandPalette.tsx` (Cmd+K global search),
   `NotificationBell.tsx` (bell icon + dropdown feed), `wikiLinkExtension.tsx`
-  ([[page]] linking), `slashCommandExtension.tsx` (/slash commands).
+  ([[page]] linking — currently disabled, see Known Issues), `slashCommandExtension.tsx` (/slash commands).
+
+## Known issues
+
+- **WikiLinkExtension causes ProseMirror crash** (`t.getState is not a function`)
+  in production (Vite-built) builds. The extension uses `@tiptap/suggestion`
+  with `ReactDOM.createRoot` for the popup. The error occurs during editor
+  creation in the built JS bundle. Commented out in Editor.tsx extensions array
+  until debugged. Does NOT reproduce in dev mode (`npm run dev:client`).
+
+## E2E tests
+
+Located in `e2e/`. Uses Playwright with a headless Chromium browser.
+
+**Architecture:**
+- `e2e/start-server.sh` — builds client, pushes DB schema, starts server
+- `e2e/playwright.config.ts` — webServer points to start-server.sh
+- `e2e/setup.ts` — global setup: seeds test users via better-auth REST API,
+  then logs in via browser and saves auth state to `auth-admin.json` /
+  `auth-user.json` (gitignored)
+- `e2e/wiki.spec.ts` — 5 tests covering sidebar, space/page creation,
+  content editing/saving, Cmd+K palette, settings page
+
+**Running:** `npx playwright test --config=e2e/playwright.config.ts`
+Clean state each run: delete `data/e2e-test.db`, `data/e2e-repo`,
+`data/e2e-files`, and `e2e/auth-*.json` before running.
+
+**Key decisions:**
+- Users are seeded via the REST API (`POST /api/auth/sign-up/email` with
+  Origin header) rather than through the browser UI — much faster and avoids
+  flaky UI-based registration
+- Tests navigate to `/pages/${branchId}` directly (using `getFirstBranchId()`
+  which calls the spaces/tree API) instead of clicking tree labels — tree
+  click navigation via React Router's `navigate()` was unreliable in tests
 
 ## Settings framework (§7.10b) conventions
 
