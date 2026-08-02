@@ -15,12 +15,16 @@ import {
   registerEditorExtension,
 } from "./pluginEngine.js";
 import { SlashCommandExtension } from "./slashCommandExtension.js";
+import { WikiLinkExtension } from "./wikiLinkExtension.js";
+import { MentionExtension } from "./mentionExtension.js";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 
 // ---------------------------------------------------------------------------
-// Register the slash-command Tiptap extension itself
+// Register Tiptap extensions
 // ---------------------------------------------------------------------------
 registerEditorExtension(SlashCommandExtension);
+registerEditorExtension(WikiLinkExtension);
+registerEditorExtension(MentionExtension);
 
 // ---------------------------------------------------------------------------
 // Slash commands — grouped by category

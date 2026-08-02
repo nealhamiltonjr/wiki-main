@@ -1,14 +1,15 @@
 import { Extension } from "@tiptap/core";
 import Suggestion, { type SuggestionOptions } from "@tiptap/suggestion";
-import { createRoot, type Root } from "react-dom/client";
-import { WikiLinkPopup } from "./WikiLinkPopup.js";
+import { PluginKey } from "prosemirror-state";
+import { api } from "../../api/client.js";
 
 interface WikiLinkItem { slug: string; title: string; branchId: string }
 
 /**
  * Triggers `[[page-slug` and shows a searchable popup of wiki pages.
  * Selecting a page inserts a mark link of the form `/wiki/<branchId>`.
- * Uses the same @tiptap/suggestion pattern as SlashCommandExtension.
+ * Uses plain-DOM rendering (no React) to avoid ProseMirror bundle conflicts
+ * in Vite production builds.
  */
 export const WikiLinkExtension = Extension.create({
   name: "wikiLink",
@@ -18,7 +19,7 @@ export const WikiLinkExtension = Extension.create({
       suggestion: {
         char: "[[",
         allowSpaces: true,
-        pluginKey: "wikiLink",
+        pluginKey: new PluginKey("wikiLink"),
         command: ({ editor, range, props }: { editor: any; range: any; props: WikiLinkItem }) => {
           editor
             .chain()
@@ -33,7 +34,7 @@ export const WikiLinkExtension = Extension.create({
           if (!query) return [];
           return []; // populated async by the popup
         },
-        render: () => createWikiLinkRenderer(),
+        render: () => createDomRenderer(),
       } as unknown as Partial<SuggestionOptions<WikiLinkItem>>,
     };
   },
@@ -48,39 +49,85 @@ export const WikiLinkExtension = Extension.create({
   },
 });
 
-function createWikiLinkRenderer() {
-  let root: Root | null = null;
+function createDomRenderer() {
   let popupEl: HTMLElement | null = null;
+  let inputEl: HTMLInputElement | null = null;
+  let listEl: HTMLElement | null = null;
   let selectedIndex = 0;
   let items: WikiLinkItem[] = [];
-  let currentQuery = "";
   let latestProps: any = null;
+  let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
-  function renderPopup() {
-    if (!root) return;
-    root.render(
-      <WikiLinkPopup
-        items={items}
-        selectedIndex={selectedIndex}
-        query={currentQuery}
-        command={(item) => {
-          const event = new CustomEvent("wiki-link-pick", { detail: item });
-          popupEl?.dispatchEvent(event);
-        }}
-      />
-    );
+  function renderList() {
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    if (items.length === 0) {
+      listEl.innerHTML = '<div class="suggestion-empty">No pages found</div>';
+      return;
+    }
+    items.forEach((item, i) => {
+      const btn = document.createElement("button");
+      btn.className = `suggestion-item${i === selectedIndex ? " selected" : ""}`;
+      btn.innerHTML = `<span class="suggestion-title">${escapeHtml(item.title)}</span><span class="suggestion-slug">${escapeHtml(item.slug)}</span>`;
+      btn.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        latestProps?.command(item);
+      });
+      listEl!.appendChild(btn);
+    });
+  }
+
+  function doSearch(query: string) {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      try {
+        const data = await api.search(query);
+        items = (data.results as any[]).map((x: any) => ({
+          slug: x.slug,
+          title: x.title || x.slug.replace(/-/g, " "),
+          branchId: x.branchId,
+        }));
+      } catch {
+        items = [];
+      }
+      if (items.length === 0) {
+        items = [{ slug: query, title: query, branchId: "" }];
+      }
+      renderList();
+    }, 150);
   }
 
   return {
     onStart: (props: any) => {
       latestProps = props;
-      items = props.items;
-      currentQuery = props.query;
+      items = [];
       selectedIndex = 0;
+
       popupEl = document.createElement("div");
+      popupEl.className = "suggestion-list";
       popupEl.style.position = "absolute";
       popupEl.style.zIndex = "999";
-      document.body.appendChild(popupEl);
+      popupEl.style.background = "var(--color-surface)";
+      popupEl.style.border = "1px solid var(--color-border)";
+      popupEl.style.borderRadius = "6px";
+      popupEl.style.padding = "4px";
+      popupEl.style.minWidth = "240px";
+      popupEl.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
+
+      inputEl = document.createElement("input");
+      inputEl.className = "attr-input";
+      inputEl.placeholder = "Search pages…";
+      inputEl.style.width = "100%";
+      inputEl.style.boxSizing = "border-box";
+      inputEl.style.marginBottom = "4px";
+      inputEl.value = props.query ?? "";
+      inputEl.addEventListener("input", () => {
+        doSearch(inputEl!.value);
+      });
+      popupEl.appendChild(inputEl);
+
+      listEl = document.createElement("div");
+      popupEl.appendChild(listEl);
 
       const rect = props.clientRect?.();
       if (rect) {
@@ -88,30 +135,31 @@ function createWikiLinkRenderer() {
         popupEl.style.top = `${window.scrollY + rect.bottom + 4}px`;
       }
 
-      root = createRoot(popupEl);
-      popupEl.addEventListener("wiki-link-pick", ((e: CustomEvent) => {
-        latestProps?.command(e.detail);
-      }) as EventListener);
+      document.body.appendChild(popupEl);
 
-      renderPopup();
+      if (props.query) doSearch(props.query);
+      else renderList();
+
+      // Focus after append
+      setTimeout(() => inputEl?.focus(), 10);
     },
 
     onUpdate: (props: any) => {
       latestProps = props;
-      currentQuery = props.query;
       selectedIndex = 0;
-      renderPopup();
+      if (inputEl) inputEl.value = props.query ?? "";
+      if (props.query) doSearch(props.query);
     },
 
     onKeyDown: (props: any) => {
       if (props.event.key === "ArrowDown") {
         selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
-        renderPopup();
+        renderList();
         return true;
       }
       if (props.event.key === "ArrowUp") {
         selectedIndex = Math.max(selectedIndex - 1, 0);
-        renderPopup();
+        renderList();
         return true;
       }
       if (props.event.key === "Enter") {
@@ -128,9 +176,15 @@ function createWikiLinkRenderer() {
 
     onExit: () => {
       latestProps = null;
-      if (root) { root.unmount(); root = null; }
+      if (searchTimer) clearTimeout(searchTimer);
       if (popupEl) { popupEl.remove(); popupEl = null; }
+      inputEl = null;
+      listEl = null;
       items = [];
     },
   };
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

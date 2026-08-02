@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { SlashCommandPopup } from "./SlashCommandPopup.js";
 import { getSlashCommands } from "./pluginEngine.js";
 import type { SlashCommand } from "./pluginEngine.js";
+import { PluginKey } from "prosemirror-state";
 
 /**
  * Tiptap extension that triggers a slash-command menu when the user types `/`
@@ -21,6 +22,7 @@ export const SlashCommandExtension = Extension.create({
       suggestion: {
         char: "/",
         startOfLine: false,
+        pluginKey: new PluginKey("slashCommand"),
         command: ({ editor, range, props }: { editor: any; range: any; props: SlashCommand }) => {
           editor.chain().focus().deleteRange(range).run();
           props.command({ editor });

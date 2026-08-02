@@ -5,7 +5,6 @@ import { api, ApiError, type PageContent, type HistoryEntry, type CommentThread 
 import { Toolbar } from "./Toolbar.js";
 import { baseEditorExtensions } from "./baseExtensions.js";
 import { editingExtensions } from "./editingExtensions.js";
-import { WikiLinkExtension } from "./wikiLinkExtension.js";
 import { getEditorExtensions } from "./pluginEngine.js";
 import "./editorPlugins.js";
 import { CommentPanel } from "./CommentPanel.js";
@@ -138,9 +137,6 @@ export function Editor({ branchId }: { branchId: string }) {
       // setEditable (extensions can't be added later); both no-op when
       // view.editable is false (read-only mode).
       ...editingExtensions(),
-      // WikiLinkExtension is excluded until debugged — it triggers a Prosemirror
-      // error "t.getState is not a function" in production builds.
-      // WikiLinkExtension,
     ],
     content: undefined,
     editorProps: {
