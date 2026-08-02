@@ -185,4 +185,6 @@ export const api = {
     request<{ ok: true }>(`/api/comments/${commentId}`, { method: "DELETE" }),
   resolveCommentThread: (threadId: string) =>
     request<{ resolved: boolean }>(`/api/comment-threads/${threadId}/resolve`, { method: "PUT" }),
+  /** Search wiki pages via FTS5 (§7.12d.2). */
+  search: (q: string) => request<{ results: unknown[] }>(`/api/search?q=${encodeURIComponent(q)}`),
 };
