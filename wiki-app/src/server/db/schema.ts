@@ -267,3 +267,17 @@ export const userSettings = sqliteTable("user_settings", {
 }, (t) => ({
   pk: primaryKey({ columns: [t.userId, t.key] }),
 }));
+
+// ---------------------------------------------------------------------------
+// Attributes — label/value pairs on pages (Trilium-style promoted labels)
+// §7.12d.2 — isPromoted controls whether the attr surfaces in the editor sidebar.
+// ---------------------------------------------------------------------------
+export const attributes = sqliteTable("attributes", {
+  id: id(),
+  pageId: text("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  value: text("value").notNull().default(""),
+  isPromoted: integer("is_promoted", { mode: "boolean" }).notNull().default(false),
+  position: integer("position").notNull().default(0),
+  ...timestamps,
+});

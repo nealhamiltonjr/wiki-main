@@ -1465,6 +1465,90 @@ span[data-comment-id].wiki-comment-flash {
 }
 
 /* ============================================================
+   Attributes panel — Phase A (§7.12d.2)
+   ============================================================ */
+.attributes-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.attributes-heading {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin: 0 0 10px 0;
+  font-weight: 600;
+}
+.attr-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  font-size: var(--font-size-sm);
+}
+.attr-row.promoted {
+  background: var(--color-surface-hover, #f9fafb);
+  border-radius: 4px;
+  padding: 5px 6px;
+  margin-bottom: 4px;
+}
+.attr-row + .attr-row { border-top: 1px solid var(--color-border); }
+.attr-name {
+  font-weight: 500;
+  color: var(--color-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attr-value {
+  color: var(--color-text-secondary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attr-btn {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  color: var(--color-text-muted);
+  border-radius: 3px;
+}
+.attr-btn:hover { color: var(--color-text); background: var(--color-surface-hover, #e5e7eb); }
+.attr-btn.danger:hover { color: var(--color-danger, #dc2626); }
+.attr-btn.add { color: var(--color-primary, #2563eb); font-size: 16px; font-weight: 600; }
+.attr-add {
+  display: flex;
+  gap: 4px;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+.attr-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-sans);
+}
+.attr-input:focus { outline: none; border-color: var(--color-primary); }
+.attr-details { margin-top: 4px; }
+.attr-summary {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 4px 0;
+}
+.attr-loading { color: var(--color-text-muted); font-size: var(--font-size-sm); padding: 8px 0; }
+
+/* ============================================================
    Generic utility / layout helpers
    ============================================================ */
 .loading-page {

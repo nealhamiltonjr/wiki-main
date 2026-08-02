@@ -10,6 +10,7 @@ import "./editorPlugins.js";
 import { CommentPanel } from "./CommentPanel.js";
 import { PermissionsDialog } from "./PermissionsDialog.js";
 import { BacklinksPanel } from "./BacklinksPanel.js";
+import { AttributesPanel } from "./AttributesPanel.js";
 import { useCollab } from "./useCollab.js";
 import { useSession } from "../../api/authClient.js";
 import { DragHandleMenu, blockAtPos, type BlockAnchor } from "./DragHandleMenu.js";
@@ -74,6 +75,9 @@ export function Editor({ branchId }: { branchId: string }) {
 
   // Backlinks (§7.12 block-refs + backlinks)
   const [backlinksOpen, setBacklinksOpen] = useState(false);
+
+  // Attributes (§7.12d.2)
+  const [attributesOpen, setAttributesOpen] = useState(false);
 
   const exportMarkdown = useCallback(async (mode: "raw" | "zip") => {
     if (!page) return;
@@ -395,6 +399,7 @@ export function Editor({ branchId }: { branchId: string }) {
           <button onClick={() => exportMarkdown("raw")} className="wiki-page-action" title="Export as clean Markdown (SSG-ready)">Export .md</button>
           <button onClick={() => exportMarkdown("zip")} className="wiki-page-action" title="Export with images as a ZIP">Export .zip</button>
         <button onClick={() => setBacklinksOpen((v) => !v)} className={`wiki-page-action${backlinksOpen ? " primary" : ""}`} title="Pages that link to this page">Backlinks</button>
+        <button onClick={() => setAttributesOpen((v) => !v)} className={`wiki-page-action${attributesOpen ? " primary" : ""}`} title="Page attributes (labels/tags)">Attributes</button>
           {canEdit && (
             <>
               <button
@@ -422,6 +427,7 @@ export function Editor({ branchId }: { branchId: string }) {
 
       {permissionsOpen && <PermissionsDialog branchId={page.branchId} onClose={() => setPermissionsOpen(false)} />}
       {backlinksOpen && <BacklinksPanel pageId={page.pageId} onNavigate={(bid) => { window.location.hash = `#/wiki/${bid}`; }} />}
+      {attributesOpen && <AttributesPanel branchId={page.branchId} />}
 
       {status === "conflict" && (
         <div className="wiki-banner">
