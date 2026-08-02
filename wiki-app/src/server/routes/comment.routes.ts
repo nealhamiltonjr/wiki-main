@@ -10,7 +10,12 @@ import type { UserContext } from "../../shared/types.js";
 const createThreadBody = z.object({
   rangeFrom: z.number().int().min(0),
   rangeTo: z.number().int().min(0),
+  // Phase 1 (§7.12): the id of the containing block, captured at creation time
+  // so the highlight can be re-anchored to the block when earlier edits shift
+  // the character range.
+  blockId: z.string().max(64).optional(),
   body: z.string().min(1),
+  selection: z.string().max(2000).optional(),
 });
 
 const addReplyBody = z.object({
@@ -109,8 +114,10 @@ export async function commentRoutes(app: FastifyInstance) {
       db.insert(commentThreads).values({
         id: threadId,
         pageId,
+        blockId: body.blockId ?? null,
         rangeFrom: body.rangeFrom,
         rangeTo: body.rangeTo,
+        selection: body.selection ?? null,
         createdBy: user.id,
       }).run();
 

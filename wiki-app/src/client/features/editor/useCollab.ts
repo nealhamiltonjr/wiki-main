@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Doc } from "yjs";
 import { HocuspocusProvider } from "@hocuspocus/provider";
 import Collaboration from "@tiptap/extension-collaboration";
-import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
+import { CollaborationCaret } from "@tiptap/extension-collaboration-caret";
 
 interface UseCollabOptions {
   pageId: string;
@@ -14,16 +14,31 @@ interface UseCollabOptions {
 /**
  * Provides a Tiptap Collaboration extension wired to a Hocuspocus WebSocket.
  * Lazily connects only when `enabled` is true.
- * Returns null when disabled — the Editor falls back to the regular content.
+ *
+ * The extensions are produced synchronously (useMemo) so that the Editor can
+ * pass them into `useEditor` as a dependency and re-create its instance on the
+ * SAME render the collab mode is toggled - Tiptap cannot add extensions to an
+ * already-created editor, so the instance must be rebuilt with them present.
  */
 export function useCollab({ pageId, userName, userColor, enabled }: UseCollabOptions) {
-  const [extension, setExtension] = useState<any>(null);
   const providerRef = useRef<HocuspocusProvider | null>(null);
+  const docRef = useRef<Doc | null>(null);
 
-  useEffect(() => {
-    if (!enabled || !pageId) return;
+  const extension = useMemo(() => {
+    // Tear down any previous collab session (page switch, disable, unmount).
+    if (providerRef.current) {
+      providerRef.current.disconnect();
+      providerRef.current.destroy();
+      providerRef.current = null;
+    }
+    if (docRef.current) {
+      docRef.current.destroy();
+      docRef.current = null;
+    }
+    if (!enabled || !pageId) return null;
 
     const doc = new Doc();
+    docRef.current = doc;
     const provider = new HocuspocusProvider({
       url: `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/api/collaboration`,
       name: pageId,
@@ -32,20 +47,28 @@ export function useCollab({ pageId, userName, userColor, enabled }: UseCollabOpt
     });
     providerRef.current = provider;
 
-    const collabExt = Collaboration.configure({ document: doc });
-    const cursorExt = CollaborationCursor.configure({
-      provider,
-      user: { name: userName, color: userColor },
-    });
-
-    setExtension([collabExt, cursorExt]);
-
-    return () => {
-      provider.disconnect();
-      provider.destroy();
-      doc.destroy();
-    };
+    return [
+      Collaboration.configure({ document: doc }),
+      CollaborationCaret.configure({
+        provider,
+        user: { name: userName, color: userColor },
+      }),
+    ];
   }, [pageId, userName, userColor, enabled]);
+
+  useEffect(() => {
+    return () => {
+      if (providerRef.current) {
+        providerRef.current.disconnect();
+        providerRef.current.destroy();
+        providerRef.current = null;
+      }
+      if (docRef.current) {
+        docRef.current.destroy();
+        docRef.current = null;
+      }
+    };
+  }, []);
 
   return extension;
 }

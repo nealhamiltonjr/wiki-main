@@ -97,9 +97,11 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   // Production only - in dev, Vite's own server (with its /api proxy) serves the
   // frontend instead, so this doesn't run and doesn't need `npm run build:client`
-  // to have been run first.
+  // to have been run first. WIKI_DIST_DIR lets tests build into an isolated
+  // directory instead of clobbering a live deployment's real dist/.
   if (process.env.NODE_ENV === "production") {
-    const distDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../dist");
+    const distDir =
+      process.env.WIKI_DIST_DIR ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "../../dist");
 
     // Scoped to /assets/ deliberately, NOT the dist root - @fastify/static
     // registers its own internal wildcard GET route to serve arbitrary paths,

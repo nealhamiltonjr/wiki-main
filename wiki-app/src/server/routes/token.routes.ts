@@ -4,6 +4,9 @@ import { db } from "../db/index.js";
 import { pages, branches } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { createShareLink, createApiToken, resolveToken, checkTokenPassword } from "../services/token.service.js";
+import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
+import { resolveAccess } from "../../shared/permissions/algorithm.js";
+import type { UserContext } from "../../shared/types.js";
 
 // Nullable ISO datetime input, coerced from a JSON string to a Date on the
 // server side. z.coerce.date() is tempting but silently converts null →
@@ -32,6 +35,47 @@ const createApiTokenBody = z.object({
   name: z.string().optional(),
 });
 
+const RANK = { none: 0, viewer: 1, editor: 2, admin: 3 } as const;
+
+/**
+ * A token's scope is taken from the REQUEST BODY, not from the URL - the
+ * route's middleware only checks access on the URL's :branchId (the
+ * authorization witness), so the body's scope must be cross-checked against
+ * the caller's own access. Without this, an editor of one branch could mint a
+ * link/token for any other branch or space (same class of bug as the
+ * pageId/branchId decoupling fixed in page.routes.ts, §5.3). Rule: you can
+ * only create a token for a scope you have editor-level access to, and an
+ * "admin"-permission token requires a GLOBAL admin (a non-admin minting an
+ * account-scoped admin token would otherwise escalate to full admin via the
+ * middleware's `principal.token.permission === "admin"` branch).
+ */
+async function tokenScopeIsPermitted(
+  user: UserContext,
+  scopeType: "branch" | "space" | "account",
+  scopeId: string | null,
+  permission: "view" | "edit" | "admin",
+): Promise<boolean> {
+  if (permission === "admin") return user.isAdmin;
+  if (scopeType === "account") return true; // account-scoped tokens are capped by the creator's real access
+
+  if (scopeType === "branch") {
+    try {
+      const chain = await getBranchChain(scopeId!);
+      const spaceRole = await resolveSpaceRole(user.id, chain[0]!.spaceId, user.groupIds);
+      const access = resolveAccess(user, chain, spaceRole);
+      // Link creation is itself a privileged action - editor floor even for
+      // view-permission tokens, matching the URL witness check.
+      return user.isAdmin || RANK[access] >= RANK.editor;
+    } catch {
+      return false;
+    }
+  }
+
+  // space scope
+  const role = await resolveSpaceRole(user.id, scopeId!, user.groupIds);
+  return user.isAdmin || (role !== null && RANK[role] >= RANK.editor);
+}
+
 export async function tokenRoutes(app: FastifyInstance) {
   // Creating a share link for a branch requires editor access on that exact
   // branch - creating a link is itself a privileged action regardless of the
@@ -41,7 +85,10 @@ export async function tokenRoutes(app: FastifyInstance) {
     { config: { access: { branchParam: "branchId", minRole: "editor" } } },
     async (request, reply) => {
       const body = createShareLinkBody.parse(request.body);
-      const user = (request as any).userContext;
+      const user = (request as any).userContext as UserContext;
+      if (!(await tokenScopeIsPermitted(user, body.scopeType, body.scopeId, body.permission))) {
+        return reply.code(403).send({ error: "Insufficient permissions for this link scope" });
+      }
       try {
         const result = await createShareLink({
           branchOrSpaceId: body.scopeId,
@@ -65,7 +112,10 @@ export async function tokenRoutes(app: FastifyInstance) {
 
   app.post("/api/tokens", { config: { access: "authenticated" } }, async (request, reply) => {
     const body = createApiTokenBody.parse(request.body);
-    const user = (request as any).userContext;
+    const user = (request as any).userContext as UserContext;
+    if (!(await tokenScopeIsPermitted(user, body.scopeType, body.scopeId, body.permission))) {
+      return reply.code(403).send({ error: "Insufficient permissions for this token scope" });
+    }
     try {
       const result = await createApiToken({
         createdBy: user.id,

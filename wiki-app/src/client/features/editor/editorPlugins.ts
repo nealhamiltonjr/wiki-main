@@ -109,6 +109,51 @@ registerSlashCommand({
   },
 });
 
+registerSlashCommand({
+  name: "taskList",
+  group: "Lists",
+  label: "Task list",
+  icon: "☑",
+  description: "Checklist with interactive boxes",
+  command: ({ editor }) => editor.chain().focus().toggleTaskList().run(),
+});
+
+registerSlashCommand({
+  name: "highlight",
+  group: "Text",
+  label: "Highlight",
+  icon: "🖍",
+  description: "Mark text with a highlight color",
+  command: ({ editor }) => editor.chain().focus().toggleHighlight({ color: "#ffe58f" }).run(),
+});
+
+registerSlashCommand({
+  name: "alignLeft",
+  group: "Alignment",
+  label: "Align left",
+  icon: "⇤",
+  description: "Left-align the block",
+  command: ({ editor }) => editor.chain().focus().setTextAlign("left").run(),
+});
+
+registerSlashCommand({
+  name: "alignCenter",
+  group: "Alignment",
+  label: "Align center",
+  icon: "⇔",
+  description: "Center the block",
+  command: ({ editor }) => editor.chain().focus().setTextAlign("center").run(),
+});
+
+registerSlashCommand({
+  name: "alignRight",
+  group: "Alignment",
+  label: "Align right",
+  icon: "⇥",
+  description: "Right-align the block",
+  command: ({ editor }) => editor.chain().focus().setTextAlign("right").run(),
+});
+
 // ---------------------------------------------------------------------------
 // Toolbar buttons — same registry, different consumer
 // ---------------------------------------------------------------------------
@@ -225,4 +270,49 @@ registerToolbarButton({
   group: "blocks",
   isActive: (ed: TiptapEditor) => ed.isActive("codeBlock"),
   onClick: (ed: TiptapEditor) => ed.chain().focus().toggleCodeBlock().run(),
+});
+
+registerToolbarButton({
+  name: "taskList",
+  label: "☑ Task",
+  title: "Task list",
+  group: "blocks",
+  isActive: (ed: TiptapEditor) => ed.isActive("taskList"),
+  onClick: (ed: TiptapEditor) => ed.chain().focus().toggleTaskList().run(),
+});
+
+registerToolbarButton({
+  name: "highlight",
+  label: "🖍 Highlight",
+  title: "Highlight",
+  group: "marks",
+  isActive: (ed: TiptapEditor) => ed.isActive("highlight"),
+  onClick: (ed: TiptapEditor) => ed.chain().focus().toggleHighlight({ color: "#ffe58f" }).run(),
+});
+
+registerToolbarButton({
+  name: "alignLeft",
+  label: "⇤",
+  title: "Align left",
+  group: "align",
+  isActive: (ed: TiptapEditor) => ed.isActive({ textAlign: "left" }),
+  onClick: (ed: TiptapEditor) => ed.chain().focus().setTextAlign("left").run(),
+});
+
+registerToolbarButton({
+  name: "alignCenter",
+  label: "⇔",
+  title: "Align center",
+  group: "align",
+  isActive: (ed: TiptapEditor) => ed.isActive({ textAlign: "center" }),
+  onClick: (ed: TiptapEditor) => ed.chain().focus().setTextAlign("center").run(),
+});
+
+registerToolbarButton({
+  name: "alignRight",
+  label: "⇥",
+  title: "Align right",
+  group: "align",
+  isActive: (ed: TiptapEditor) => ed.isActive({ textAlign: "right" }),
+  onClick: (ed: TiptapEditor) => ed.chain().focus().setTextAlign("right").run(),
 });

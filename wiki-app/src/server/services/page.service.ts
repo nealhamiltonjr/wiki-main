@@ -2,6 +2,13 @@ import { eq, and, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { pages, branches } from "../db/schema.js";
 import { enqueueJob } from "../queue/index.js";
+import { ensureBlockIds, type JSONBlock } from "../../shared/blockIds.js";
+
+/** Fresh page content with every block id'd (Phase 1 backfill, §7.12d-1). */
+export function newPageContent(initial?: unknown): JSONBlock {
+  const base = (initial as JSONBlock | undefined) ?? { type: "doc", content: [{ type: "paragraph" }] };
+  return ensureBlockIds(base);
+}
 
 export async function createPage(opts: {
   slug: string;
@@ -18,7 +25,7 @@ export async function createPage(opts: {
       id: pageId,
       slug: opts.slug,
       ownerId: opts.ownerId,
-      content: (opts.initialContent as any) ?? { type: "doc", content: [{ type: "paragraph" }] },
+      content: newPageContent(opts.initialContent),
     }).run();
     tx.insert(branches).values({
       id: branchId,
@@ -48,9 +55,15 @@ export async function savePageOCC(opts: {
   content: unknown;
   expectedUpdatedAt: Date;
 }): Promise<{ ok: true } | { ok: false; conflict: true }> {
+  // Phase 1 (§7.12): backfill block ids on the server as a safety net. The
+  // live editor always sends id'd content (UniqueID extension), but content
+  // that bypassed a live editor - restored Markdown, template/import content,
+  // hand-crafted JSON - may not have ids yet, and comments/refs/links rely on
+  // them existing for every block.
+  const content = ensureBlockIds(opts.content as JSONBlock);
   const result = await db
     .update(pages)
-    .set({ content: opts.content as any, updatedAt: new Date() })
+    .set({ content: content as any, updatedAt: new Date() })
     .where(and(eq(pages.id, opts.pageId), eq(pages.updatedAt, opts.expectedUpdatedAt)));
 
   // better-sqlite3 via drizzle exposes changes on the raw result

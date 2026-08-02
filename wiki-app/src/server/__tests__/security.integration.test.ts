@@ -257,3 +257,192 @@ describe("API token bearer authentication", () => {
     expect(asBearer.statusCode).toBe(401);
   });
 });
+
+describe("token scope validation - no minting tokens for content you can't access", () => {
+  it("a non-admin cannot create an account-scoped admin token", async () => {
+    const u = await signup("tokesc@example.com");
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/tokens",
+      headers: { cookie: u.cookie },
+      payload: { scopeType: "account", scopeId: null, permission: "admin", expiresAt: FUTURE },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("a user cannot create a branch-scoped token for a branch they have no access to", async () => {
+    const a = await signup("tokescA@example.com");
+    const aSpace = await createSpace(a.cookie, "TokA-space");
+    const page = await createPage(a.cookie, aSpace, "tok-a");
+
+    const b = await signup("tokescB@example.com");
+    await createSpace(b.cookie, "TokB-space");
+
+    const denied = await app.inject({
+      method: "POST",
+      url: "/api/tokens",
+      headers: { cookie: b.cookie },
+      payload: { scopeType: "branch", scopeId: page.branchId, permission: "edit", expiresAt: FUTURE },
+    });
+    expect(denied.statusCode).toBe(403);
+
+    // The owner (space admin) can still mint a token for their own branch.
+    const allowed = await app.inject({
+      method: "POST",
+      url: "/api/tokens",
+      headers: { cookie: a.cookie },
+      payload: { scopeType: "branch", scopeId: page.branchId, permission: "edit", expiresAt: FUTURE },
+    });
+    expect(allowed.statusCode).toBe(201);
+  });
+
+  it("a user cannot create a space-scoped token for a space they have no role in", async () => {
+    const a = await signup("tokescC@example.com");
+    const aSpace = await createSpace(a.cookie, "TokC-space");
+
+    const b = await signup("tokescD@example.com");
+    const bSpace = await createSpace(b.cookie, "TokD-space");
+
+    const denied = await app.inject({
+      method: "POST",
+      url: "/api/tokens",
+      headers: { cookie: b.cookie },
+      payload: { scopeType: "space", scopeId: aSpace, permission: "view", expiresAt: FUTURE },
+    });
+    expect(denied.statusCode).toBe(403);
+
+    const allowed = await app.inject({
+      method: "POST",
+      url: "/api/tokens",
+      headers: { cookie: b.cookie },
+      payload: { scopeType: "space", scopeId: bSpace, permission: "view", expiresAt: FUTURE },
+    });
+    expect(allowed.statusCode).toBe(201);
+  });
+
+  it("share links are cross-checked against the URL's branch - cannot scope to another branch", async () => {
+    const a = await signup("tokescE@example.com");
+    const aSpace = await createSpace(a.cookie, "TokE-space");
+    const page = await createPage(a.cookie, aSpace, "tok-e");
+
+    const b = await signup("tokescF@example.com");
+    const bSpace = await createSpace(b.cookie, "TokF-space");
+
+    // b has editor on... nothing. First prove the URL witness alone is not enough:
+    const denied = await app.inject({
+      method: "POST",
+      url: `/api/branches/${page.branchId}/share-links`,
+      headers: { cookie: b.cookie },
+      payload: { scopeType: "branch", scopeId: page.branchId, permission: "view", expiresAt: FUTURE },
+    });
+    // b has no editor access on the URL branch either, so the middleware denies it.
+    expect(denied.statusCode).toBe(403);
+
+    // Now the real bug class: b is made editor on a DIFFERENT branch they own,
+    // then tries to use that URL as a witness to mint a link for a's branch.
+    const bPage = await createPage(b.cookie, bSpace, "tok-f");
+    const forged = await app.inject({
+      method: "POST",
+      url: `/api/branches/${bPage.branchId}/share-links`,
+      headers: { cookie: b.cookie },
+      payload: { scopeType: "branch", scopeId: page.branchId, permission: "view", expiresAt: FUTURE },
+    });
+    expect(forged.statusCode).toBe(403); // scopeId != URL branch, no editor access on target
+  });
+
+  it("minting an admin token still works for a global admin (no regression)", async () => {
+    const owner = await signup("tokescG@example.com");
+    const { db } = await import("../db/index.js");
+    const { users } = await import("../db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await db.update(users).set({ isAdmin: true }).where(eq(users.id, owner.userId));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/tokens",
+      headers: { cookie: owner.cookie },
+      payload: { scopeType: "account", scopeId: null, permission: "admin", expiresAt: FUTURE },
+    });
+    expect(res.statusCode).toBe(201);
+  });
+});
+
+describe("MCP tools enforce the same permissions as REST routes", () => {
+  function mcpCall(cookie: string, name: string, args: Record<string, unknown> = {}) {
+    return app.inject({
+      method: "POST",
+      url: "/api/mcp",
+      headers: { cookie },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
+    });
+  }
+
+  function resultOf(res: { statusCode: number; body: string }) {
+    return JSON.parse(JSON.parse(res.body).result.content[0].text);
+  }
+
+  it("list_spaces only returns spaces the caller can access", async () => {
+    const a = await signup("mcpa@example.com");
+    const aSpace = await createSpace(a.cookie, "A-space");
+    await createPage(a.cookie, aSpace, "a-page");
+
+    const b = await signup("mcpb@example.com");
+    await createSpace(b.cookie, "B-space");
+
+    const forB = await mcpCall(b.cookie, "list_spaces");
+    expect(forB.statusCode).toBe(200);
+    const names = resultOf(forB).map((s: { name: string }) => s.name);
+    expect(names).toContain("B-space");
+    expect(names).not.toContain("A-space");
+  });
+
+  it("get_page hides branches the caller cannot view (404, no existence leak)", async () => {
+    const a = await signup("mcpc@example.com");
+    const aSpace = await createSpace(a.cookie, "C-space");
+    const page = await createPage(a.cookie, aSpace, "c-page");
+
+    const b = await signup("mcpd@example.com");
+    await createSpace(b.cookie, "D-space");
+
+    const hidden = await mcpCall(b.cookie, "get_page", { branchId: page.branchId });
+    expect(hidden.statusCode).toBe(200);
+    expect(JSON.parse(hidden.body).error).toBeDefined();
+
+    const visible = await mcpCall(a.cookie, "get_page", { branchId: page.branchId });
+    expect(visible.statusCode).toBe(200);
+    expect(resultOf(visible).slug).toBe("c-page");
+  });
+
+  it("create_page requires editor access on the target space", async () => {
+    const a = await signup("mcpe@example.com");
+    const aSpace = await createSpace(a.cookie, "E-space");
+
+    const b = await signup("mcpf@example.com");
+    await createSpace(b.cookie, "F-space");
+
+    const denied = await mcpCall(b.cookie, "create_page", { slug: "x", title: "X", spaceId: aSpace, content: "" });
+    expect(denied.statusCode).toBe(200);
+    expect(JSON.parse(denied.body).error).toBeDefined();
+
+    const allowed = await mcpCall(a.cookie, "create_page", { slug: "ok", title: "OK", spaceId: aSpace, content: "hi" });
+    expect(allowed.statusCode).toBe(200);
+    expect(JSON.parse(allowed.body).error).toBeUndefined();
+  });
+
+  it("get_page_tree hides spaces the caller has no role in", async () => {
+    const a = await signup("mcpg@example.com");
+    const aSpace = await createSpace(a.cookie, "G-space");
+    await createPage(a.cookie, aSpace, "g-page");
+
+    const b = await signup("mcph@example.com");
+    await createSpace(b.cookie, "H-space");
+
+    const hidden = await mcpCall(b.cookie, "get_page_tree", { spaceId: aSpace });
+    expect(hidden.statusCode).toBe(200);
+    expect(JSON.parse(hidden.body).error).toBeDefined();
+
+    const visible = await mcpCall(a.cookie, "get_page_tree", { spaceId: aSpace });
+    expect(visible.statusCode).toBe(200);
+    expect(resultOf(visible).length).toBeGreaterThan(0);
+  });
+});

@@ -28,9 +28,14 @@ export const SlashCommandExtension = Extension.create({
         allow: ({ state }: { state: any }) => {
           const { $from } = state.selection;
           const text = $from.parent.textBetween(0, $from.parentOffset, undefined, "\ufffc");
-          // Allow slash at start of line or after whitespace
-          const lastChar = text.slice(-2, -1);
-          return lastChar === "" || lastChar === " " || lastChar === "\n";
+          // Allow slash at start of line or after whitespace. Check the
+          // character BEFORE the slash - inspecting the char before the cursor
+          // breaks once a query of length >= 2 is typed (the menu would close
+          // on "/ta", "/task", ...).
+          const slashIndex = text.lastIndexOf("/");
+          if (slashIndex === -1) return false;
+          const beforeSlash = slashIndex === 0 ? "" : text[slashIndex - 1];
+          return beforeSlash === "" || beforeSlash === " " || beforeSlash === "\n";
         },
         items: ({ query }: { query: string }): SlashCommand[] => {
           const all = getSlashCommands();
@@ -62,6 +67,11 @@ function createReactRenderer() {
   let popupEl: HTMLElement | null = null;
   let selectedIndex = 0;
   let items: SlashCommand[] = [];
+  // Latest suggestion props. The pick handler must use the CURRENT range
+  // (updated on each keystroke), not the range from when the menu opened -
+  // otherwise clicking an item with a multi-char query deletes only the "/"
+  // and leaves the typed query behind.
+  let latestProps: any = null;
 
   function renderPopup() {
     if (!root) return;
@@ -79,6 +89,7 @@ function createReactRenderer() {
 
   return {
     onStart: (props: any) => {
+      latestProps = props;
       items = props.items;
       selectedIndex = 0;
       popupEl = document.createElement("div");
@@ -94,13 +105,14 @@ function createReactRenderer() {
       root = createRoot(popupEl);
 
       popupEl.addEventListener("slash-command-pick", ((e: CustomEvent) => {
-        props.command(e.detail);
+        latestProps?.command(e.detail);
       }) as EventListener);
 
       renderPopup();
     },
 
     onUpdate: (props: any) => {
+      latestProps = props;
       items = props.items;
       selectedIndex = 0;
       renderPopup();
@@ -130,6 +142,7 @@ function createReactRenderer() {
     },
 
     onExit: () => {
+      latestProps = null;
       if (root) {
         root.unmount();
         root = null;

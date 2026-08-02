@@ -114,12 +114,21 @@ export const groupPermissions = sqliteTable("group_permissions", {
 // {from, to} ProseMirror positions — the Comment extension stores these as
 // marks so they're embedded in the Tiptap JSON; the DB copy is the
 // authoritative record for rendering the sidebar panel independent of content.
+// Since Phase 1 (§7.12) every block node carries an `id` attribute, so a thread
+// is ALSO anchored to the containing block id: when earlier edits shift the
+// character range, the highlight can be re-anchored to the block's current
+// range instead of drifting into unrelated text.
 // ---------------------------------------------------------------------------
 export const commentThreads = sqliteTable("comment_threads", {
   id: id(),
   pageId: text("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
+  blockId: text("block_id"),
   rangeFrom: integer("range_from").notNull(),
   rangeTo: integer("range_to").notNull(),
+  // The exact text the thread is anchored to, captured at creation time
+  // (mirrors Docmost's comment `selection` field). Lets the comment panel show
+  // what a note references even when the highlight range has drifted.
+  selection: text("selection"),
   resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
   resolvedBy: text("resolved_by").references(() => users.id),
   createdBy: text("created_by").notNull().references(() => users.id),

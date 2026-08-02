@@ -15,13 +15,22 @@ const start = async () => {
     await app.listen({ port: 3000, host: "0.0.0.0" });
 
     // Attach a WebSocketServer to the existing HTTP server and forward
-    // collaboration connections to Hocuspocus.
+    // collaboration connections to Hocuspocus. Hocuspocus v4 does NOT wire up
+    // the socket's message/close events itself when used with a bare `ws`
+    // server - that's handled by its internal crossws adapter - so we must
+    // forward them to the returned ClientConnection explicitly.
     const wss = new WebSocketServer({ noServer: true });
     app.server.on("upgrade", (request, socket, head) => {
       const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
       if (url.pathname === "/api/collaboration") {
         wss.handleUpgrade(request, socket, head, (ws) => {
-          hocuspocus.handleConnection(ws, request as any);
+          const connection = hocuspocus.handleConnection(ws, request as any);
+          ws.on("message", (data) => {
+            const bytes = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as Buffer);
+            connection.handleMessage(bytes);
+          });
+          ws.on("close", (code, reason) => connection.handleClose({ code, reason: reason.toString() }));
+          ws.on("error", (err) => log("error", "collab-ws", "websocket error", { error: String(err) }));
         });
       }
     });

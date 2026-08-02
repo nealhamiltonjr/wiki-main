@@ -56,6 +56,12 @@ function blockToMarkdown(node: PMNode, listDepth = 0): string {
         .map((li) => listItemToMarkdown(li, listDepth, `${i++}.`))
         .join("\n");
     }
+    case "taskList":
+      return (node.content ?? [])
+        .map((li) => taskItemToMarkdown(li, listDepth))
+        .join("\n");
+    case "taskItem":
+      return taskItemToMarkdown(node, listDepth);
     case "horizontalRule":
       return "---";
     case "image": {
@@ -81,6 +87,21 @@ function listItemToMarkdown(li: PMNode, depth: number, marker: string): string {
   return `${indent}${marker} ${firstLine}` + (rest ? `\n${rest}` : "");
 }
 
+function taskItemToMarkdown(li: PMNode, depth: number): string {
+  const indent = "  ".repeat(depth);
+  const checked = Boolean(li.attrs?.checked);
+  const inner = (li.content ?? [])
+    .map((c) =>
+      c.type === "taskList" || c.type === "bulletList" || c.type === "orderedList"
+        ? blockToMarkdown(c, depth + 1)
+        : inlineToMarkdown(c.content),
+    )
+    .join("\n");
+  const firstLine = inner.split("\n")[0] ?? "";
+  const rest = inner.split("\n").slice(1).join("\n");
+  return `${indent}- [${checked ? "x" : " "}] ${firstLine}` + (rest ? `\n${rest}` : "");
+}
+
 function inlineToMarkdown(nodes: PMNode[] | undefined): string {
   if (!nodes) return "";
   return nodes.map(inlineNodeToMarkdown).join("");
@@ -97,6 +118,7 @@ function inlineNodeToMarkdown(node: PMNode): string {
       case "italic": text = `*${text}*`; break;
       case "code": text = `\`${text}\``; break;
       case "link": text = `[${text}](${mark.attrs?.href ?? ""})`; break;
+      case "highlight": text = `==${text}==`; break;
     }
   }
   return text;
@@ -179,6 +201,16 @@ export function markdownToTiptap(markdown: string): PMNode {
       continue;
     }
 
+    // task list item(s) - "- [ ]" / "- [x]" - collect consecutive items
+    if (/^[-*]\s+\[[ xX]\]\s+/.test(line)) {
+      const items = collectListItems(lines, i, /^[-*]\s+\[[ xX]\]\s+/, "taskItem", (_stripped, marker) => ({
+        checked: marker.includes("[x]") || marker.includes("[X]"),
+      }));
+      i = items.nextIndex;
+      blocks.push({ type: "taskList", content: items.nodes });
+      continue;
+    }
+
     // bullet list item(s) - collect consecutive items
     if (/^[-*]\s+/.test(line)) {
       const items = collectListItems(lines, i, /^[-*]\s+/);
@@ -236,7 +268,13 @@ function isBlockStart(line: string): boolean {
 
 type ListItemAcc = { nodes: PMNode[]; nextIndex: number };
 
-function collectListItems(lines: string[], start: number, markerRe: RegExp): ListItemAcc {
+function collectListItems(
+  lines: string[],
+  start: number,
+  markerRe: RegExp,
+  itemType: "listItem" | "taskItem" = "listItem",
+  makeAttrs?: (stripped: string, marker: string) => Record<string, unknown>,
+): ListItemAcc {
   const items: PMNode[] = [];
   let i = start;
 
@@ -260,27 +298,35 @@ function collectListItems(lines: string[], start: number, markerRe: RegExp): Lis
 
     if (lines[i]!.trim() === "") { i++; continue; }
 
-    const stripped = lines[i]!.replace(markerRe, "");
-    const itemContent: PMNode[] = [];
+    const match = lines[i]!.match(markerRe);
+    if (!match) break; // not a list item - stop collecting
+    const marker = match[0];
+    const stripped = lines[i]!.slice(marker.length);
 
-    // collect continuation lines for this list item
+    // collect continuation lines for this list item (must be indented, so a
+    // following unindented paragraph is NOT swallowed into the item)
     const itemLines = [stripped];
     i++;
     while (i < lines.length && lines[i]!.trim() !== "" &&
            !markerRe.test(lines[i]!) && !isBlockStart(lines[i]!) &&
-           !lines[i]!.startsWith("  ")) {
-      itemLines.push(lines[i]!);
+           (lines[i]!.startsWith("  ") || lines[i]!.startsWith("\t"))) {
+      itemLines.push(lines[i]!.replace(/^  /, "").replace(/^\t/, ""));
       i++;
     }
 
+    const attrs = makeAttrs ? makeAttrs(stripped, marker) : undefined;
+    const base = attrs ? { type: itemType, attrs, content: [] as PMNode[] } : { type: itemType, content: [] as PMNode[] };
+
     if (itemLines.length === 1) {
-      items.push({ type: "listItem", content: [{ type: "paragraph", content: parseInline(itemLines[0]!) }] });
+      base.content = [{ type: "paragraph", content: parseInline(itemLines[0]!) }];
+      items.push(base);
     } else {
       const paras: PMNode[] = [];
       for (const il of itemLines) {
         paras.push({ type: "paragraph", content: parseInline(il) });
       }
-      items.push({ type: "listItem", content: paras });
+      base.content = paras;
+      items.push(base);
     }
   }
 
@@ -296,6 +342,10 @@ function parseInline(text: string): PMNode[] {
     // bold **...**
     const bold = matchDelimited(text, pos, "**");
     if (bold) { nodes.push(...markedText(bold.inner, "bold")); pos = bold.end; continue; }
+
+    // highlight ==...==
+    const highlight = matchDelimited(text, pos, "==");
+    if (highlight) { nodes.push(...markedText(highlight.inner, "highlight")); pos = highlight.end; continue; }
 
     // italic *...* (single asterisk, not part of **)
     const italic = matchDelimited(text, pos, "*");
@@ -329,15 +379,20 @@ function parseInline(text: string): PMNode[] {
     }
 
     // plain text until next special char
-    const next = text.slice(pos).search(/[*`\[!]/);
+    const next = text.slice(pos).search(/[*`\[!=]/);
     if (next === -1) {
       nodes.push({ type: "text", text: text.slice(pos) });
       break;
     }
-    if (next > 0) {
-      nodes.push({ type: "text", text: text.slice(pos, pos + next) });
+    if (next === 0) {
+      // Unmatched special char (lone "=", "!", "[", "*", "`" that isn't a
+      // valid mark/image/link) — emit it literally so parsing always advances.
+      nodes.push({ type: "text", text: text[pos]! });
+      pos += 1;
+      continue;
     }
-    pos += Math.max(next, 0);
+    nodes.push({ type: "text", text: text.slice(pos, pos + next) });
+    pos += next;
   }
 
   return nodes;

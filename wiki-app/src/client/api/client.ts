@@ -28,7 +28,10 @@ export interface HistoryEntry { hash: string; message: string; date: string }
 export interface FileUploadResult { id: string; filename: string }
 export interface ShareLinkResult { id: string; token: string }
 export interface CommentThread {
-  id: string; pageId: string; rangeFrom: number; rangeTo: number;
+  id: string; pageId: string;
+  blockId: string | null;
+  rangeFrom: number; rangeTo: number;
+  selection: string | null;
   resolvedAt: string | null; resolvedBy: string | null; createdBy: string;
   createdAt: string; comments: Comment[];
 }
@@ -76,12 +79,32 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ scopeType: "branch", scopeId: branchId, ...opts }),
     }),
+  // Page/branch management (§7.1)
+  renamePage: (pageId: string, branchId: string, slug: string) =>
+    request<{ ok: true; slug: string }>(`/api/pages/${pageId}/branches/${branchId}/slug`, {
+      method: "PUT",
+      body: JSON.stringify({ slug }),
+    }),
+  cloneBranch: (branchId: string, opts: { targetSpaceId: string; targetParentBranchId: string | null }) =>
+    request<{ branchId: string; pageId: string }>(`/api/branches/${branchId}/clone`, {
+      method: "POST",
+      body: JSON.stringify(opts),
+    }),
+  moveBranch: (branchId: string, newParentBranchId: string | null) =>
+    request<{ ok: true }>(`/api/branches/${branchId}/move`, {
+      method: "PUT",
+      body: JSON.stringify({ newParentBranchId }),
+    }),
+  removePlacement: (branchId: string) =>
+    request<{ ok: true }>(`/api/branches/${branchId}`, { method: "DELETE" }),
+  deletePageEverywhere: (pageId: string, branchId: string) =>
+    request<{ ok: true }>(`/api/pages/${pageId}?branchId=${encodeURIComponent(branchId)}`, { method: "DELETE" }),
   // Comments (§7.6)
   getComments: (branchId: string) => request<CommentThread[]>(`/api/branches/${branchId}/comments`),
-  createCommentThread: (branchId: string, rangeFrom: number, rangeTo: number, body: string) =>
+  createCommentThread: (branchId: string, rangeFrom: number, rangeTo: number, body: string, opts?: { selection?: string; blockId?: string }) =>
     request<{ threadId: string }>(`/api/branches/${branchId}/comments`, {
       method: "POST",
-      body: JSON.stringify({ rangeFrom, rangeTo, body }),
+      body: JSON.stringify({ rangeFrom, rangeTo, body, ...opts }),
     }),
   addCommentReply: (branchId: string, threadId: string, body: string) =>
     request<Comment>(`/api/branches/${branchId}/comments/${threadId}`, {

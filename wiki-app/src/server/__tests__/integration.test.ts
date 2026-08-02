@@ -1,11 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execSync } from "node:child_process";
 import { rmSync, existsSync, mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 
 const TEST_DB_PATH = "./data/test-integration.db";
 const TEST_REPO_ROOT = "./data/test-integration-repo";
 const TEST_FILES_ROOT = "./data/test-integration-files";
+const TEST_DIST_DIR = resolve("./data/test-dist");
 
 process.env.DB_PATH = TEST_DB_PATH;
 process.env.GIT_REPO_ROOT = TEST_REPO_ROOT;
@@ -161,7 +163,12 @@ describe("production static serving - regression test for the original bug", () 
   let prodApp: FastifyInstance;
 
   beforeAll(async () => {
-    execSync("npx vite build", { stdio: "pipe" });
+    // Build into an isolated dir (WIKI_DIST_DIR) - NOT the real dist/, which
+    // a live deployment's production server reads from disk at request time.
+    // The original test built to ./dist and then deleted the whole directory
+    // in afterAll, which silently destroyed a running deployment's SPA shell.
+    process.env.WIKI_DIST_DIR = TEST_DIST_DIR;
+    execSync(`npx vite build --outDir ${TEST_DIST_DIR}`, { stdio: "pipe" });
     process.env.NODE_ENV = "production";
     const { buildApp } = await import("../app.js");
     prodApp = await buildApp();
@@ -171,7 +178,8 @@ describe("production static serving - regression test for the original bug", () 
   afterAll(async () => {
     await prodApp.close();
     process.env.NODE_ENV = "";
-    rmSync("./dist", { recursive: true, force: true });
+    process.env.WIKI_DIST_DIR = "";
+    rmSync(TEST_DIST_DIR, { recursive: true, force: true });
   });
 
   it("serves the SPA shell at the root", async () => {
@@ -458,5 +466,126 @@ describe("account-scope validation on share links", () => {
       payload: { scopeType: "account", scopeId: "x", permission: "view", expiresAt: "2027-01-01T00:00:00Z" },
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 1 (§7.12d-1): block IDs + block-anchored comments
+// ---------------------------------------------------------------------------
+describe("block IDs + block-anchored comments (Phase 1)", () => {
+  async function makePage(email: string, slug: string) {
+    const signup = await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-up/email",
+      payload: { email, password: "correct-horse-battery-staple", name: email.split("@")[0] },
+    });
+    const cookie = extractCookie(signup.headers["set-cookie"]);
+    const space = await app.inject({ method: "POST", url: "/api/spaces", headers: { cookie }, payload: { name: "P1" } });
+    const spaceId = JSON.parse(space.body).id;
+    const page = await app.inject({
+      method: "POST",
+      url: "/api/pages",
+      headers: { cookie },
+      payload: { slug, spaceId, parentBranchId: null },
+    });
+    const { pageId, branchId } = JSON.parse(page.body);
+    return { cookie, pageId, branchId };
+  }
+
+  it("a fresh page's default content has a block id on every block node", async () => {
+    const { cookie, branchId } = await makePage("blockdefault@example.com", "default-page");
+    const fetched = await app.inject({ method: "GET", url: `/api/branches/${branchId}/page`, headers: { cookie } });
+    const { content } = JSON.parse(fetched.body);
+    expect(content.content[0].attrs.id).toBeTruthy();
+  });
+
+  it("saving content WITHOUT ids backfills them (restore/import path)", async () => {
+    const { cookie, pageId, branchId } = await makePage("blockbackfill@example.com", "backfill-page");
+    const fetched = await app.inject({ method: "GET", url: `/api/branches/${branchId}/page`, headers: { cookie } });
+    const { updatedAt } = JSON.parse(fetched.body);
+
+    const save = await app.inject({
+      method: "PUT",
+      url: `/api/pages/${pageId}/branches/${branchId}`,
+      headers: { cookie },
+      payload: {
+        content: {
+          type: "doc",
+          content: [
+            { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "H" }] },
+            { type: "paragraph", content: [{ type: "text", text: "Body" }] },
+          ],
+        },
+        expectedUpdatedAt: updatedAt,
+      },
+    });
+    expect(save.statusCode).toBe(200);
+
+    const refetched = await app.inject({ method: "GET", url: `/api/branches/${branchId}/page`, headers: { cookie } });
+    const { content } = JSON.parse(refetched.body);
+    const ids = content.content.map((b: any) => b.attrs?.id);
+    expect(ids.every(Boolean)).toBe(true);
+    expect(ids[0]).not.toBe(ids[1]);
+  });
+
+  it("saving content WITH ids preserves them exactly (id stability)", async () => {
+    const { cookie, pageId, branchId } = await makePage("blockstable@example.com", "stable-page");
+    const fetched = await app.inject({ method: "GET", url: `/api/branches/${branchId}/page`, headers: { cookie } });
+    const { updatedAt } = JSON.parse(fetched.body);
+
+    const content = {
+      type: "doc",
+      content: [
+        { type: "paragraph", attrs: { id: "fixed-block-1" }, content: [{ type: "text", text: "hello" }] },
+      ],
+    };
+    const save = await app.inject({
+      method: "PUT",
+      url: `/api/pages/${pageId}/branches/${branchId}`,
+      headers: { cookie },
+      payload: { content, expectedUpdatedAt: updatedAt },
+    });
+    expect(save.statusCode).toBe(200);
+
+    const refetched = await app.inject({ method: "GET", url: `/api/branches/${branchId}/page`, headers: { cookie } });
+    const { content: saved } = JSON.parse(refetched.body);
+    expect(saved.content[0].attrs.id).toBe("fixed-block-1");
+  });
+
+  it("a comment thread captures and returns its containing block id", async () => {
+    const { cookie, pageId, branchId } = await makePage("blockcomment@example.com", "comment-page");
+    const fetched = await app.inject({ method: "GET", url: `/api/branches/${branchId}/page`, headers: { cookie } });
+    const { content } = JSON.parse(fetched.body);
+    const blockId = content.content[0].attrs.id as string;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/branches/${branchId}/comments`,
+      headers: { cookie },
+      payload: { rangeFrom: 1, rangeTo: 5, body: "note", selection: "text", blockId },
+    });
+    expect(created.statusCode).toBe(201);
+    const { threadId } = JSON.parse(created.body);
+
+    const threads = await app.inject({ method: "GET", url: `/api/branches/${branchId}/comments`, headers: { cookie } });
+    const list = JSON.parse(threads.body);
+    const thread = list.find((t: any) => t.id === threadId);
+    expect(thread).toBeTruthy();
+    expect(thread.blockId).toBe(blockId);
+    expect(thread.pageId).toBe(pageId);
+  });
+
+  it("comments without a blockId are still accepted (pre-Phase-1 clients)", async () => {
+    const { cookie, branchId } = await makePage("blocklegacy@example.com", "legacy-comment-page");
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/branches/${branchId}/comments`,
+      headers: { cookie },
+      payload: { rangeFrom: 1, rangeTo: 2, body: "old-style" },
+    });
+    expect(created.statusCode).toBe(201);
+    const threads = await app.inject({ method: "GET", url: `/api/branches/${branchId}/comments`, headers: { cookie } });
+    const list = JSON.parse(threads.body);
+    expect(list[0].blockId).toBeNull();
   });
 });
