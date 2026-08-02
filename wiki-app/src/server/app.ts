@@ -26,6 +26,7 @@ import { publicRoutes } from "./routes/public.routes.js";
 import { exportRoutes } from "./routes/export.routes.js";
 import { backlinkRoutes } from "./routes/backlink.routes.js";
 import { attributeRoutes } from "./routes/attribute.routes.js";
+import { searchRoutes } from "./routes/search.routes.js";
 import { authRoutes } from "./auth/routes.js";
 import { registerPermissionMiddleware } from "./middleware/permissions.js";
 
@@ -101,6 +102,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(exportRoutes);
   await app.register(backlinkRoutes);
   await app.register(attributeRoutes);
+  await app.register(searchRoutes);
   await app.register(publicRoutes);
 
   // Production only - in dev, Vite's own server (with its /api proxy) serves the

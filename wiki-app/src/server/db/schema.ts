@@ -281,3 +281,10 @@ export const attributes = sqliteTable("attributes", {
   position: integer("position").notNull().default(0),
   ...timestamps,
 });
+
+// ---------------------------------------------------------------------------
+// FTS5 full-text search (§7.12d.2)
+// Virtual table, created via raw SQL at boot (see db/index.ts). External-
+// content FTS so we store the text separately and keep FTS in sync via
+// INSERT/REPLACE on every page save.
+// ---------------------------------------------------------------------------

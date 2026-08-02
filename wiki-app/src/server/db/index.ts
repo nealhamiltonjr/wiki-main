@@ -8,3 +8,16 @@ sqlite.pragma("foreign_keys = ON"); // SQLite doesn't enforce FKs by default - t
 
 export const db = drizzle(sqlite, { schema });
 export { sqlite };
+
+// ---------------------------------------------------------------------------
+// FTS5 full-text search — virtual table (§7.12d.2)
+// Created at module load so it's always available, even in tests.
+// ---------------------------------------------------------------------------
+sqlite.exec(`
+  CREATE VIRTUAL TABLE IF NOT EXISTS page_fts USING fts5(
+    page_id UNINDEXED,
+    title,
+    body,
+    tokenize='porter unicode61'
+  )
+`);

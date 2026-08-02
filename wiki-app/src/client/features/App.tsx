@@ -6,6 +6,7 @@ import { Editor } from "./editor/Editor.js";
 import { Settings } from "./settings/Settings.js";
 import { useTheme } from "./theme/ThemeContext.js";
 import { PublicView } from "./public/PublicView.js";
+import { CommandPalette } from "./search/CommandPalette.js";
 import { useState, useEffect } from "react";
 
 function Sidebar() {
@@ -107,6 +108,7 @@ export default function App() {
           } />
         </Routes>
       </div>
+      <CommandPalette />
     </div>
   );
 }
