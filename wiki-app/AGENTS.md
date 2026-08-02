@@ -9,7 +9,7 @@ export, real-time collab (Hocuspocus/Yjs), group/space permissions. See
 - `npm run dev:server` — API + WebSocket on :3000 (`tsx watch`)
 - `npm run dev:client` — Vite on :5173 (proxies /api to :3000)
 - `npm run typecheck` — `tsc --noEmit`
-- `npm test` — vitest (13 files, 129 tests)
+- `npm test` — vitest (18 files, 149 tests)
 - `npm run build:client` — vite build
 
 ## Server boot requirements
@@ -48,18 +48,24 @@ Dev server started for UI work:
 
 - `src/shared/` — shared between client+server: `settings.ts` +
   `settings-registry.ts` (declarative setting defs), `blockIds.ts`
-  (UniqueID backfill), Tiptap helpers.
+  (UniqueID backfill), Tiptap helpers, `permissions/` (access algorithm).
 - `src/server/` — Fastify app (`app.ts`), better-auth (`auth/`), Drizzle
   schema (`db/`), Hocuspocus collab server, queue worker (`queue/worker.ts`
   handles `git_push`, `git_pull`, `git_import`, snapshots), services
-  (`services/`: git, settings, markdown, crypto, log, user-settings).
+  (`services/`: git, settings, markdown, crypto, log, search, notification,
+  mention, collab, backlink, attribute, export, etc.).
 - `src/server/routes/` — Fastify route plugins. `config.access: "admin"`
   gates admin routes. git.routes.ts: status/log/test-remote read-only;
   push/pull enqueue queue jobs (never run inline).
 - `src/client/` — React SPA. `api/client.ts` is the typed API wrapper
   (all new endpoints must be added there). `features/settings/` has
-  `AdminSettings` (registry-driven sections), `GitSection`, `SettingRow`.
-  `theme.css` holds design tokens + settings/git styles.
+  `AdminSettings` (registry-driven sections), `GitSection`, `SettingRow`,
+  `ClipperSection`. `theme.css` holds design tokens + all component styles.
+- Editor features: `Editor.tsx` (main page view with toolbar, bubble menu,
+  drag-handle, search-replace, comment panel, permissions dialog, backlinks,
+  attributes, collab toggle), `CommandPalette.tsx` (Cmd+K global search),
+  `NotificationBell.tsx` (bell icon + dropdown feed), `wikiLinkExtension.tsx`
+  ([[page]] linking), `slashCommandExtension.tsx` (/slash commands).
 
 ## Settings framework (§7.10b) conventions
 
