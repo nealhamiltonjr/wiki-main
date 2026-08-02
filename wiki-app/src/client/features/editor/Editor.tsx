@@ -17,6 +17,7 @@ import { useSession } from "../../api/authClient.js";
 import { DragHandleMenu, blockAtPos, type BlockAnchor } from "./DragHandleMenu.js";
 import { SearchReplacePopup } from "./SearchReplacePopup.js";
 import { handleMarkdownPaste } from "./paste.js";
+import { NotificationBell } from "./NotificationBell.js";
 
 const USER_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#be185d", "#4f46e5"];
 
@@ -394,6 +395,7 @@ export function Editor({ branchId }: { branchId: string }) {
         <span className="wiki-page-slug">/{page.slug}</span>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <StatusLabel status={status} />
+          <NotificationBell />
           <button onClick={toggleWidth} className="wiki-page-action" title="Toggle full-width / narrow reading width">
             {editorWidth === "full" ? "Narrow view" : "Full width"}
           </button>

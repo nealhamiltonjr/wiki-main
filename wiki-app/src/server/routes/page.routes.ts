@@ -7,6 +7,7 @@ import { createPage, savePageOCC, createSnapshot } from "../services/page.servic
 import { getPageHistory, getFileContentAtCommit } from "../services/git.service.js";
 import { refreshBacklinks } from "../services/backlink.service.js";
 import { indexPage, extractTitle } from "../services/search.service.js";
+import { processMentions } from "../services/mention.service.js";
 import { markdownToTiptap } from "../services/markdown.service.js";
 import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
 import { getTemplateContent } from "../services/template.service.js";
@@ -127,6 +128,9 @@ export async function pageRoutes(app: FastifyInstance) {
       if (!result.ok) return reply.code(409).send({ error: "conflict", message: "Reload the latest version" });
       await refreshBacklinks(pageId, body.content);
       await indexPage(pageId, extractTitle(body.content), body.content);
+      // Fire-and-forget: mention processing must not block the save response.
+      const title = extractTitle(body.content);
+      processMentions(pageId, branchId, title, (request as any).userContext?.id, body.content).catch(() => {});
       return reply.send({ ok: true });
     }
   );

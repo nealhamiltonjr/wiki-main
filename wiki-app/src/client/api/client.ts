@@ -187,4 +187,10 @@ export const api = {
     request<{ resolved: boolean }>(`/api/comment-threads/${threadId}/resolve`, { method: "PUT" }),
   /** Search wiki pages via FTS5 (§7.12d.2). */
   search: (q: string) => request<{ results: unknown[] }>(`/api/search?q=${encodeURIComponent(q)}`),
+
+  /** Notifications (§7.12d.4). */
+  getNotifications: () => request<{ items: unknown[]; unread: number }>("/api/notifications"),
+  markNotificationRead: (id: string) => request<{ ok: true }>(`/api/notifications/${encodeURIComponent(id)}/read`, { method: "PUT" }),
+  markAllNotificationsRead: () => request<{ ok: true }>("/api/notifications/read-all", { method: "PUT" }),
+  getUnreadNotificationCount: () => request<{ unread: number }>("/api/notifications/unread-count"),
 };

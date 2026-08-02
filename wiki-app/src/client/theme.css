@@ -1620,6 +1620,44 @@ span[data-comment-id].wiki-comment-flash {
 .suggestion-empty { padding: 8px 12px; color: var(--color-text-muted); font-size: var(--font-size-sm); }
 
 /* ============================================================
+   Notifications (§7.12d.4)
+   ============================================================ */
+.bell-wrap { position: relative; }
+.bell-btn { position: relative; }
+.bell-badge {
+  position: absolute; top: -6px; right: -8px;
+  background: var(--color-danger, #dc2626); color: #fff;
+  border-radius: 10px; font-size: 11px; padding: 1px 6px;
+  min-width: 18px; text-align: center; line-height: 1.4;
+}
+.bell-dropdown {
+  position: absolute; right: 0; top: 100%; z-index: 500;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 10px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+  width: 360px; max-height: 420px; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.bell-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 14px; border-bottom: 1px solid var(--color-border);
+}
+.bell-list { overflow-y: auto; flex: 1; }
+.bell-empty { padding: 24px 14px; color: var(--color-text-muted); text-align: center; }
+.bell-item {
+  display: flex; gap: 8px; align-items: flex-start;
+  width: 100%; text-align: left; border: none; border-bottom: 1px solid var(--color-border);
+  padding: 10px 14px; background: transparent;
+  color: var(--color-text); cursor: pointer; font-size: var(--font-size-sm);
+  font-family: var(--font-sans);
+}
+.bell-item.unread { background: var(--color-primary-bg, rgba(37, 99, 235, 0.04)); font-weight: 500; }
+.bell-item:hover { background: var(--color-surface-hover, #f3f4f6); }
+.bell-kind { font-size: 16px; flex-shrink: 0; }
+.bell-body { flex: 1; line-height: 1.35; }
+.bell-time { color: var(--color-text-muted); font-size: 11px; flex-shrink: 0; white-space: nowrap; }
+
+/* ============================================================
    Generic utility / layout helpers
    ============================================================ */
 .loading-page {

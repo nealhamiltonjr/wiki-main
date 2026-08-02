@@ -283,6 +283,19 @@ export const attributes = sqliteTable("attributes", {
 });
 
 // ---------------------------------------------------------------------------
+// Notifications (§7.12d.4) — in-app feed + optional email delivery
+// ---------------------------------------------------------------------------
+export const notifications = sqliteTable("notifications", {
+  id: id(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  kind: text("kind", { enum: ["mention", "system", "share_warning"] }).notNull().default("mention"),
+  payload: text("payload", { mode: "json" }).notNull(),
+  readAt: integer("read_at", { mode: "timestamp_ms" }),
+  emailedAt: integer("emailed_at", { mode: "timestamp_ms" }),
+  ...timestamps,
+});
+
+// ---------------------------------------------------------------------------
 // FTS5 full-text search (§7.12d.2)
 // Virtual table, created via raw SQL at boot (see db/index.ts). External-
 // content FTS so we store the text separately and keep FTS in sync via
