@@ -1,15 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { eq, and, isNull, sql } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { spaces, spaceMembers, spaceGroupPermissions, branches, pages } from "../db/schema.js";
-
-interface TreeNode {
-  id: string;
-  pageId: string;
-  slug: string;
-  children: TreeNode[];
-}
+import { buildSpaceTree, resolveSpaceRole } from "../services/branch.service.js";
+import type { UserContext } from "../../shared/types.js";
 
 const createSpaceBody = z.object({ name: z.string().min(1) });
 
@@ -53,27 +48,21 @@ export async function spaceRoutes(app: FastifyInstance) {
     return reply.send([...byId.values()]);
   });
 
+  // Per-space tree listing. Access is space-scoped; per-node permission pruning
+  // (restricted-ancestor integration, §7.12g) is shared with the branch-scoped
+  // tree endpoint via buildSpaceTree so the two can never drift.
   app.get(
     "/api/spaces/:spaceId/tree",
     { config: { access: { spaceParam: "spaceId", minRole: "viewer" } } },
     async (request, reply) => {
       const { spaceId } = request.params as { spaceId: string };
+      const user = (request as any).userContext as UserContext;
+      const spaceRole = user.isAdmin ? "admin" as const : await resolveSpaceRole(user.id, spaceId, user.groupIds);
+      const tokenScope = (request as any).tokenScope as { scopeType: string; scopeId: string } | undefined;
+      const branchTokenScopeId =
+        (request as any).principalKind === "token" && tokenScope?.scopeType === "branch" ? tokenScope.scopeId : null;
 
-      const rows = await db
-        .select({ branchId: branches.id, pageId: branches.pageId, parentId: branches.parentBranchId, slug: pages.slug })
-        .from(branches)
-        .innerJoin(pages, eq(branches.pageId, pages.id))
-        .where(and(eq(branches.spaceId, spaceId), eq(branches.isSystem, false), isNull(pages.deletedAt)));
-
-      const map = new Map<string, TreeNode>();
-      const roots: TreeNode[] = [];
-      for (const r of rows) map.set(r.branchId, { id: r.branchId, pageId: r.pageId, slug: r.slug, children: [] });
-      for (const r of rows) {
-        const node = map.get(r.branchId)!;
-        if (r.parentId && map.has(r.parentId)) map.get(r.parentId)!.children.push(node);
-        else roots.push(node);
-      }
-      return reply.send(roots);
+      return reply.send(await buildSpaceTree(spaceId, { user, spaceRole, branchTokenScopeId }));
     }
   );
 }

@@ -51,10 +51,6 @@ export function resolveAccess(
   }
   if (resolvedVisibility === "inherit") resolvedVisibility = "private"; // default if nothing ever set it
 
-  if (!user) {
-    return resolvedVisibility === "public" ? "viewer" : "none";
-  }
-
   const visibilityBaseline: AccessResult = resolvedVisibility === "public" ? "viewer" : "none";
 
   // 4. Local boundaries: nearest branch in the chain (starting at the target
@@ -65,9 +61,15 @@ export function resolveAccess(
   //    getHigherRole(branchBest, baseline), which let a public-visibility baseline
   //    leak through even when the local boundary explicitly denied the user -
   //    defeating the entire point of this step.)
+  //
+  //    Anonymous is governed by boundaries too: a restricted page must not leak
+  //    to unauthenticated visitors via public visibility or public mode (§7.12g
+  //    restricted-ancestor integration). Anonymous is never a group member, so
+  //    any boundary in the chain denies them outright.
   for (const branch of chain) {
     const explicitGroupIds = Object.keys(branch.branchGroupPermissions);
     if (explicitGroupIds.length > 0) {
+      if (!user) return "none";
       let best: AccessResult = "none";
       for (const groupId of user.groupIds) {
         const role = branch.branchGroupPermissions[groupId];
@@ -77,9 +79,12 @@ export function resolveAccess(
     }
   }
 
-  // 5. No branch-level override anywhere in the chain -> fall back to the space
-  //    role, floored by the visibility baseline (an authenticated non-member of a
-  //    public space still gets at least read access, same as an anonymous visitor).
+  // 5. No boundary anywhere in the chain -> anonymous reads the public baseline.
+  if (!user) return visibilityBaseline;
+
+  // 6. Authenticated: fall back to the space role, floored by the visibility
+  //    baseline (an authenticated non-member of a public space still gets at
+  //    least read access, same as an anonymous visitor).
   const spaceAccess: AccessResult = spaceRole ?? "none";
   return rank(spaceAccess) >= rank(visibilityBaseline) ? spaceAccess : visibilityBaseline;
 }

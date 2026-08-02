@@ -76,6 +76,19 @@ export async function registerPermissionMiddleware(app: FastifyInstance) {
     // when present - and an invalid bearer credential is a hard 401, never a
     // silent fallback to the session.
     const principal = await getPrincipal(headers);
+    if (principal) {
+      // Principal kind is exposed to handlers so routes can apply extra
+      // scope-aware filtering (e.g. a branch-scoped token must not see the
+      // whole space tree) beyond the single-URL access check.
+      (request as any).principalKind = principal.kind;
+      if (principal.kind === "token") {
+        (request as any).tokenScope = {
+          scopeType: principal.token.scopeType,
+          scopeId: principal.token.scopeId,
+          permission: principal.token.permission,
+        };
+      }
+    }
     if (principal?.kind === "user") {
       (request as any).userContext = principal.user;
     } else if (principal?.kind === "token") {

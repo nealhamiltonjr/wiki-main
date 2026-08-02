@@ -8,6 +8,7 @@ import { editingExtensions } from "./editingExtensions.js";
 import { getEditorExtensions } from "./pluginEngine.js";
 import "./editorPlugins.js";
 import { CommentPanel } from "./CommentPanel.js";
+import { PermissionsDialog } from "./PermissionsDialog.js";
 import { useCollab } from "./useCollab.js";
 import { useSession } from "../../api/authClient.js";
 import { DragHandleMenu, blockAtPos, type BlockAnchor } from "./DragHandleMenu.js";
@@ -66,6 +67,9 @@ export function Editor({ branchId }: { branchId: string }) {
 
   // Comment state
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
+
+  // Per-page permissions (§7.12g)
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
 
   // Phase 2: drag-handle block menu + search & replace popup
   const [dragMenu, setDragMenu] = useState<{ x: number; y: number; block: BlockAnchor } | null>(null);
@@ -384,6 +388,7 @@ export function Editor({ branchId }: { branchId: string }) {
                   {useCollabMode ? "Collab ON" : "Collab OFF"}
                 </button>
               )}
+              <button onClick={() => setPermissionsOpen(true)} className="wiki-page-action">Permissions</button>
               <button onClick={triggerUpload} className="wiki-page-action">Upload file</button>
               <button onClick={takeSnapshot} className="wiki-page-action">Snapshot</button>
             </>
@@ -391,6 +396,8 @@ export function Editor({ branchId }: { branchId: string }) {
           <button onClick={toggleHistory} className="wiki-page-action">{history ? "Hide history" : "History"}</button>
         </div>
       </div>
+
+      {permissionsOpen && <PermissionsDialog branchId={page.branchId} onClose={() => setPermissionsOpen(false)} />}
 
       {status === "conflict" && (
         <div className="wiki-banner">

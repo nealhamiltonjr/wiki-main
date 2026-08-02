@@ -1307,6 +1307,105 @@ span[data-comment-id].wiki-comment-flash {
 .git-log-table th { background: var(--color-table-header-bg); font-weight: 600; }
 
 /* ============================================================
+   Permissions dialog (§7.12g page-level permissions)
+   ============================================================ */
+.perm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 80px 16px 16px;
+  z-index: var(--z-modal);
+  overflow: auto;
+}
+.perm-dialog {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  width: 100%;
+  max-width: 520px;
+  padding: 16px;
+  font-family: var(--font-sans);
+  color: var(--color-text);
+}
+.perm-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.perm-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+.perm-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.perm-empty {
+  padding: 14px 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+.perm-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 12px;
+  font-size: var(--font-size-sm);
+}
+.perm-table th, .perm-table td {
+  border: 1px solid var(--color-border);
+  padding: 6px 8px;
+  text-align: left;
+}
+.perm-table th { background: var(--color-table-header-bg); font-weight: 600; }
+.perm-role-select, .perm-group-select {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+.perm-remove {
+  border: 1px solid var(--color-border);
+  background: transparent;
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+}
+.perm-remove:hover { border-color: var(--color-danger, #dc2626); color: var(--color-danger, #dc2626); }
+.perm-add-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.perm-error {
+  color: var(--color-danger, #dc2626);
+  font-size: var(--font-size-sm);
+  margin-bottom: 10px;
+}
+.perm-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+}
+
+/* ============================================================
    Generic utility / layout helpers
    ============================================================ */
 .loading-page {

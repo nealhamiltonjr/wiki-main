@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { pages, branches, spaces as spacesTable } from "../db/schema.js";
+import { getBranchChain, anonymousVisibleBranchIds } from "../services/branch.service.js";
+import { resolveAccess } from "../../shared/permissions/algorithm.js";
 
 /**
  * Public API routes — only active when PUBLIC_MODE environment variable is set. These
@@ -34,8 +36,15 @@ export async function publicRoutes(app: FastifyInstance) {
     return;
   }
 
-  // List spaces with at least one public page
+  // List spaces with at least one public page an anonymous visitor can actually
+  // read. A branch marked public but carrying a group-permission boundary is NOT
+  // listed - the local-boundary hard stop denies non-members, so listing it
+  // would leak its title to people who can't read it (§7.12g restricted-ancestor
+  // integration).
   app.get("/api/public/spaces", { config: { access: "public" } }, async (_request, reply) => {
+    const visible = await anonymousVisibleBranchIds();
+    if (visible.size === 0) return reply.send([]);
+
     const rows = await db
       .selectDistinct({
         id: spacesTable.id,
@@ -43,17 +52,20 @@ export async function publicRoutes(app: FastifyInstance) {
       })
       .from(spacesTable)
       .innerJoin(branches, eq(branches.spaceId, spacesTable.id))
-      .where(eq(branches.visibility, "public"));
+      .where(and(eq(branches.visibility, "public"), inArray(branches.id, [...visible])));
 
     return reply.send(rows);
   });
 
-  // List public pages within a space
+  // List public pages within a space that anonymous can read (same boundary rule).
   app.get(
     "/api/public/spaces/:spaceId/pages",
     { config: { access: "public" } },
     async (request, reply) => {
       const { spaceId } = request.params as { spaceId: string };
+      const visible = await anonymousVisibleBranchIds(spaceId);
+      if (visible.size === 0) return reply.send([]);
+
       const rows = await db
         .select({
           branchId: branches.id,
@@ -63,13 +75,16 @@ export async function publicRoutes(app: FastifyInstance) {
         })
         .from(branches)
         .innerJoin(pages, and(eq(pages.id, branches.pageId), isNull(pages.deletedAt)))
-        .where(and(eq(branches.spaceId, spaceId), eq(branches.visibility, "public")));
+        .where(and(eq(branches.spaceId, spaceId), eq(branches.visibility, "public"), inArray(branches.id, [...visible])));
 
       return reply.send(rows);
     }
   );
 
-  // Get a public page by branch ID
+  // Get a public page by branch ID. Uses the FULL permission algorithm for the
+  // anonymous caller (not just a visibility column check) so a public branch
+  // with a group-permission boundary - or a public child under a restricted
+  // ancestor - returns 404 rather than leaking content (§7.12g).
   app.get(
     "/api/public/pages/:branchId",
     { config: { access: "public" } },
@@ -92,7 +107,10 @@ export async function publicRoutes(app: FastifyInstance) {
 
       const result = row[0];
       if (!result) return reply.code(404).send({ error: "Page not found" });
-      if (result.visibility !== "public") {
+
+      const chain = await getBranchChain(branchId).catch(() => null);
+      if (!chain) return reply.code(404).send({ error: "Page not found" });
+      if (resolveAccess(null, chain, null) !== "viewer") {
         return reply.code(404).send({ error: "Page not found" });
       }
 

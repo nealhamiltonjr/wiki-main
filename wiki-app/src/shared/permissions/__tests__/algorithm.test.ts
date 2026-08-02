@@ -57,9 +57,20 @@ describe("resolveAccess - local boundaries (group_permissions)", () => {
     expect(resolveAccess(user({ groupIds: ["hr-group"] }), chain, null)).toBe("viewer");
   });
 
-  it("still lets an unauthenticated visitor read via public visibility - the boundary only governs authenticated users' groups", () => {
+  it("denies an unauthenticated visitor at a local boundary even under a public ancestor (§7.12g)", () => {
+    // The original behavior let anonymous read public visibility regardless of
+    // a boundary. Once page-level permissions landed, that leaked a restricted
+    // page to unauthenticated visitors via public mode / public visibility -
+    // exactly the restricted-ancestor leak §7.12g requires closing. Anonymous
+    // is never a group member, so any boundary denies them outright.
     const hrGroupOnly: Record<string, BranchRole> = { "hr-group": "viewer" };
     const target = branch({ id: "hr-page", visibility: "inherit", branchGroupPermissions: hrGroupOnly });
+    const spaceRoot = branch({ id: "root", visibility: "public" });
+    expect(resolveAccess(null, [target, spaceRoot], null)).toBe("none");
+  });
+
+  it("still lets an unauthenticated visitor read a genuinely public page with no boundary", () => {
+    const target = branch({ id: "open-page", visibility: "public" });
     const spaceRoot = branch({ id: "root", visibility: "public" });
     expect(resolveAccess(null, [target, spaceRoot], null)).toBe("viewer");
   });

@@ -69,6 +69,12 @@ export interface RepoStatus {
 
 export interface RepoLogEntry { hash: string; message: string; date: string; author: string }
 
+export interface BranchGrant { groupId: string; groupName: string; role: "viewer" | "editor" }
+export interface BranchPermissions {
+  grants: BranchGrant[];
+  groups: { id: string; name: string }[];
+}
+
 export const api = {
   getUserSettings: () => request<Record<string, unknown>>("/api/user-settings"),
   setUserSetting: (key: string, value: unknown) =>
@@ -93,6 +99,15 @@ export const api = {
     request<void>(`/api/groups/${groupId}/members`, { method: "POST", body: JSON.stringify({ userId }) }),
   removeGroupMember: (groupId: string, userId: string) =>
     request<void>(`/api/groups/${groupId}/members/${userId}`, { method: "DELETE" }),
+  getBranchPermissions: (branchId: string) =>
+    request<BranchPermissions>(`/api/branches/${branchId}/permissions`),
+  setBranchPermissions: (branchId: string, grants: { groupId: string; role: "viewer" | "editor" }[]) =>
+    request<void>(`/api/branches/${branchId}/permissions`, {
+      method: "PUT",
+      body: JSON.stringify({ grants }),
+    }),
+  removeBranchPermission: (branchId: string, groupId: string) =>
+    request<void>(`/api/branches/${branchId}/permissions/${groupId}`, { method: "DELETE" }),
   listAdminUsers: () => request<{ id: string; email: string; name: string; isAdmin: boolean }[]>("/api/admin/users"),
   listSpaces: () => request<SpaceSummary[]>("/api/spaces"),
   createSpace: (name: string) => request<SpaceSummary>("/api/spaces", { method: "POST", body: JSON.stringify({ name }) }),

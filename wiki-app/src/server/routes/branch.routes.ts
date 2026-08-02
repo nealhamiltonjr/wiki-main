@@ -3,7 +3,10 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { branches, pages } from "../db/schema.js";
-import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
+import {
+  getBranchChain, resolveSpaceRole, listBranchPermissions, setBranchPermissions, removeBranchPermission,
+} from "../services/branch.service.js";
+import { listGroups } from "../services/group.service.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
 
@@ -15,6 +18,23 @@ const cloneBody = z.object({
 const moveBody = z.object({
   newParentBranchId: z.string().min(1).nullable(),
 });
+
+/**
+ * Can this user MANAGE a branch's permission boundary? Stricter than plain
+ * content access: requires global admin, space admin, or editor-level access
+ * via the algorithm. Space admins always retain management power even after a
+ * boundary they set caps their own content role - otherwise granting a
+ * viewer-only boundary could permanently lock the space's administrators out
+ * of managing it (§7.12g management override).
+ */
+async function canManagePermissions(user: UserContext, branchId: string): Promise<boolean> {
+  if (user.isAdmin) return true;
+  const chain = await getBranchChain(branchId).catch(() => null);
+  if (!chain) return false;
+  const spaceRole = await resolveSpaceRole(user.id, chain[0]!.spaceId, user.groupIds);
+  if (spaceRole === "admin") return true;
+  return resolveAccess(user, chain, spaceRole) === "editor";
+}
 
 /**
  * Is this user allowed to create-or-keep an editor-level placement under the
@@ -157,6 +177,75 @@ export async function branchRoutes(app: FastifyInstance) {
       }
 
       await db.delete(branches).where(eq(branches.id, branchId));
+      return reply.send({ ok: true });
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  // Per-branch group permissions (§7.12g). The permission ENGINE already
+  // existed and is untouched; what was missing was the API surface to write the
+  // group_permissions table and the UI to use it. All three routes require
+  // editor access on the branch (setting a boundary is itself a privileged
+  // action, same floor as link creation). "admin" is deliberately not settable
+  // here - managing membership/permissions stays space-scoped (brief §3.8).
+  // -------------------------------------------------------------------------
+  // The middleware grants a "viewer" floor so the handler can apply the
+  // management override (space admin always manages) - a strict editor floor
+  // would let a boundary an admin sets cap their own management access.
+  const manageGuard = async (request: any, reply: any) => {
+    const { branchId } = request.params as { branchId: string };
+    const user = request.userContext as UserContext;
+    if (!(await canManagePermissions(user, branchId))) {
+      return reply.code(403).send({ error: "Insufficient permissions to manage page permissions" });
+    }
+    return null;
+  };
+
+  app.get(
+    "/api/branches/:branchId/permissions",
+    { config: { access: { branchParam: "branchId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const blocked = await manageGuard(request, reply);
+      if (blocked) return blocked;
+      const { branchId } = request.params as { branchId: string };
+      const grants = await listBranchPermissions(branchId);
+      // Available groups, so editors can grant without needing global admin
+      // (the /api/groups CRUD stays admin-only; the name list is not sensitive).
+      const groups = await listGroups();
+      return reply.send({ grants, groups });
+    }
+  );
+
+  // Replace the branch's explicit grants wholesale. An empty array clears the
+  // boundary entirely (falls back to space role / visibility).
+  app.put(
+    "/api/branches/:branchId/permissions",
+    { config: { access: { branchParam: "branchId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const blocked = await manageGuard(request, reply);
+      if (blocked) return blocked;
+      const { branchId } = request.params as { branchId: string };
+      const body = z
+        .object({
+          grants: z.array(
+            z.object({ groupId: z.string().min(1), role: z.enum(["viewer", "editor"]) })
+          ),
+        })
+        .parse(request.body);
+      await setBranchPermissions(branchId, body.grants);
+      return reply.send({ ok: true });
+    }
+  );
+
+  // Remove a single group's grant from a branch.
+  app.delete(
+    "/api/branches/:branchId/permissions/:groupId",
+    { config: { access: { branchParam: "branchId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const blocked = await manageGuard(request, reply);
+      if (blocked) return blocked;
+      const { branchId, groupId } = request.params as { branchId: string; groupId: string };
+      await removeBranchPermission(branchId, groupId);
       return reply.send({ ok: true });
     }
   );
