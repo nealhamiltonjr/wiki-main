@@ -905,6 +905,16 @@ span[data-comment-id].wiki-comment-flash {
   100% { background: var(--color-warning-bg); border-bottom-color: var(--color-warning); }
 }
 
+/* @mention inline mark */
+span.wiki-mention {
+  background: var(--color-info-bg, #dbeafe);
+  color: var(--color-primary);
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
 /* Block drag handle (vendored GlobalDragHandle) */
 .wiki-editor-content .ProseMirror .drag-handle,
 .wiki-editor-content .drag-handle {
