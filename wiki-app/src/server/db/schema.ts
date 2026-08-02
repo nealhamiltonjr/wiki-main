@@ -296,6 +296,16 @@ export const notifications = sqliteTable("notifications", {
 });
 
 // ---------------------------------------------------------------------------
+// Favorites (§7.12d.7) — per-user starred pages for quick access
+// ---------------------------------------------------------------------------
+export const favorites = sqliteTable("favorites", {
+  id: id(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  branchId: text("branch_id").notNull(),
+  ...timestamps,
+});
+
+// ---------------------------------------------------------------------------
 // FTS5 full-text search (§7.12d.2)
 // Virtual table, created via raw SQL at boot (see db/index.ts). External-
 // content FTS so we store the text separately and keep FTS in sync via

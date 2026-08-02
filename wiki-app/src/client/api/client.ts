@@ -193,4 +193,8 @@ export const api = {
   markNotificationRead: (id: string) => request<{ ok: true }>(`/api/notifications/${encodeURIComponent(id)}/read`, { method: "PUT" }),
   markAllNotificationsRead: () => request<{ ok: true }>("/api/notifications/read-all", { method: "PUT" }),
   getUnreadNotificationCount: () => request<{ unread: number }>("/api/notifications/unread-count"),
+
+  /** Favorites (§7.12d.7). */
+  getFavorites: () => request<{ id: string; branchId: string; slug: string }[]>("/api/favorites"),
+  toggleFavorite: (branchId: string) => request<{ favorited: boolean }>(`/api/favorites/${encodeURIComponent(branchId)}`, { method: "POST" }),
 };

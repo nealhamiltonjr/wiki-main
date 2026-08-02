@@ -81,6 +81,19 @@ export function Editor({ branchId }: { branchId: string }) {
   // Attributes (§7.12d.2)
   const [attributesOpen, setAttributesOpen] = useState(false);
 
+  // Favorites (§7.12d.7)
+  const [favorited, setFavorited] = useState(false);
+  useEffect(() => {
+    if (!page) return;
+    api.getFavorites().then((list) => {
+      setFavorited(list.some((f) => f.branchId === page.branchId));
+    }).catch(() => {});
+  }, [page?.branchId]);
+  function toggleFavorite() {
+    if (!page) return;
+    api.toggleFavorite(page.branchId).then((r) => setFavorited(r.favorited)).catch(() => {});
+  }
+
   const exportMarkdown = useCallback(async (mode: "raw" | "zip") => {
     if (!page) return;
     const params = new URLSearchParams();
@@ -392,7 +405,10 @@ export function Editor({ branchId }: { branchId: string }) {
   return (
     <div className="page-editor" style={{ padding: 24, maxWidth: editorWidth === "full" ? "none" : 760, margin: editorWidth === "full" ? 0 : "0 auto" }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, alignItems: "center" }}>
-        <span className="wiki-page-slug">/{page.slug}</span>
+        <span className="wiki-page-slug">
+          <button onClick={toggleFavorite} className="star-btn" title={favorited ? "Remove favorite" : "Add to favorites"}>{favorited ? "★" : "☆"}</button>
+          /{page.slug}
+        </span>
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <StatusLabel status={status} />
           <NotificationBell />

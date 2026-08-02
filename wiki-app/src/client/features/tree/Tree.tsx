@@ -1,6 +1,25 @@
 import { useEffect, useState } from "react";
 import { api, type SpaceSummary, type TreeNode } from "../../api/client.js";
 
+function FavoritesSection({ onSelect }: { onSelect: (branchId: string, spaceId: string) => void }) {
+  const [favorites, setFavorites] = useState<{ id: string; branchId: string; slug: string }[]>([]);
+  useEffect(() => {
+    api.getFavorites().then(setFavorites).catch(() => {});
+  }, []);
+  if (favorites.length === 0) return null;
+  return (
+    <div className="favorites-section">
+      <div className="section-title">★ Favorites</div>
+      {favorites.map((f) => (
+        <button key={f.id} className="fav-item" onClick={() => onSelect(f.branchId, "")}>
+          <span className="fav-star">★</span>
+          <span>{f.slug}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Tree({
   onSelectBranch,
   selectedBranchId,
@@ -90,6 +109,7 @@ export function Tree({
       </div>
 
       <div className="wiki-tree">
+        <FavoritesSection onSelect={onSelectBranch} />
         {tree.length === 0 && (
           <div className="tree-empty">No pages yet</div>
         )}

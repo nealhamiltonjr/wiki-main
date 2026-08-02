@@ -1658,6 +1658,32 @@ span[data-comment-id].wiki-comment-flash {
 .bell-time { color: var(--color-text-muted); font-size: 11px; flex-shrink: 0; white-space: nowrap; }
 
 /* ============================================================
+   Favorites (§7.12d.7)
+   ============================================================ */
+.star-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: 20px; color: var(--color-warning, #d97706); line-height: 1;
+  padding: 0 4px; vertical-align: middle;
+}
+.star-btn:hover { transform: scale(1.15); }
+.favorites-section {
+  padding: 8px 0; border-bottom: 1px solid var(--color-border);
+}
+.favorites-section .section-title {
+  padding: 4px 12px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--color-text-muted); font-weight: 600;
+}
+.fav-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 12px; cursor: pointer; font-size: var(--font-size-sm);
+  color: var(--color-text); border: none; background: none; width: 100%; text-align: left;
+  font-family: var(--font-sans);
+}
+.fav-item:hover { background: var(--color-surface-hover, #f3f4f6); }
+.fav-star { color: var(--color-warning, #d97706); flex-shrink: 0; }
+.fav-slug { color: var(--color-text-muted); font-family: var(--font-mono, monospace); font-size: 11px; }
+
+/* ============================================================
    Generic utility / layout helpers
    ============================================================ */
 .loading-page {
@@ -1669,4 +1695,12 @@ span[data-comment-id].wiki-comment-flash {
   padding: var(--space-6);
   color: var(--color-text-muted);
   font-family: var(--font-sans);
+}
+
+/* Keyboard shortcut hints */
+kbd {
+  display: inline-block; padding: 1px 6px;
+  font-family: var(--font-mono, monospace); font-size: 11px;
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: 4px; box-shadow: 0 1px 1px rgba(0,0,0,0.1);
 }
