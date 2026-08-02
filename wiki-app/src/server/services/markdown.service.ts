@@ -21,80 +21,166 @@ interface PMNode {
   marks?: { type: string; attrs?: Record<string, unknown> }[];
 }
 
-export function tiptapToMarkdown(doc: PMNode): string {
-  if (!doc || doc.type !== "doc") return "";
-  return (doc.content ?? []).map((node) => blockToMarkdown(node)).join("\n\n") + "\n";
+// ---------------------------------------------------------------------------
+// Export context (§7.11 SSG-ready export). The same converter pipeline serves
+// both the canonical git export (tiptapToMarkdown, keep everything as-is) and
+// the static-site-generator export (exportMarkdown, strip internal constructs,
+// copy assets). The context threads the few knobs through the recursive walk
+// instead of duplicating the whole converter.
+// ---------------------------------------------------------------------------
+
+export type ImageExportMode = "copy" | "strip" | "raw";
+export type InternalLinkExportMode = "keep" | "strip";
+
+export interface MarkdownExportContext {
+  imageMode: ImageExportMode;
+  internalLinkMode: InternalLinkExportMode;
+  /** Filled while converting when imageMode === "copy" - the caller resolves
+   *  each src to an asset path and rewrites the markdown accordingly. */
+  images: { src: string; branchId: string; fileId: string }[];
 }
 
-function blockToMarkdown(node: PMNode, listDepth = 0): string {
+export interface ExportMarkdownOptions {
+  imageMode?: ImageExportMode;
+  internalLinkMode?: InternalLinkExportMode;
+  frontmatter?: { title?: string; slug?: string; date?: string | null };
+}
+
+const FILE_SRC_RE = /^\/api\/branches\/([^/]+)\/files\/([^/?#]+)/;
+
+function looksInternal(href: string): boolean {
+  return href.startsWith("/") || href.startsWith("#") || href.startsWith("wiki:") || href.startsWith("wiki-app:");
+}
+
+export function tiptapToMarkdown(doc: PMNode): string {
+  const ctx: MarkdownExportContext = { imageMode: "raw", internalLinkMode: "keep", images: [] };
+  if (!doc || doc.type !== "doc") return "";
+  return (doc.content ?? []).map((node) => blockToMarkdown(node, 0, ctx)).join("\n\n") + "\n";
+}
+
+/**
+ * §7.11 SSG-ready export: converts a canonical doc to clean Markdown with the
+ * internal constructs stripped (internal/API links -> plain text) and, in copy
+ * mode, image srcs collected for the caller to bundle. Returns the markdown
+ * plus the list of referenced images (src + where the blob lives).
+ */
+export function exportMarkdown(doc: PMNode, opts: ExportMarkdownOptions = {}): {
+  markdown: string;
+  images: { src: string; branchId: string; fileId: string }[];
+} {
+  const ctx: MarkdownExportContext = {
+    imageMode: opts.imageMode ?? "raw",
+    internalLinkMode: opts.internalLinkMode ?? "strip",
+    images: [],
+  };
+  if (!doc || doc.type !== "doc") {
+    return { markdown: opts.frontmatter ? frontmatterToMarkdown(opts.frontmatter) + "\n" : "", images: [] };
+  }
+  const body = (doc.content ?? []).map((node) => blockToMarkdown(node, 0, ctx)).join("\n\n") + "\n";
+  const markdown = opts.frontmatter ? frontmatterToMarkdown(opts.frontmatter) + "\n" + body : body;
+  return { markdown, images: ctx.images };
+}
+
+/** First H1's text, or null - used as the SSG frontmatter title (§7.11b.1). */
+export function extractTitle(doc: PMNode): string | null {
+  if (!doc || doc.type !== "doc") return null;
+  const h1 = (doc.content ?? []).find((n) => n.type === "heading" && Number(n.attrs?.level) === 1);
+  return h1 ? inlineText(h1.content) : null;
+}
+
+function inlineText(nodes: PMNode[] | undefined): string {
+  if (!nodes) return "";
+  return nodes.map((n) => n.text ?? (n.content ? inlineText(n.content) : "")).join("");
+}
+
+function frontmatterToMarkdown(fm: NonNullable<ExportMarkdownOptions["frontmatter"]>): string {
+  const lines = ["---", `title: ${yamlQuote(fm.title ?? "")}`];
+  if (fm.slug) lines.push(`slug: ${yamlQuote(fm.slug)}`);
+  if (fm.date) lines.push(`date: ${yamlQuote(new Date(fm.date).toISOString().slice(0, 10))}`);
+  lines.push("---");
+  return lines.join("\n");
+}
+
+function yamlQuote(value: string): string {
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+function blockToMarkdown(node: PMNode, listDepth = 0, ctx?: MarkdownExportContext): string {
+  const c = ctx ?? { imageMode: "raw" as const, internalLinkMode: "keep" as const, images: [] };
   switch (node.type) {
     case "heading": {
       const level = Math.min(Math.max(Number(node.attrs?.level ?? 1), 1), 6);
-      return `${"#".repeat(level)} ${inlineToMarkdown(node.content)}`;
+      return `${"#".repeat(level)} ${inlineToMarkdown(node.content, c)}`;
     }
     case "paragraph":
-      return inlineToMarkdown(node.content);
+      return inlineToMarkdown(node.content, c);
     case "codeBlock": {
       const lang = (node.attrs?.language as string) ?? "";
-      const code = (node.content ?? []).map((c) => c.text ?? "").join("");
+      const code = (node.content ?? []).map((n) => n.text ?? "").join("");
       return "```" + lang + "\n" + code + "\n```";
     }
     case "blockquote":
       return (node.content ?? [])
-        .map((c) => blockToMarkdown(c, listDepth))
+        .map((n) => blockToMarkdown(n, listDepth, c))
         .join("\n\n")
         .split("\n")
         .map((line) => `> ${line}`)
         .join("\n");
     case "bulletList":
       return (node.content ?? [])
-        .map((li) => listItemToMarkdown(li, listDepth, "-"))
+        .map((li) => listItemToMarkdown(li, listDepth, "-", c))
         .join("\n");
     case "orderedList": {
       let i = Number(node.attrs?.start ?? 1);
       return (node.content ?? [])
-        .map((li) => listItemToMarkdown(li, listDepth, `${i++}.`))
+        .map((li) => listItemToMarkdown(li, listDepth, `${i++}.`, c))
         .join("\n");
     }
     case "taskList":
       return (node.content ?? [])
-        .map((li) => taskItemToMarkdown(li, listDepth))
+        .map((li) => taskItemToMarkdown(li, listDepth, c))
         .join("\n");
     case "taskItem":
-      return taskItemToMarkdown(node, listDepth);
+      return taskItemToMarkdown(node, listDepth, c);
     case "horizontalRule":
       return "---";
     case "image": {
       const src = (node.attrs?.src as string) ?? "";
       const alt = (node.attrs?.alt as string) ?? "";
+      const parsed = src.match(FILE_SRC_RE);
+      if (c.imageMode === "strip") return "";
+      if (c.imageMode === "copy" && parsed) {
+        // The caller bundles the blob and rewrites this src to a relative path.
+        c.images.push({ src, branchId: parsed[1]!, fileId: parsed[2]! });
+      }
       return `![${alt}](${src})`;
     }
     default:
       // Unrecognized block type - degrade to its inline text content rather than
       // dropping it silently or throwing. Better to export something imperfect
       // than nothing at all.
-      return node.content ? inlineToMarkdown(node.content) : "";
+      return node.content ? inlineToMarkdown(node.content, c) : "";
   }
 }
 
-function listItemToMarkdown(li: PMNode, depth: number, marker: string): string {
+function listItemToMarkdown(li: PMNode, depth: number, marker: string, ctx: MarkdownExportContext): string {
   const indent = "  ".repeat(depth);
   const inner = (li.content ?? [])
-    .map((c) => (c.type === "bulletList" || c.type === "orderedList" ? blockToMarkdown(c, depth + 1) : inlineToMarkdown(c.content)))
+    .map((n) => (n.type === "bulletList" || n.type === "orderedList" ? blockToMarkdown(n, depth + 1, ctx) : inlineToMarkdown(n.content, ctx)))
     .join("\n");
   const firstLine = inner.split("\n")[0] ?? "";
   const rest = inner.split("\n").slice(1).join("\n");
   return `${indent}${marker} ${firstLine}` + (rest ? `\n${rest}` : "");
 }
 
-function taskItemToMarkdown(li: PMNode, depth: number): string {
+function taskItemToMarkdown(li: PMNode, depth: number, ctx: MarkdownExportContext): string {
   const indent = "  ".repeat(depth);
   const checked = Boolean(li.attrs?.checked);
   const inner = (li.content ?? [])
-    .map((c) =>
-      c.type === "taskList" || c.type === "bulletList" || c.type === "orderedList"
-        ? blockToMarkdown(c, depth + 1)
-        : inlineToMarkdown(c.content),
+    .map((n) =>
+      n.type === "taskList" || n.type === "bulletList" || n.type === "orderedList"
+        ? blockToMarkdown(n, depth + 1, ctx)
+        : inlineToMarkdown(n.content, ctx),
     )
     .join("\n");
   const firstLine = inner.split("\n")[0] ?? "";
@@ -102,12 +188,12 @@ function taskItemToMarkdown(li: PMNode, depth: number): string {
   return `${indent}- [${checked ? "x" : " "}] ${firstLine}` + (rest ? `\n${rest}` : "");
 }
 
-function inlineToMarkdown(nodes: PMNode[] | undefined): string {
+function inlineToMarkdown(nodes: PMNode[] | undefined, ctx: MarkdownExportContext): string {
   if (!nodes) return "";
-  return nodes.map(inlineNodeToMarkdown).join("");
+  return nodes.map((n) => inlineNodeToMarkdown(n, ctx)).join("");
 }
 
-function inlineNodeToMarkdown(node: PMNode): string {
+function inlineNodeToMarkdown(node: PMNode, ctx: MarkdownExportContext): string {
   if (node.type === "hardBreak") return "  \n";
   if (node.type !== "text" || !node.text) return "";
 
@@ -117,7 +203,13 @@ function inlineNodeToMarkdown(node: PMNode): string {
       case "bold": text = `**${text}**`; break;
       case "italic": text = `*${text}*`; break;
       case "code": text = `\`${text}\``; break;
-      case "link": text = `[${text}](${mark.attrs?.href ?? ""})`; break;
+      case "link": {
+        const href = (mark.attrs?.href as string) ?? "";
+        // §7.11b.4: wiki-internal constructs (API URLs, router hashes, protocol
+        // links) are meaningless in an SSG - strip to plain text by default.
+        text = ctx.internalLinkMode === "strip" && looksInternal(href) ? text : `[${text}](${href})`;
+        break;
+      }
       case "highlight": text = `==${text}==`; break;
     }
   }

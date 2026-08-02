@@ -71,6 +71,22 @@ export function Editor({ branchId }: { branchId: string }) {
   // Per-page permissions (§7.12g)
   const [permissionsOpen, setPermissionsOpen] = useState(false);
 
+  const exportMarkdown = useCallback(async (mode: "raw" | "zip") => {
+    if (!page) return;
+    const params = new URLSearchParams();
+    params.set("images", "copy");
+    if (mode === "raw") params.set("images", "raw");
+    const url = `/api/branches/${page.branchId}/export?${params.toString()}`;
+    const res = await fetch(url, { credentials: "include" });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = mode === "zip" ? `${page.slug}.zip` : `${page.slug}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, [page?.branchId, page?.slug]);
+
   // Phase 2: drag-handle block menu + search & replace popup
   const [dragMenu, setDragMenu] = useState<{ x: number; y: number; block: BlockAnchor } | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -372,6 +388,8 @@ export function Editor({ branchId }: { branchId: string }) {
             {editorWidth === "full" ? "Narrow view" : "Full width"}
           </button>
           <button onClick={createShareLink} className="wiki-page-action">Share</button>
+          <button onClick={() => exportMarkdown("raw")} className="wiki-page-action" title="Export as clean Markdown (SSG-ready)">Export .md</button>
+          <button onClick={() => exportMarkdown("zip")} className="wiki-page-action" title="Export with images as a ZIP">Export .zip</button>
           {canEdit && (
             <>
               <button
