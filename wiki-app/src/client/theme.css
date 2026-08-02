@@ -1406,6 +1406,65 @@ span[data-comment-id].wiki-comment-flash {
 }
 
 /* ============================================================
+   Backlinks panel — Phase 4 (§7.12)
+   ============================================================ */
+.backlinks-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.backlinks-heading {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin: 0 0 10px 0;
+  font-weight: 600;
+}
+.backlinks-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.backlinks-list li + li {
+  border-top: 1px solid var(--color-border);
+}
+.backlinks-link {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 8px 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  text-align: left;
+  color: var(--color-primary);
+  border-radius: 4px;
+}
+.backlinks-link:hover {
+  background: var(--color-surface-hover, #f3f4f6);
+}
+.backlinks-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.backlinks-block {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+.backlinks-empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+/* ============================================================
    Generic utility / layout helpers
    ============================================================ */
 .loading-page {

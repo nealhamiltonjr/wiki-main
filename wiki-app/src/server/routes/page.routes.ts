@@ -5,6 +5,7 @@ import { db } from "../db/index.js";
 import { pages, branches } from "../db/schema.js";
 import { createPage, savePageOCC, createSnapshot } from "../services/page.service.js";
 import { getPageHistory, getFileContentAtCommit } from "../services/git.service.js";
+import { refreshBacklinks } from "../services/backlink.service.js";
 import { markdownToTiptap } from "../services/markdown.service.js";
 import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
 import { getTemplateContent } from "../services/template.service.js";
@@ -123,6 +124,7 @@ export async function pageRoutes(app: FastifyInstance) {
         expectedUpdatedAt: body.expectedUpdatedAt,
       });
       if (!result.ok) return reply.code(409).send({ error: "conflict", message: "Reload the latest version" });
+      await refreshBacklinks(pageId, body.content);
       return reply.send({ ok: true });
     }
   );

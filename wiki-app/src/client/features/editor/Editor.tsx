@@ -9,6 +9,7 @@ import { getEditorExtensions } from "./pluginEngine.js";
 import "./editorPlugins.js";
 import { CommentPanel } from "./CommentPanel.js";
 import { PermissionsDialog } from "./PermissionsDialog.js";
+import { BacklinksPanel } from "./BacklinksPanel.js";
 import { useCollab } from "./useCollab.js";
 import { useSession } from "../../api/authClient.js";
 import { DragHandleMenu, blockAtPos, type BlockAnchor } from "./DragHandleMenu.js";
@@ -70,6 +71,9 @@ export function Editor({ branchId }: { branchId: string }) {
 
   // Per-page permissions (§7.12g)
   const [permissionsOpen, setPermissionsOpen] = useState(false);
+
+  // Backlinks (§7.12 block-refs + backlinks)
+  const [backlinksOpen, setBacklinksOpen] = useState(false);
 
   const exportMarkdown = useCallback(async (mode: "raw" | "zip") => {
     if (!page) return;
@@ -390,6 +394,7 @@ export function Editor({ branchId }: { branchId: string }) {
           <button onClick={createShareLink} className="wiki-page-action">Share</button>
           <button onClick={() => exportMarkdown("raw")} className="wiki-page-action" title="Export as clean Markdown (SSG-ready)">Export .md</button>
           <button onClick={() => exportMarkdown("zip")} className="wiki-page-action" title="Export with images as a ZIP">Export .zip</button>
+        <button onClick={() => setBacklinksOpen((v) => !v)} className={`wiki-page-action${backlinksOpen ? " primary" : ""}`} title="Pages that link to this page">Backlinks</button>
           {canEdit && (
             <>
               <button
@@ -416,6 +421,7 @@ export function Editor({ branchId }: { branchId: string }) {
       </div>
 
       {permissionsOpen && <PermissionsDialog branchId={page.branchId} onClose={() => setPermissionsOpen(false)} />}
+      {backlinksOpen && <BacklinksPanel pageId={page.pageId} onNavigate={(bid) => { window.location.hash = `#/wiki/${bid}`; }} />}
 
       {status === "conflict" && (
         <div className="wiki-banner">

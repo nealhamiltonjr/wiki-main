@@ -240,6 +240,18 @@ export const auditLog = sqliteTable("audit_log", {
 // `isSecret` just tells the service/UI which values to mask, it doesn't do the
 // encrypting itself.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Backlinks — Phase 4 (§7.12 block-refs + backlinks). Each row records a link
+// from one page to another (optionally to a specific block). Updated on every
+// page save via scan-and-upsert - no stale-link cleanup, just fresh scan each
+// write. The UI reads this table directly; no incremental maintenance.
+// ---------------------------------------------------------------------------
+export const backlinks = sqliteTable("backlinks", {
+  sourcePageId: text("source_page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
+  targetBranchId: text("target_branch_id").notNull(),
+  targetBlockId: text("target_block_id"),
+});
 export const systemSettings = sqliteTable("system_settings", {
   key: text("key").primaryKey(),
   value: text("value", { mode: "json" }).notNull(),
