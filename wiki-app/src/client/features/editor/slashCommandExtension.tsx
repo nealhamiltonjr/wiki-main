@@ -133,7 +133,10 @@ function createReactRenderer() {
       }
       if (props.event.key === "Enter") {
         if (items[selectedIndex]) {
-          props.command(items[selectedIndex]);
+          // @tiptap/suggestion v3 does NOT pass `command` into onKeyDown —
+          // only { view, event, range }. The command bound to the CURRENT range
+          // lives on the latest props object captured in onStart/onUpdate.
+          latestProps?.command(items[selectedIndex]);
           return true;
         }
       }

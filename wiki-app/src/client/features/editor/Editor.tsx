@@ -16,6 +16,7 @@ import { useSession } from "../../api/authClient.js";
 import { DragHandleMenu, blockAtPos, type BlockAnchor } from "./DragHandleMenu.js";
 import { SearchReplacePopup } from "./SearchReplacePopup.js";
 import { handleMarkdownPaste } from "./paste.js";
+import { markdownToTiptap } from "../../../server/services/markdown.service.js";
 import { NotificationBell } from "./NotificationBell.js";
 
 const USER_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#be185d", "#4f46e5"];
@@ -341,7 +342,15 @@ export function Editor({ branchId }: { branchId: string }) {
     if (file.type.startsWith("image/")) {
       editor?.chain().focus().setImage({ src: url, alt: result.filename }).run();
     } else {
-      editor?.chain().focus().insertContent(`[${result.filename}](${url})`).run();
+      // Route the link through the canonical markdown converter (same as
+      // handleMarkdownPaste) so it becomes a real link node, not literal
+      // `[name](url)` text. Insert just the inline content so the link lands in
+      // the current paragraph instead of splitting it.
+      const doc = markdownToTiptap(`[${result.filename}](${url})`);
+      const inline = doc.content?.[0]?.content;
+      if (inline) {
+        editor?.chain().focus().insertContent(inline as any).run();
+      }
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -435,7 +444,10 @@ export function Editor({ branchId }: { branchId: string }) {
                 </button>
               )}
               <button onClick={() => setPermissionsOpen(true)} className="wiki-page-action">Permissions</button>
-              <button onClick={triggerUpload} className="wiki-page-action">Upload file</button>
+              {/* Hidden input: the toolbar "Upload file" button triggers it via
+                  triggerUpload(). That button only renders while editing, so the
+                  page cannot be modified from view mode. */}
+              <input ref={fileInputRef} type="file" onChange={uploadFile} style={{ display: "none" }} />
               <button onClick={takeSnapshot} className="wiki-page-action">Snapshot</button>
             </>
           )}
@@ -492,7 +504,7 @@ export function Editor({ branchId }: { branchId: string }) {
 
       {canEdit && isEditing && (
         <>
-          <Toolbar editor={editor} onUploadImage={triggerUpload} onAddComment={addCommentOnSelection} onSearch={() => setSearchOpen(true)} />
+          <Toolbar editor={editor} onUploadFile={triggerUpload} onAddComment={addCommentOnSelection} onSearch={() => setSearchOpen(true)} />
           {searchOpen && editor && <SearchReplacePopup editor={editor} onClose={() => setSearchOpen(false)} />}
         </>
       )}

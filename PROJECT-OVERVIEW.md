@@ -256,10 +256,19 @@ Tiptap bound to the canonical content, autosaving on a debounce. As of the most 
   ends with `/` + query; the React renderer keeps a `latestProps` ref so the popup handlers always
   use the current `range`/`command`)
 - As of the §7.3 work: Image, Link, and Underline extensions are installed. Uploading an image file
-  renders an `<img>` node inline; non-image files insert a markdown-style link. The `LinkExtension`
-  is configured with `openOnClick: false` (clicking doesn't navigate away) and `autolink: true`
-  (pasted URLs auto-convert). A `BubbleMenu` appears on text selection with bold/italic/underline/
-  link controls. Tables are still not installed (pending a specific need).
+  renders an `<img>` node inline; non-image files insert a real link node (via the same
+  `markdownToTiptap` converter used for markdown paste — previously they inserted literal
+  `[name](url)` text). The `LinkExtension` is configured with `openOnClick: false` (clicking doesn't
+  navigate away) and `autolink: true` (pasted URLs auto-convert). A `BubbleMenu` appears on text
+  selection with bold/italic/underline/link controls. Tables are still not installed (pending a
+  specific need).
+- **The Image node is configured `inline: true`** (`baseExtensions.ts`), matching what the markdown
+  importer/exporter already emit (`![alt](src)` → `paragraph > image`). This was a real bug: with the
+  default block-level image, any page whose markdown contained a standalone image line had *invalid
+  content* (`contentMatchAt` threw on every later insert), so file uploads silently did nothing on
+  affected pages. Inline images render with invisible `.ProseMirror-separator` placeholder `<img>`s
+  (standard ProseMirror cursor-positioning behavior) — browser/DOM tests must exclude them with
+  `img:not(.ProseMirror-separator)`.
 - Styling status: the editor and app render with custom CSS in `src/client/theme.css`, but a formal
   theming/token system (CSS variables, light/dark/contrast themes) is still on the board as §7.8a.
 
@@ -270,6 +279,16 @@ file cannot be fetched via a *different, unrelated* branch even when the request
 that other branch. A real bug was found and fixed where Fastify's default 1MB body size limit silently
 rejected any realistic photo upload with an unhelpful `500`; raised to 25MB and confirmed with tests
 that both a 2MB upload succeeds and a genuinely oversized 30MB upload fails cleanly with `413`.
+
+The upload **button** now lives on the editor toolbar (`🖼`/`📎` — it clicks a hidden
+`<input type="file">`), so the page content is never touched while just viewing. Two upload bugs were
+fixed in the current phase: (1) image uploads — and non-image uploads too — silently did nothing on
+pages whose doc contained a block-level image inside a paragraph (`contentMatchAt` threw); the schema
+now declares `Image` as `inline: true`, which also matches what markdown import/export emit, so no
+page can hold invalid content. (2) Non-image files now insert a real link node via `markdownToTiptap`
+instead of the literal text `[name](url)`. A schema-level regression test asserts `image` is inline
+and that `paragraph { image }` validates; three E2E tests cover the toolbar upload, upload-on-top-of-
+markdown-imported-content, and anonymous share-view image rendering.
 
 ### 5.6 Git versioning, snapshots, history
 Every save triggers a real Git commit of the page's Markdown export (verified: an actual `git log`
@@ -299,7 +318,15 @@ explicit creation-time value; a regression test now confirms every page-creation
 template-seeded creation) always produces at least one block node.
 
 ### 5.10 Testing
-**111 tests, `vitest run` / `npm test`**, all passing from a clean install:
+**166 unit/integration tests, `vitest run` / `npm test`**, all passing from a clean install, **plus
+11 Playwright E2E tests** in `e2e/` (2 specs, headless Chromium against the production build):
+`editor-features.spec.ts` (6 tests) covers slash-menu selection, wiki-link insert, @mention insert +
+saved JSON, toolbar image upload, upload on top of markdown-imported image content (regression for
+the `contentMatchAt` bug), and anonymous share-view image rendering; `wiki.spec.ts` (5 tests) covers
+sidebar, space/page creation, edit/save, Cmd+K palette, and settings. Image assertions in browser
+tests use `img:not(.ProseMirror-separator)` because inline images render ProseMirror's invisible
+separator placeholders. Run with `npx playwright test --config=e2e/playwright.config.ts` (the
+webserver config auto-stops any stale dev server that would otherwise be reused on port 3000):
 - `src/shared/permissions/__tests__/algorithm.test.ts` — the permission algorithm, all branches
 - `src/server/services/__tests__/{crypto,markdown,settings,token,user-settings}.test.ts` — service-
   level unit/integration tests against a real (isolated, disposable) SQLite database
@@ -313,11 +340,13 @@ template-seeded creation) always produces at least one block node.
   grant enforcement on the move target, system-branch protection, children-blocked deletion, and the
   "editor on every placement" rule for delete-everywhere
 
-**Known, acknowledged limitation of the test suite:** it is entirely API/service-level. **Nothing
-renders the actual React/Tiptap UI in a browser.** This is precisely why the empty-editor bug and the
-missing-toolbar gap were not caught automatically — both were found by a human actually using the app.
-If UI-level regressions keep recurring, adding a browser-based test layer (Playwright is the natural
-choice) would close this gap; it has not been started.
+**Known, acknowledged limitation of the test suite:** the unit/integration layer is entirely
+API/service-level; the React/Tiptap UI is covered only by the Playwright E2E layer (which has its own
+gap: it drives the DOM, so invisible ProseMirror internals like the `.ProseMirror-separator`
+placeholders and Tiptap's cosmetic React "duplicate key `marks`" warning are not covered). The
+empty-editor and missing-toolbar bugs were only caught by a human using the app; the E2E suite now
+includes regression tests for the editor flows that historically broke (uploads, markdown paste,
+share rendering).
 
 ---
 

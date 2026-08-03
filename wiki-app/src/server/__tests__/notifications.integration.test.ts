@@ -137,6 +137,78 @@ describe("notifications", () => {
     expect(JSON.parse((await app.inject({ method: "GET", url: "/api/notifications", headers: { cookie: c1 } })).body).unread).toBeGreaterThanOrEqual(1);
   });
 
+  it("delivers mention notifications for mention NODES (client format)", async () => {
+    // Registered by earlier tests in this file; fresh emails to avoid conflicts.
+    const u1 = await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-up/email",
+      payload: { email: "mentor@example.com", password: "password-123456789", name: "Mentor" },
+    });
+    const c1 = extractCookie(u1.headers["set-cookie"]);
+    const u1Id = JSON.parse(u1.body)?.user?.id ?? "";
+
+    const u2 = await app.inject({
+      method: "POST",
+      url: "/api/auth/sign-up/email",
+      payload: { email: "mentee@example.com", password: "password-123456789", name: "Mentee" },
+    });
+    const c2 = extractCookie(u2.headers["set-cookie"]);
+    const u2Id = JSON.parse(u2.body)?.user?.id ?? "";
+    expect(u1Id).toBeTruthy();
+    expect(u2Id).toBeTruthy();
+
+    const space = await app.inject({
+      method: "POST",
+      url: "/api/spaces",
+      headers: { cookie: c2 },
+      payload: { name: "Mention Node Space" },
+    });
+    const spaceId = JSON.parse(space.body).id;
+    const pageRes = await app.inject({
+      method: "POST",
+      url: "/api/pages",
+      headers: { cookie: c2 },
+      payload: { slug: "mention-node-test", spaceId, parentBranchId: null },
+    });
+    const { branchId, pageId } = JSON.parse(pageRes.body);
+
+    const { db } = await import("../db/index.js");
+    const { pages } = await import("../db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db.select({ updatedAt: pages.updatedAt }).from(pages).where(eq(pages.id, pageId));
+
+    // Save content containing a `mention` NODE — exactly what the client's
+    // @tiptap/extension-mention inserts on save.
+    const content = {
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Mention Node Test" }] },
+        { type: "paragraph", attrs: { id: "p1" }, content: [
+          { type: "mention", attrs: { id: u1Id, label: "Mentor", mentionSuggestionChar: "@" } },
+          { type: "text", text: " please review" },
+        ]},
+      ],
+    };
+
+    const saveRes = await app.inject({
+      method: "PUT",
+      url: `/api/pages/${pageId}/branches/${branchId}`,
+      headers: { cookie: c2 },
+      payload: { content, expectedUpdatedAt: row!.updatedAt },
+    });
+    expect(saveRes.statusCode).toBe(200);
+
+    let items: any[] = [];
+    for (let i = 0; i < 10; i++) {
+      const res = await app.inject({ method: "GET", url: "/api/notifications", headers: { cookie: c1 } });
+      items = JSON.parse(res.body).items;
+      if (items.length >= 1) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(items.length).toBeGreaterThanOrEqual(1);
+    expect(items[0].kind).toBe("mention");
+  });
+
   it("marks a notification as read", async () => {
     const signup = await app.inject({
       method: "POST",
@@ -221,6 +293,20 @@ describe("mention extraction", () => {
       ],
     };
     expect(extractMentions(content)).toEqual(["u1"]);
+  });
+
+  it("extracts mention NODES (the @tiptap/extension-mention client format)", async () => {
+    const { extractMentions } = await import("../services/mention.service.js");
+    const content = {
+      type: "doc",
+      content: [
+        { type: "paragraph", attrs: { id: "p1" }, content: [
+          { type: "mention", attrs: { id: "user-42", label: "Alice", mentionSuggestionChar: "@" } },
+          { type: "text", text: " " },
+        ]},
+      ],
+    };
+    expect(extractMentions(content)).toEqual(["user-42"]);
   });
 });
 

@@ -21,10 +21,15 @@ export const WikiLinkExtension = Extension.create({
         allowSpaces: true,
         pluginKey: new PluginKey("wikiLink"),
         command: ({ editor, range, props }: { editor: any; range: any; props: WikiLinkItem }) => {
+          // v3 suggestion `range` ALREADY includes the "[[" trigger chars, so
+          // deleting from range.from (not range.from - 2) removes exactly the
+          // "[[query" text. The old -2 ate two chars before the trigger
+          // ("Hello [[wiki" → "Hell…") and crashed with "Position -1 out of
+          // range" when the trigger sat at position 0.
           editor
             .chain()
             .focus()
-            .deleteRange({ from: range.from - 2, to: range.to })
+            .deleteRange(range)
             .insertContent([
               { type: "text", text: props.title, marks: [{ type: "link", attrs: { href: `/wiki/${props.branchId}` } }] },
             ])
@@ -51,7 +56,6 @@ export const WikiLinkExtension = Extension.create({
 
 function createDomRenderer() {
   let popupEl: HTMLElement | null = null;
-  let inputEl: HTMLInputElement | null = null;
   let listEl: HTMLElement | null = null;
   let selectedIndex = 0;
   let items: WikiLinkItem[] = [];
@@ -114,18 +118,10 @@ function createDomRenderer() {
       popupEl.style.minWidth = "240px";
       popupEl.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
 
-      inputEl = document.createElement("input");
-      inputEl.className = "attr-input";
-      inputEl.placeholder = "Search pages…";
-      inputEl.style.width = "100%";
-      inputEl.style.boxSizing = "border-box";
-      inputEl.style.marginBottom = "4px";
-      inputEl.value = props.query ?? "";
-      inputEl.addEventListener("input", () => {
-        doSearch(inputEl!.value);
-      });
-      popupEl.appendChild(inputEl);
-
+      // No search <input> here: it previously autofocused and stole the
+      // arrow/Enter keys away from the suggestion menu, so keyboard selection
+      // was impossible. The query is typed in the editor itself and the
+      // suggestion plugin calls onUpdate, which drives the search.
       listEl = document.createElement("div");
       popupEl.appendChild(listEl);
 
@@ -139,15 +135,11 @@ function createDomRenderer() {
 
       if (props.query) doSearch(props.query);
       else renderList();
-
-      // Focus after append
-      setTimeout(() => inputEl?.focus(), 10);
     },
 
     onUpdate: (props: any) => {
       latestProps = props;
       selectedIndex = 0;
-      if (inputEl) inputEl.value = props.query ?? "";
       if (props.query) doSearch(props.query);
     },
 
@@ -164,7 +156,10 @@ function createDomRenderer() {
       }
       if (props.event.key === "Enter") {
         if (items[selectedIndex]) {
-          props.command(items[selectedIndex]);
+          // @tiptap/suggestion v3 does NOT pass `command` into onKeyDown —
+          // only { view, event, range }. Use the command bound to the CURRENT
+          // range from the latest props.
+          latestProps?.command(items[selectedIndex]);
           return true;
         }
       }
@@ -178,7 +173,6 @@ function createDomRenderer() {
       latestProps = null;
       if (searchTimer) clearTimeout(searchTimer);
       if (popupEl) { popupEl.remove(); popupEl = null; }
-      inputEl = null;
       listEl = null;
       items = [];
     },

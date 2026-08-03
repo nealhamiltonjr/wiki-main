@@ -13,6 +13,10 @@ export BETTER_AUTH_URL=http://localhost:3000
 export PORT=3000
 export NODE_ENV=production
 
+# The E2E DB is regenerated test data. Removing it (plus WAL/SHM sidecars) before
+# the push keeps every run reproducible: `drizzle-kit push --force` cannot replay
+# the FTS virtual tables from a previous run, so a stale DB aborts startup.
+rm -f "$DB_PATH" "$DB_PATH-wal" "$DB_PATH-shm"
 npx drizzle-kit push --force
 npm run build:client
 exec npx tsx src/server/index.ts

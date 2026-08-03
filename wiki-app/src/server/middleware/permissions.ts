@@ -1,9 +1,12 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { eq } from "drizzle-orm";
+import { db } from "../db/index.js";
+import { branches } from "../db/schema.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import { getUserContext, getUserContextById } from "../services/auth.service.js";
 import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
-import { resolveToken, type ResolvedToken } from "../services/token.service.js";
-import type { AccessResult, SpaceRole, TokenPermission, UserContext } from "../../shared/types.js";
+import { resolveToken, checkTokenPassword, type ResolvedToken } from "../services/token.service.js";
+import type { AccessResult, BranchContext, SpaceRole, TokenPermission, UserContext } from "../../shared/types.js";
 
 /**
  * Every route MUST declare its access requirement via `config.access` at
@@ -19,7 +22,7 @@ export type RouteAccess =
   | "public" // no auth required at all - e.g. the unauthenticated public-branch view route
   | "authenticated" // any logged-in user, no specific branch/role check (e.g. "list my spaces")
   | "admin" // global admin only
-  | { branchParam: string; minRole: Exclude<AccessResult, "none">; source?: "params" | "query" | "body" }
+  | { branchParam: string; minRole: Exclude<AccessResult, "none">; source?: "params" | "query" | "body"; allowShareToken?: true }
   | { spaceParam: string; minRole: SpaceRole; source?: "params" | "query" | "body" }; // for routes with no single "the" branch, e.g. listing a space's whole tree
 
 declare module "fastify" {
@@ -101,6 +104,47 @@ export async function registerPermissionMiddleware(app: FastifyInstance) {
     }
 
     if (access === "public") return;
+
+    // A branch-scoped route may opt in to share-link (token-in-URL) access so an
+    // anonymous viewer of a shared page can load its embedded assets (images).
+    // The token grants access to the branch it scopes to, any SIBLING branch of
+    // the same page (image srcs are branch-bound but page content is shared
+    // across all of a page's branches), or any branch of the space a space-scoped
+    // token covers. Password-protected links additionally require the password.
+    // Authenticated principals never reach this path.
+    if (!principal && typeof access === "object" && "branchParam" in access && access.allowShareToken) {
+      const source = (request as any)[access.source ?? "params"] as Record<string, unknown>;
+      const branchId = source?.[access.branchParam];
+      const query = request.query as Record<string, unknown>;
+      const rawToken = query?.shareToken;
+      if (typeof branchId === "string" && typeof rawToken === "string" && rawToken) {
+        const token = await resolveToken(rawToken);
+        if (token && token.type === "share_link") {
+          if (token.passwordHash) {
+            const pw = query?.sharePassword;
+            if (!checkTokenPassword(token, typeof pw === "string" ? pw : undefined)) {
+              return reply.code(401).send({ error: "Password required" });
+            }
+          }
+          let chain;
+          try {
+            chain = await getBranchChain(branchId);
+          } catch {
+            return reply.code(404).send({ error: "Branch not found" });
+          }
+          const scopeOk = await shareTokenCoversBranch(token, branchId, chain);
+          if (scopeOk) {
+            const granted = token.scopeType === "branch" ? tokenBranchAccess(token.permission) : tokenSpaceAccess(token.permission);
+            if (meetsMinimum(granted, access.minRole)) {
+              (request as any).resolvedAccess = granted;
+              (request as any).branchChain = chain;
+              return;
+            }
+          }
+        }
+      }
+      return reply.code(401).send({ error: "Authentication required" });
+    }
 
     if (!principal) return reply.code(401).send({ error: "Authentication required" });
 
@@ -206,6 +250,24 @@ export async function registerPermissionMiddleware(app: FastifyInstance) {
     (request as any).resolvedAccess = result;
     (request as any).branchChain = chain;
   });
+}
+
+/**
+ * Whether a share-link token covers a given branch. Branch-scoped tokens cover
+ * the exact branch they name AND any sibling branch of the same page - image
+ * srcs are branch-bound but page content (and its files) is shared across every
+ * branch of a page, so a share of one branch must render images whose URLs
+ * reference another. Space-scoped tokens cover any branch in that space.
+ */
+async function shareTokenCoversBranch(token: ResolvedToken, branchId: string, chain: BranchContext[]): Promise<boolean> {
+  if (token.scopeType === "space") return chain[0]!.spaceId === token.scopeId;
+  if (token.scopeType !== "branch" || !token.scopeId) return false;
+  if (token.scopeId === branchId) return true;
+
+  const [tokenBranch] = await db.select({ pageId: branches.pageId }).from(branches).where(eq(branches.id, token.scopeId));
+  const [urlBranch] = await db.select({ pageId: branches.pageId }).from(branches).where(eq(branches.id, branchId));
+  if (!tokenBranch || !urlBranch) return false;
+  return tokenBranch.pageId === urlBranch.pageId;
 }
 
 const rankMap: Record<AccessResult, number> = { none: 0, viewer: 1, editor: 2, admin: 3 };

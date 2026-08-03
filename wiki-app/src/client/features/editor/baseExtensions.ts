@@ -11,6 +11,7 @@ import Typography from "@tiptap/extension-typography";
 import { UniqueID } from "@tiptap/extension-unique-id";
 import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import { CommentExtension } from "@sereneinserenade/tiptap-comment-extension";
+import { MentionExtension } from "./mentionExtension.js";
 import { defaultGenerateId } from "../../../shared/blockIds.js";
 
 /**
@@ -51,7 +52,12 @@ export function baseEditorExtensions({
     // order is fragile).
     StarterKit.configure({ link: false, underline: false, codeBlock: false }),
     CommentableCodeBlock,
-    Image,
+    // Inline images: the markdown importer stores images as inline nodes
+    // (standalone `![alt](src)` becomes `paragraph > image`, §markdownToTiptap),
+    // and the exporter reads them back inline. A block-level image inside a
+    // paragraph is invalid content, so `contentMatchAt` throws on any later
+    // insert (e.g. file uploads) and the paragraph becomes uneditable.
+    Image.configure({ inline: true }),
     LinkExtension.configure({ openOnClick: false, autolink: true }),
     Underline,
     CommentExtension.configure({
@@ -79,5 +85,10 @@ export function baseEditorExtensions({
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ["heading", "paragraph"] }),
     Typography,
+    // @mention node (Phase D). A content-model node (saved as a `mention` node
+    // in the Tiptap JSON), so it lives here — the read-only ShareView and the
+    // server's collab seed schema build from baseEditorExtensions, and a page
+    // containing a mention would otherwise fail to parse (blank document) there.
+    MentionExtension,
   ];
 }

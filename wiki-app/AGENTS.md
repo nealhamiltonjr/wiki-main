@@ -9,9 +9,9 @@ export, real-time collab (Hocuspocus/Yjs), group/space permissions. See
 - `npm run dev:server` — API + WebSocket on :3000 (`tsx watch`)
 - `npm run dev:client` — Vite on :5173 (proxies /api to :3000)
 - `npm run typecheck` — `tsc --noEmit`
-- `npm test` — vitest (18 files, 149 tests)
+- `npm test` — vitest (20 files, 162 tests)
 - `npm run build:client` — vite build
-- `npx playwright test --config=e2e/playwright.config.ts` — E2E tests (5 tests, headless Chromium)
+- `npx playwright test --config=e2e/playwright.config.ts` — E2E tests (9 tests, headless Chromium)
 
 ## Server boot requirements
 
@@ -66,15 +66,89 @@ Dev server started for UI work:
   drag-handle, search-replace, comment panel, permissions dialog, backlinks,
   attributes, collab toggle), `CommandPalette.tsx` (Cmd+K global search),
   `NotificationBell.tsx` (bell icon + dropdown feed), `wikiLinkExtension.tsx`
-  ([[page]] linking — currently disabled, see Known Issues), `slashCommandExtension.tsx` (/slash commands).
+  ([[page]] linking), `mentionExtension.ts` (@mentions), `slashCommandExtension.tsx`
+  (/slash commands). All three use `@tiptap/suggestion` v3 with plain-DOM popup
+  renderers. The mention node lives in `baseEditorExtensions()` (shared by the
+  editor, ShareView, and collab seed), NOT in `editorPlugins.ts` — registering
+  it in both would load it twice.
 
-## Known issues
+## Bug-fix log (2026-08-01/02)
 
-- **WikiLinkExtension causes ProseMirror crash** (`t.getState is not a function`)
-  in production (Vite-built) builds. The extension uses `@tiptap/suggestion`
-  with `ReactDOM.createRoot` for the popup. The error occurs during editor
-  creation in the built JS bundle. Commented out in Editor.tsx extensions array
-  until debugged. Does NOT reproduce in dev mode (`npm run dev:client`).
+All fixes below were applied in this pass and verified: 166 unit/integration
+tests, typecheck, prod build, and 11 Playwright E2E tests (incl. 6
+editor-feature flows) all pass.
+
+- **FIXED — File uploads silently fail when a page's doc is invalid
+  (`contentMatchAt on a node with invalid content`).** The markdown importer
+  stores a standalone `![alt](src)` line as `paragraph > image`, but the Image
+  extension was block-level (`inline: false`, the default), so that paragraph
+  was invalid content. Every later insert (`insertContent`, `setImage`,
+  `replaceRange`) called `contentMatchAt` on the cursor's parent and threw,
+  so uploads (image AND non-image) silently did nothing on affected pages
+  (e.g. the Linux page). FIX: `Image.configure({ inline: true })` in
+  `src/client/features/editor/baseExtensions.ts` — the schema now matches what
+  the markdown importer/exporter already emit, so `paragraph > image` is valid.
+  Note inline images render with invisible `.ProseMirror-separator` placeholder
+  `<img>`s; E2E image locators must use `img:not(.ProseMirror-separator)`.
+- **FIXED — Non-image upload inserted literal `[name](url)` text instead of a
+  link.** `Editor.tsx`'s `uploadFile` now routes the attachment through
+  `markdownToTiptap` (same converter as `handleMarkdownPaste`) and inserts just
+  the inline content, so it becomes a real link node in the current paragraph.
+- **KNOWN (cosmetic, pre-existing):** React logs "Encountered two children with
+  the same key, `marks`" in edit mode with or without images (verified against
+  the pre-fix schema). Tiptap v3 internal; harmless.
+
+- **FIXED — Keyboard Enter in suggestion menus (slash / `[[` / `@`).**
+  `@tiptap/suggestion` v3 passes NO `command` into `onKeyDown({ view, event,
+  range })`, so all three renderers (`slashCommandExtension.tsx`,
+  `wikiLinkExtension.tsx`, `mentionExtension.ts`) now keep the command bound to
+  the CURRENT range in a `latestProps` closure and call that on Enter.
+- **FIXED — Toolbar image upload / "Upload file" dead button.** `Editor.tsx`
+  re-renders `<input ref={fileInputRef} type="file" style={{display:"none"}}>`.
+  `triggerUpload()` clicks it → uploads → inserts image node.
+- **FIXED — Wiki-link over-delete + focus steal.** `command` now uses the v3
+  suggestion `range` directly (it already includes the `[[` trigger), so
+  preceding text is preserved; the popup's search `<input>` was removed so
+  arrow/Enter reach the menu.
+- **FIXED — @mention notifications never fire.** `extractMentions` in
+  `mention.service.ts` now matches BOTH the `mention` node shape emitted by
+  `@tiptap/extension-mention` (attrs `{id, label, mentionSuggestionChar}`) and
+  the older mention-mark shape. `MentionExtension` moved into
+  `baseEditorExtensions()` so the editor, ShareView, and collab seed share one
+  schema (a mention page previously rendered blank in ShareView/collab).
+- **FIXED — Live DB missing Phase D/E tables.** Applied `notifications`,
+  `favorites`, AND `attributes` (also missing!) to `data/wiki.db` by extracting
+  the exact drizzle DDL from a fresh `drizzle-kit push`. `/api/favorites`,
+  `/api/notifications`, `/api/notifications/unread-count`, and the attributes
+  API now return 401 instead of 500. On OTHER DBs, run
+  `npx drizzle-kit push --force` (interactive conflicts on pre-FTS DBs may
+  require a TTY; the manual DDL extraction method is in the fix commit).
+- **FIXED — Shared links dropped embedded images ("formatting jumbled").**
+  The share view and editor render the SAME content/schema/CSS, but the file
+  endpoint (`/api/branches/:branchId/files/:fileId`) required auth, so
+  anonymous share viewers got 401s → broken image placeholders made the page
+  look like formatting was lost. `shareToken` (and `sharePassword` for
+  password-protected links) is now appended to image srcs by `/api/share/:token`
+  (`rewriteShareImageSrcs`, token.routes.ts), and the permission middleware
+  accepts a `?shareToken=` on routes that opt in via
+  `allowShareToken: true` (file.routes.ts). Scope check covers the token's own
+  branch, ANY sibling branch of the same page (image srcs are branch-bound but
+  content/files are shared across a page's placements — the Linux page's image
+  references its home-lab branch while the share is for its test-space branch),
+  or any branch of a space-scoped token's space. Covered by 3 new integration
+  tests + 1 new E2E test.
+- **Known remaining (not a regression):** the `/image` slash command still uses
+  `window.prompt("Image URL:")`. No `embed` plugin exists; the inline file
+  upload flow is the toolbar 🖼 / "Upload file" button (now functional).
+
+## Previous (resolved) issue — do not re-introduce
+
+- WikiLinkExtension once crashed the production bundle
+  (`t.getState is not a function`). Fixed in commit a21d7cc by giving each
+  Suggestion-based extension its own `new PluginKey(...)` (`slashCommand`,
+  `wikiLink`, `mention`) instead of sharing the default `SuggestionPluginKey`,
+  and switching the popups to plain-DOM renderers (no React createRoot). This
+  IS fixed — the wiki-link/menu/mention popups now render in the prod bundle.
 
 ## E2E tests
 
@@ -88,18 +162,30 @@ Located in `e2e/`. Uses Playwright with a headless Chromium browser.
   `auth-user.json` (gitignored)
 - `e2e/wiki.spec.ts` — 5 tests covering sidebar, space/page creation,
   content editing/saving, Cmd+K palette, settings page
+- `e2e/editor-features.spec.ts` — 6 tests covering the fixed bugs: slash-menu
+  keyboard selection, wiki-link insert (no corruption), mention node insert +
+  saved JSON check, toolbar image upload, upload after markdown-imported
+  content (regression for the `contentMatchAt` bug), and anonymous share-view
+  image rendering (share link → unauthenticated context → image `naturalWidth > 0`).
+  Image locators must exclude `.ProseMirror-separator` placeholders
+  (`img:not(.ProseMirror-separator)`) since images are inline nodes.
 
 **Running:** `npx playwright test --config=e2e/playwright.config.ts`
-Clean state each run: delete `data/e2e-test.db`, `data/e2e-repo`,
-`data/e2e-files`, and `e2e/auth-*.json` before running.
+`e2e/start-server.sh` removes the stale E2E DB (and WAL/SHM) before
+`drizzle-kit push` — a previous run's FTS virtual tables otherwise abort the
+push — so runs are reproducible without manual cleanup. `e2e/auth-*.json`
+storage states are gitignored and regenerated by `setup.ts`.
 
 **Key decisions:**
 - Users are seeded via the REST API (`POST /api/auth/sign-up/email` with
   Origin header) rather than through the browser UI — much faster and avoids
   flaky UI-based registration
-- Tests navigate to `/pages/${branchId}` directly (using `getFirstBranchId()`
-  which calls the spaces/tree API) instead of clicking tree labels — tree
-  click navigation via React Router's `navigate()` was unreliable in tests
+- Tests navigate to `/pages/${branchId}` directly using the slug-based
+  `getBranchIdBySlug()`/`getFirstBranchId(page, slug)` helpers (which call the
+  spaces/tree API and search EVERY space) instead of clicking tree labels —
+  tree click navigation via React Router's `navigate()` was unreliable, and
+  `spaces[0]/tree[0]` is fragile once other tests have created spaces. New
+  tests must pass the slug they created.
 
 ## Settings framework (§7.10b) conventions
 

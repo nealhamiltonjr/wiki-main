@@ -33,9 +33,12 @@ export async function fileRoutes(app: FastifyInstance) {
 
   // The URL includes the branch id deliberately (§3.13a) - permission is
   // checked against THIS branch, not against the file or its page in isolation.
+  // `allowShareToken` lets anonymous viewers of a shared page load its embedded
+  // images: the share route rewrites image srcs to carry `?shareToken=...`, and
+  // the middleware resolves that token against this branch before serving.
   app.get(
     "/api/branches/:branchId/files/:fileId",
-    { config: { access: { branchParam: "branchId", minRole: "viewer" } } },
+    { config: { access: { branchParam: "branchId", minRole: "viewer", allowShareToken: true } } },
     async (request, reply) => {
       const { branchId, fileId } = request.params as { branchId: string; fileId: string };
       const result = await getFileForBranch(fileId, branchId);

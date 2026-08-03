@@ -1,7 +1,7 @@
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import { getToolbarButtons } from "./pluginEngine.js";
 
-export function Toolbar({ editor, onUploadImage, onAddComment, onSearch }: { editor: TiptapEditor | null; onUploadImage: () => void; onAddComment: () => void; onSearch: () => void }) {
+export function Toolbar({ editor, onUploadFile, onAddComment, onSearch }: { editor: TiptapEditor | null; onUploadFile: () => void; onAddComment: () => void; onSearch: () => void }) {
   if (!editor) return null;
 
   const buttons = getToolbarButtons();
@@ -49,7 +49,7 @@ export function Toolbar({ editor, onUploadImage, onAddComment, onSearch }: { edi
 
       {separator}
 
-      {toolBtn(false, "🖼", "Insert image", onUploadImage, "image")}
+      {toolBtn(false, "📎", "Upload file (image → inline image, other → attachment link)", onUploadFile, "upload")}
       {toolBtn(false, "↶", "Undo (Ctrl+Z)", () => editor.chain().focus().undo().run(), "undo")}
       {toolBtn(false, "↷", "Redo (Ctrl+Shift+Z)", () => editor.chain().focus().redo().run(), "redo")}
     </div>

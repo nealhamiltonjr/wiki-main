@@ -9,10 +9,11 @@ interface MentionUser {
 
 /**
  * @mention extension. Triggers on `@`, searches users via /api/users/search,
- * and inserts a mention mark with `{ type: "user", id, label }` attrs.
+ * and inserts a `mention` NODE with `{ id, label, mentionSuggestionChar }`
+ * attrs (the `@tiptap/extension-mention` default command).
  *
- * On save, `processMentions()` in the server reads these marks and fires
- * notification rows for every mentioned user.
+ * On save, `processMentions()` in the server reads these nodes (and the older
+ * mention-mark shape) and fires notification rows for every mentioned user.
  */
 export const MentionExtension = Mention.configure({
   HTMLAttributes: { class: "wiki-mention" },
@@ -127,7 +128,10 @@ function createMentionRenderer() {
       if (props.event.key === "Enter") {
         const user = users[selectedIndex];
         if (user) {
-          props.command({ id: user.id, label: user.name });
+          // @tiptap/suggestion v3 does NOT pass `command` into onKeyDown —
+          // only { view, event, range }. Use the command bound to the CURRENT
+          // range from the latest props.
+          latestProps?.command({ id: user.id, label: user.name });
           return true;
         }
       }

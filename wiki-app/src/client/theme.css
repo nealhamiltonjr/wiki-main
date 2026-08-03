@@ -720,6 +720,11 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 .wiki-editor-content .ProseMirror {
   outline: none;
   min-height: 280px;
+  /* Keep editor whitespace (indentation/space runs) intact. This mirrors the
+     style Tiptap injects via injectCSS, which is dropped on read-only mounts
+     (e.g. shared pages) because the EditorContent element isn't in the DOM
+     when the StrictMode double-mount destroys the first editor instance. */
+  white-space: break-spaces;
 }
 .wiki-editor-content .ProseMirror p {
   margin: 0 0 0.7em;

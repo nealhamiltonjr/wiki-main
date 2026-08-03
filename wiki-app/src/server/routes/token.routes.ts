@@ -6,6 +6,7 @@ import { eq } from "drizzle-orm";
 import { createShareLink, createApiToken, resolveToken, checkTokenPassword } from "../services/token.service.js";
 import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
+import type { JSONBlock } from "../../shared/blockIds.js";
 import type { UserContext } from "../../shared/types.js";
 
 // Nullable ISO datetime input, coerced from a JSON string to a Date on the
@@ -160,6 +161,28 @@ export async function tokenRoutes(app: FastifyInstance) {
     const [page] = await db.select().from(pages).where(eq(pages.id, branch.pageId));
     if (!page || page.deletedAt) return reply.code(404).send({ error: "Content no longer exists" });
 
-    return reply.send({ slug: page.slug, content: page.content, permission: resolved.permission });
+    // Rewrite embedded-image srcs so they can be fetched anonymously: the file
+    // endpoint rejects unauthenticated requests, so each `/api/...` src gets the
+    // share token (and, for password-protected links, the just-validated
+    // password) appended. A fresh copy is returned - the stored content is never
+    // mutated. External (fully-qualified) image URLs are left untouched.
+    const content = rewriteShareImageSrcs(page.content as JSONBlock, rawToken, password);
+
+    return reply.send({ slug: page.slug, content, permission: resolved.permission });
   });
+}
+
+function rewriteShareImageSrcs(doc: JSONBlock, token: string, password?: string): JSONBlock {
+  if (!doc || typeof doc !== "object") return doc;
+  const out: JSONBlock = { ...doc };
+  if (out.type === "image" && typeof out.attrs?.src === "string" && out.attrs.src.startsWith("/api/")) {
+    const sep = out.attrs.src.includes("?") ? "&" : "?";
+    let src = `${out.attrs.src}${sep}shareToken=${encodeURIComponent(token)}`;
+    if (password) src = `${src}&sharePassword=${encodeURIComponent(password)}`;
+    out.attrs = { ...out.attrs, src };
+  }
+  if (Array.isArray(out.content)) {
+    out.content = out.content.map((child) => rewriteShareImageSrcs(child, token, password));
+  }
+  return out;
 }

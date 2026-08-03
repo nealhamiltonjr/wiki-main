@@ -3,8 +3,13 @@ import { createNotification } from "./notification.service.js";
 
 /**
  * Walk Tiptap JSON content and extract @mention targets.
- * Mentions are `text` nodes wrapped in a `mention` mark with
- * `{ type: "user", id: "<userId>" }` attributes.
+ *
+ * Two shapes are recognized so both the original design and the current client
+ * work:
+ * - `text` nodes wrapped in a `mention` MARK with `{ type: "user", id }` attrs
+ *   (the Phase D design).
+ * - `mention` NODES with `{ id, label, mentionSuggestionChar }` attrs — what
+ *   `@tiptap/extension-mention` (the client's mentionExtension) inserts.
  */
 export function extractMentions(content: unknown): string[] {
   try {
@@ -17,6 +22,11 @@ export function extractMentions(content: unknown): string[] {
     function walk(node: any) {
       if (!node) return;
       if (Array.isArray(node)) { for (const n of node) walk(n); return; }
+      // mention NODE (current client output)
+      if (node.type === "mention" && node.attrs?.id) {
+        ids.add(node.attrs.id);
+      }
+      // mention MARK on a text node (original design)
       if (node.marks) {
         for (const m of node.marks) {
           if (m.type === "mention" && m.attrs?.type === "user" && m.attrs?.id) {

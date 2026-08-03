@@ -256,6 +256,212 @@ describe("API token bearer authentication", () => {
     const asBearer = await app.inject({ method: "GET", url: `/api/branches/${page.branchId}/page`, headers: { authorization: `Bearer ${token}` } });
     expect(asBearer.statusCode).toBe(401);
   });
+
+  it("a share link grants anonymous access to the page's embedded image (but no other branch's)", async () => {
+    const owner = await signup("shareimg@example.com");
+    const spaceId = await createSpace(owner.cookie, "SI-space");
+    const page = await createPage(owner.cookie, spaceId, "si-page");
+    const otherPage = await createPage(owner.cookie, spaceId, "si-other");
+
+    // Upload a file (a real embedded image for this branch).
+    const fileData = Buffer.from("share-image-bytes");
+    const boundary = "----shareimgtest";
+    const upload = await app.inject({
+      method: "POST",
+      url: `/api/branches/${page.branchId}/files`,
+      headers: { cookie: owner.cookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="pic.png"\r\nContent-Type: image/png\r\n\r\n`),
+        fileData,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]),
+    });
+    expect(upload.statusCode).toBe(201);
+    const { id: fileId } = JSON.parse(upload.body);
+
+    // Save page content referencing the image.
+    const src = `/api/branches/${page.branchId}/files/${fileId}`;
+    const getPage = await app.inject({ method: "GET", url: `/api/branches/${page.branchId}/page`, headers: { cookie: owner.cookie } });
+    const pageBody = JSON.parse(getPage.body);
+    const save = await app.inject({
+      method: "PUT",
+      url: `/api/pages/${page.pageId}/branches/${page.branchId}`,
+      headers: { cookie: owner.cookie },
+      payload: {
+        content: {
+          type: "doc",
+          content: [{ type: "paragraph", attrs: { id: "p1" }, content: [{ type: "image", attrs: { src, alt: "" } }] }],
+        },
+        expectedUpdatedAt: pageBody.updatedAt,
+      },
+    });
+    expect(save.statusCode).toBe(200);
+
+    // Create share links for both branches.
+    async function createShare(branchId: string, extra: Record<string, unknown> = {}) {
+      const link = await app.inject({
+        method: "POST",
+        url: `/api/branches/${branchId}/share-links`,
+        headers: { cookie: owner.cookie },
+        payload: { scopeType: "branch", scopeId: branchId, permission: "view", expiresAt: FUTURE, ...extra },
+      });
+      expect(link.statusCode).toBe(201);
+      return JSON.parse(link.body).token as string;
+    }
+    const token = await createShare(page.branchId);
+    const otherToken = await createShare(otherPage.branchId);
+
+    // The file endpoint stays locked for anonymous requests without a token.
+    const anon = await app.inject({ method: "GET", url: `/api/branches/${page.branchId}/files/${fileId}` });
+    expect(anon.statusCode).toBe(401);
+
+    // ...and for a share token scoped to a DIFFERENT branch.
+    const wrongBranch = await app.inject({
+      method: "GET",
+      url: `/api/branches/${page.branchId}/files/${fileId}?shareToken=${encodeURIComponent(otherToken)}`,
+    });
+    expect(wrongBranch.statusCode).toBe(401);
+
+    // The correct branch share token unlocks the exact bytes.
+    const withToken = await app.inject({
+      method: "GET",
+      url: `/api/branches/${page.branchId}/files/${fileId}?shareToken=${encodeURIComponent(token)}`,
+    });
+    expect(withToken.statusCode).toBe(200);
+    expect(withToken.rawPayload.toString()).toBe("share-image-bytes");
+
+    // The share content itself carries the rewritten src so the page renders.
+    const shareContent = await app.inject({ method: "GET", url: `/api/share/${token}` });
+    expect(shareContent.statusCode).toBe(200);
+    const imageSrc = JSON.parse(shareContent.body).content.content[0].content[0].attrs.src as string;
+    expect(imageSrc).toContain("shareToken=");
+    expect(imageSrc.startsWith(src)).toBe(true);
+    const fileAfterShare = await app.inject({
+      method: "GET",
+      url: `/api/branches/${page.branchId}/files/${fileId}?shareToken=${encodeURIComponent(token)}`,
+    });
+    expect(fileAfterShare.statusCode).toBe(200);
+  });
+
+  it("a share token covers sibling branches of the same page (cloned placement)", async () => {
+    const owner = await signup("sharesib@example.com");
+    const spaceA = await createSpace(owner.cookie, "SibA-space");
+    const spaceB = await createSpace(owner.cookie, "SibB-space");
+    const page = await createPage(owner.cookie, spaceA, "si-sib");
+    const branchA = page.branchId;
+
+    const fileData = Buffer.from("sibling-branch-image-bytes");
+    const boundary = "----sharesibtest";
+    const upload = await app.inject({
+      method: "POST",
+      url: `/api/branches/${branchA}/files`,
+      headers: { cookie: owner.cookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="sib.png"\r\nContent-Type: image/png\r\n\r\n`),
+        fileData,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]),
+    });
+    expect(upload.statusCode).toBe(201);
+    const { id: fileId } = JSON.parse(upload.body);
+
+    // Clone the page into a second space: same pageId, different branch (B2).
+    const clone = await app.inject({
+      method: "POST",
+      url: `/api/branches/${branchA}/clone`,
+      headers: { cookie: owner.cookie },
+      payload: { targetSpaceId: spaceB, targetParentBranchId: null },
+    });
+    expect(clone.statusCode).toBe(201);
+    const { branchId: branchB } = JSON.parse(clone.body);
+    expect(branchB).not.toBe(branchA);
+
+    // Share link scoped to the clone's branch.
+    const link = await app.inject({
+      method: "POST",
+      url: `/api/branches/${branchB}/share-links`,
+      headers: { cookie: owner.cookie },
+      payload: { scopeType: "branch", scopeId: branchB, permission: "view", expiresAt: FUTURE },
+    });
+    expect(link.statusCode).toBe(201);
+    const { token } = JSON.parse(link.body);
+
+    // The image URL references branchA, but the token covers branchB (same page).
+    const url = `/api/branches/${branchA}/files/${fileId}`;
+    const anon = await app.inject({ method: "GET", url });
+    expect(anon.statusCode).toBe(401);
+    const withSiblingToken = await app.inject({ method: "GET", url: `${url}?shareToken=${encodeURIComponent(token)}` });
+    expect(withSiblingToken.statusCode).toBe(200);
+    expect(withSiblingToken.rawPayload.toString()).toBe("sibling-branch-image-bytes");
+  });
+
+  it("a password-protected share link requires the password for embedded images too", async () => {
+    const owner = await signup("shareimgpw@example.com");
+    const spaceId = await createSpace(owner.cookie, "SIPW-space");
+    const page = await createPage(owner.cookie, spaceId, "si-pw");
+
+    const fileData = Buffer.from("pw-protected-image-bytes");
+    const boundary = "----shareimgpwtest";
+    const upload = await app.inject({
+      method: "POST",
+      url: `/api/branches/${page.branchId}/files`,
+      headers: { cookie: owner.cookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="secret.png"\r\nContent-Type: image/png\r\n\r\n`),
+        fileData,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]),
+    });
+    expect(upload.statusCode).toBe(201);
+    const { id: fileId } = JSON.parse(upload.body);
+
+    const src = `/api/branches/${page.branchId}/files/${fileId}`;
+    const getPage = await app.inject({ method: "GET", url: `/api/branches/${page.branchId}/page`, headers: { cookie: owner.cookie } });
+    const save = await app.inject({
+      method: "PUT",
+      url: `/api/pages/${page.pageId}/branches/${page.branchId}`,
+      headers: { cookie: owner.cookie },
+      payload: {
+        content: {
+          type: "doc",
+          content: [{ type: "paragraph", attrs: { id: "p1" }, content: [{ type: "image", attrs: { src, alt: "" } }] }],
+        },
+        expectedUpdatedAt: JSON.parse(getPage.body).updatedAt,
+      },
+    });
+    expect(save.statusCode).toBe(200);
+
+    const link = await app.inject({
+      method: "POST",
+      url: `/api/branches/${page.branchId}/share-links`,
+      headers: { cookie: owner.cookie },
+      payload: { scopeType: "branch", scopeId: page.branchId, permission: "view", expiresAt: FUTURE, password: "s3cret" },
+    });
+    const { token } = JSON.parse(link.body);
+
+    const url = `/api/branches/${page.branchId}/files/${fileId}`;
+    const noPassword = await app.inject({ method: "GET", url: `${url}?shareToken=${encodeURIComponent(token)}` });
+    expect(noPassword.statusCode).toBe(401);
+
+    const wrongPassword = await app.inject({
+      method: "GET",
+      url: `${url}?shareToken=${encodeURIComponent(token)}&sharePassword=wrong`,
+    });
+    expect(wrongPassword.statusCode).toBe(401);
+
+    const withPassword = await app.inject({
+      method: "GET",
+      url: `${url}?shareToken=${encodeURIComponent(token)}&sharePassword=s3cret`,
+    });
+    expect(withPassword.statusCode).toBe(200);
+    expect(withPassword.rawPayload.toString()).toBe("pw-protected-image-bytes");
+
+    // The rewritten src on password-protected content carries the password too.
+    const shareContent = await app.inject({ method: "GET", url: `/api/share/${token}?password=s3cret` });
+    expect(shareContent.statusCode).toBe(200);
+    const imageSrc = JSON.parse(shareContent.body).content.content[0].content[0].attrs.src as string;
+    expect(imageSrc).toContain("sharePassword=s3cret");
+  });
 });
 
 describe("token scope validation - no minting tokens for content you can't access", () => {

@@ -18,17 +18,27 @@ async function createSpaceAndPage(page: import("@playwright/test").Page, spaceNa
   await page.waitForTimeout(800);
 }
 
-async function getFirstBranchId(page: import("@playwright/test").Page): Promise<string> {
-  return page.evaluate(async () => {
+// Returns the branch id for a page with the given slug. Searches every space
+// (not just spaces[0]) so tests stay correct when earlier tests have created
+// spaces/pages in the shared e2e DB. Falls back to the first tree node only if
+// no slug matches.
+async function getFirstBranchId(page: import("@playwright/test").Page, slug?: string): Promise<string> {
+  return page.evaluate(async (slug) => {
     const spacesRes = await fetch("/api/spaces");
     const spaces = await spacesRes.json();
-    const space = spaces[0];
-    if (!space) throw new Error("No spaces found");
-    const treeRes = await fetch(`/api/spaces/${space.id}/tree`);
-    const tree = await treeRes.json();
-    if (!tree[0]) throw new Error("No pages in tree");
-    return tree[0].id as string;
-  });
+    for (const space of spaces) {
+      const treeRes = await fetch(`/api/spaces/${space.id}/tree`);
+      const tree = await treeRes.json();
+      const flat: { id: string; slug: string }[] = [];
+      const visit = (nodes: { id: string; slug: string; children: unknown[] }[]) => {
+        for (const n of nodes) { flat.push(n); visit(n.children as never); }
+      };
+      visit(tree);
+      const hit = slug ? flat.find((p) => p.slug === slug) : flat[0];
+      if (hit) return hit.id;
+    }
+    throw new Error("No pages found");
+  }, slug);
 }
 
 test.describe("wiki app", () => {
@@ -43,7 +53,7 @@ test.describe("wiki app", () => {
   test("creates a space and a page, then navigates to it", async ({ page }) => {
     await createSpaceAndPage(page, "E2E Space", "hello-world");
 
-    const branchId = await getFirstBranchId(page);
+    const branchId = await getFirstBranchId(page, "hello-world");
     await page.goto(`/pages/${branchId}`, { waitUntil: "networkidle", timeout: 15000 });
 
     await expect(page.locator(".wiki-page-slug")).toBeVisible({ timeout: 5000 });
@@ -55,7 +65,7 @@ test.describe("wiki app", () => {
   test("types content, saves, and shows 'Saved' status", async ({ page }) => {
     await createSpaceAndPage(page, "SaveTest", "save-test");
 
-    const branchId = await getFirstBranchId(page);
+    const branchId = await getFirstBranchId(page, "save-test");
     await page.goto(`/pages/${branchId}`, { waitUntil: "networkidle" });
     await expect(page.locator(".wiki-editor-content")).toBeVisible({ timeout: 5000 });
 

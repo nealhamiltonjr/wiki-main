@@ -16,15 +16,18 @@ import {
 } from "./pluginEngine.js";
 import { SlashCommandExtension } from "./slashCommandExtension.js";
 import { WikiLinkExtension } from "./wikiLinkExtension.js";
-import { MentionExtension } from "./mentionExtension.js";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 
 // ---------------------------------------------------------------------------
 // Register Tiptap extensions
 // ---------------------------------------------------------------------------
+// MentionExtension is deliberately NOT registered here: it is a content-model
+// node, so it lives in baseEditorExtensions() to keep the editor, the
+// read-only ShareView, and the server's collab seed schema on the same schema
+// (a page with a mention must parse in all three). Registering it here too
+// would make the Editor load it twice ("duplicate extension names").
 registerEditorExtension(SlashCommandExtension);
 registerEditorExtension(WikiLinkExtension);
-registerEditorExtension(MentionExtension);
 
 // ---------------------------------------------------------------------------
 // Slash commands — grouped by category
