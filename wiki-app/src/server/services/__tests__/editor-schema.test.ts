@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { getSchema } from "@tiptap/core";
 import { baseEditorExtensions } from "../../../client/features/editor/baseExtensions.js";
+import { editingExtensions } from "../../../client/features/editor/editingExtensions.js";
 
 // The editor, the read-only ShareView, and the server's collab seed all build
 // their schema from baseEditorExtensions(). If one of them were missing a node
@@ -38,5 +39,25 @@ describe("shared editor schema (baseEditorExtensions)", () => {
       content: [{ type: "paragraph", content: [{ type: "image", attrs: { src: "/api/branches/b/files/f" } }] }],
     });
     expect(doc.content.child(0).content.child(0).type.name).toBe("image");
+  });
+});
+
+describe("editing extensions (dropcursor for block drag-and-drop)", () => {
+  it("includes the Dropcursor extension configured with blue color", () => {
+    const extensions = editingExtensions();
+
+    // editingExtensions returns: [GlobalDragHandle, SearchAndReplace, Dropcursor]
+    expect(extensions.length).toBeGreaterThanOrEqual(3);
+
+    // Find the extension whose name matches "dropcursor" (case-insensitive)
+    const dropcursor = extensions.find((ext) =>
+      (ext.name || "").toLowerCase().includes("dropcursor"),
+    );
+    expect(dropcursor, "Dropcursor extension not found in editingExtensions").toBeDefined();
+
+    // The extension should have options (color, width) from configure()
+    expect(dropcursor!.options).toBeDefined();
+    expect(dropcursor!.options.color).toBe("#3b82f6");
+    expect(dropcursor!.options.width).toBe(2);
   });
 });

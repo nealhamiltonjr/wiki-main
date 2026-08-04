@@ -23,6 +23,7 @@
     "@tiptap/extension-character-count": "^3.29.2",
     "@tiptap/extension-collaboration": "^3.29.2",
     "@tiptap/extension-collaboration-caret": "^3.29.2",
+    "@tiptap/extension-dropcursor": "^3.29.2",
     "@tiptap/extension-highlight": "^3.29.2",
     "@tiptap/extension-image": "^3.29.2",
     "@tiptap/extension-link": "^3.29.2",

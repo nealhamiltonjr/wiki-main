@@ -294,7 +294,28 @@ export function DragHandlePlugin(
         once: true,
       });
     } else {
-      event.dataTransfer.setDragImage(node, 0, 0);
+      // No custom preview template: build a compact, clipped ghost. Using the
+      // raw block DOM as the drag image makes a long/wide block ghost as the
+      // whole editor frame, which reads as "the canvas is moving". Clip it to
+      // a small floating card instead (Docmost/Siyuan style).
+      const preview = node.cloneNode(true) as HTMLElement;
+      preview.style.position = "fixed";
+      preview.style.top = "0";
+      preview.style.left = "-10000px";
+      preview.style.pointerEvents = "none";
+      preview.style.maxWidth = "320px";
+      preview.style.maxHeight = "150px";
+      preview.style.overflow = "hidden";
+      preview.style.background = "var(--color-bg-secondary, #fff)";
+      preview.style.border = "1px solid var(--color-primary, #2563eb)";
+      preview.style.borderRadius = "8px";
+      preview.style.boxShadow = "0 10px 28px rgba(0,0,0,0.22)";
+      preview.style.padding = "8px 12px";
+      document.body.appendChild(preview);
+      event.dataTransfer.setDragImage(preview, 0, 0);
+      document.addEventListener("dragend", () => preview.remove(), {
+        once: true,
+      });
     }
 
     view.dragging = { slice, move: event.ctrlKey };

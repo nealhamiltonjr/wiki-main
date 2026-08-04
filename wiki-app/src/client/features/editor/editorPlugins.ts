@@ -40,6 +40,7 @@ function headingCmd(level: 1 | 2 | 3 | 4 | 5 | 6) {
     label: `Heading ${level}`,
     icon: `H${level}`,
     description: level === 1 ? "Page title" : level === 2 ? "Section heading" : "Subsection heading",
+    searchTerms: [`h${level}`, "title", "section", "subtitle"],
     command: ({ editor }) => editor.chain().focus().toggleHeading({ level }).run(),
   });
 }
@@ -56,6 +57,7 @@ registerSlashCommand({
   label: "Paragraph",
   icon: "¶",
   description: "Plain text block",
+  searchTerms: ["text", "p", "normal"],
   command: ({ editor }) => editor.chain().focus().setParagraph().run(),
 });
 
@@ -65,6 +67,7 @@ registerSlashCommand({
   label: "Blockquote",
   icon: "❝",
   description: "Quoted text block",
+  searchTerms: ["quote", "cite"],
   command: ({ editor }) => editor.chain().focus().toggleBlockquote().run(),
 });
 
@@ -74,7 +77,72 @@ registerSlashCommand({
   label: "Code block",
   icon: "</>",
   description: "Fenced code block with syntax highlighting",
+  searchTerms: ["code", "fence", "pre", "preformatted"],
   command: ({ editor }) => editor.chain().focus().toggleCodeBlock().run(),
+});
+
+// Inline formatting (Siyuan/Docmost both surface these in the slash menu).
+registerSlashCommand({
+  name: "inlineCode",
+  group: "Text",
+  label: "Inline code",
+  icon: "`",
+  description: "Monospace code span",
+  searchTerms: ["code", "monospace", "mono"],
+  command: ({ editor }) => editor.chain().focus().toggleCode().run(),
+});
+
+registerSlashCommand({
+  name: "bold",
+  group: "Text",
+  label: "Bold",
+  icon: "B",
+  description: "Bold text",
+  searchTerms: ["strong", "emphasis"],
+  command: ({ editor }) => editor.chain().focus().toggleBold().run(),
+});
+
+registerSlashCommand({
+  name: "italic",
+  group: "Text",
+  label: "Italic",
+  icon: "I",
+  description: "Italic text",
+  searchTerms: ["em", "emphasis", "slanted"],
+  command: ({ editor }) => editor.chain().focus().toggleItalic().run(),
+});
+
+registerSlashCommand({
+  name: "underline",
+  group: "Text",
+  label: "Underline",
+  icon: "U",
+  description: "Underlined text",
+  searchTerms: ["underscore"],
+  command: ({ editor }) => editor.chain().focus().toggleUnderline().run(),
+});
+
+registerSlashCommand({
+  name: "strikethrough",
+  group: "Text",
+  label: "Strikethrough",
+  icon: "S̶",
+  description: "Struck-through text",
+  searchTerms: ["strike", "del", "deleted"],
+  command: ({ editor }) => editor.chain().focus().toggleStrike().run(),
+});
+
+registerSlashCommand({
+  name: "link",
+  group: "Text",
+  label: "Link",
+  icon: "🔗",
+  description: "Insert a hyperlink",
+  searchTerms: ["url", "href", "hyperlink"],
+  command: ({ editor }) => {
+    const href = window.prompt("URL:");
+    if (href) editor.chain().focus().setLink({ href }).run();
+  },
 });
 
 registerSlashCommand({
@@ -83,6 +151,7 @@ registerSlashCommand({
   label: "Bullet list",
   icon: "•",
   description: "Unordered list",
+  searchTerms: ["ul", "unordered", "list"],
   command: ({ editor }) => editor.chain().focus().toggleBulletList().run(),
 });
 
@@ -92,7 +161,18 @@ registerSlashCommand({
   label: "Numbered list",
   icon: "1.",
   description: "Ordered list",
+  searchTerms: ["ol", "ordered", "list"],
   command: ({ editor }) => editor.chain().focus().toggleOrderedList().run(),
+});
+
+registerSlashCommand({
+  name: "taskList",
+  group: "Lists",
+  label: "Task list",
+  icon: "☑",
+  description: "Checklist with interactive boxes",
+  searchTerms: ["checkbox", "todo", "to-do", "checklist"],
+  command: ({ editor }) => editor.chain().focus().toggleTaskList().run(),
 });
 
 registerSlashCommand({
@@ -101,6 +181,7 @@ registerSlashCommand({
   label: "Divider",
   icon: "—",
   description: "Horizontal rule / separator line",
+  searchTerms: ["hr", "separator", "line", "rule"],
   command: ({ editor }) => editor.chain().focus().setHorizontalRule().run(),
 });
 
@@ -110,19 +191,26 @@ registerSlashCommand({
   label: "Image",
   icon: "🖼",
   description: "Insert an image by URL",
+  searchTerms: ["img", "picture", "photo", "image"],
   command: ({ editor }) => {
     const src = window.prompt("Image URL:");
     if (src) editor.chain().focus().setImage({ src }).run();
   },
 });
 
+// Uploads go through the Editor's hidden file input (same handler as the
+// toolbar button): images become clean standalone images, other files become
+// attachment blocks. The editor listens for this window event.
 registerSlashCommand({
-  name: "taskList",
-  group: "Lists",
-  label: "Task list",
-  icon: "☑",
-  description: "Checklist with interactive boxes",
-  command: ({ editor }) => editor.chain().focus().toggleTaskList().run(),
+  name: "uploadFile",
+  group: "Content",
+  label: "Upload file",
+  icon: "📎",
+  description: "Upload an image or file from your computer",
+  searchTerms: ["attachment", "file", "upload", "attach", "video"],
+  command: () => {
+    window.dispatchEvent(new CustomEvent("wiki-upload-request"));
+  },
 });
 
 registerSlashCommand({
@@ -131,6 +219,7 @@ registerSlashCommand({
   label: "Highlight",
   icon: "🖍",
   description: "Mark text with a highlight color",
+  searchTerms: ["mark", "color", "pen"],
   command: ({ editor }) => editor.chain().focus().toggleHighlight({ color: "#ffe58f" }).run(),
 });
 
@@ -140,6 +229,7 @@ registerSlashCommand({
   label: "Align left",
   icon: "⇤",
   description: "Left-align the block",
+  searchTerms: ["left", "justify"],
   command: ({ editor }) => editor.chain().focus().setTextAlign("left").run(),
 });
 
@@ -149,6 +239,7 @@ registerSlashCommand({
   label: "Align center",
   icon: "⇔",
   description: "Center the block",
+  searchTerms: ["center", "centre"],
   command: ({ editor }) => editor.chain().focus().setTextAlign("center").run(),
 });
 
@@ -158,6 +249,7 @@ registerSlashCommand({
   label: "Align right",
   icon: "⇥",
   description: "Right-align the block",
+  searchTerms: ["right", "justify"],
   command: ({ editor }) => editor.chain().focus().setTextAlign("right").run(),
 });
 

@@ -12,6 +12,7 @@ import { UniqueID } from "@tiptap/extension-unique-id";
 import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import { CommentExtension } from "@sereneinserenade/tiptap-comment-extension";
 import { MentionExtension } from "./mentionExtension.js";
+import { Attachment } from "./attachmentExtension.js";
 import { defaultGenerateId } from "../../../shared/blockIds.js";
 
 /**
@@ -90,5 +91,9 @@ export function baseEditorExtensions({
     // server's collab seed schema build from baseEditorExtensions, and a page
     // containing a mention would otherwise fail to parse (blank document) there.
     MentionExtension,
+    // File attachment block (icon + name + size; hover reveals the full name).
+    // Content-model node for the same reason — ShareView and the collab seed
+    // schema must be able to parse pages that contain uploaded files.
+    Attachment,
   ];
 }

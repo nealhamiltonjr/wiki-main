@@ -9,9 +9,9 @@ export, real-time collab (Hocuspocus/Yjs), group/space permissions. See
 - `npm run dev:server` — API + WebSocket on :3000 (`tsx watch`)
 - `npm run dev:client` — Vite on :5173 (proxies /api to :3000)
 - `npm run typecheck` — `tsc --noEmit`
-- `npm test` — vitest (20 files, 162 tests)
+- `npm test` — vitest (20 files, 167 tests)
 - `npm run build:client` — vite build
-- `npx playwright test --config=e2e/playwright.config.ts` — E2E tests (9 tests, headless Chromium)
+- `npx playwright test --config=e2e/playwright.config.ts` — E2E tests (11 tests, headless Chromium)
 
 ## Server boot requirements
 
@@ -140,6 +140,39 @@ editor-feature flows) all pass.
 - **Known remaining (not a regression):** the `/image` slash command still uses
   `window.prompt("Image URL:")`. No `embed` plugin exists; the inline file
   upload flow is the toolbar 🖼 / "Upload file" button (now functional).
+
+## Bug-fix log (2026-08-04, Phase 1 v14)
+
+All verified: 167 vitest + 11 Playwright E2E + 21 manual checks pass, typecheck
+clean, prod build OK.
+
+- **FIXED (2026-08-04) --- Image upload after typing text: `RangeError: Position N out of
+  range`.** `uploadFile` (Editor.tsx) ran `splitBlock -> setImage -> splitBlock`
+  through a single Tiptap chain. Chained commands share one transaction, and
+  Tiptap's `splitBlock` reads `tr.selection` (already mapped through prior
+  steps) and then maps it a SECOND time via `tr.mapping.map($from.pos)`, so the
+  final split landed past the document end. FIX: dispatch the three commands
+  separately (`ed.commands.splitBlock()`, `ed.commands.setImage(...)`,
+  `ed.commands.splitBlock()`), each against a fresh state. Also enforces the
+  layout rule that images always land on their own line. Regression: E2E
+  "shared page renders embedded images" + manual-verify "image paragraph has no
+  text next to it".
+- **FIXED (2026-08-04) --- Comment hover popup stuck on loading ("..."):**
+  `CommentHoverPopup.tsx` listed `state.threadId` in its useEffect deps,
+  aborting the in-flight fetch on every re-render (initial `null -> id`
+  transition). FIX: ref-based guard that fetches once per mount, omitting
+  `state.threadId` from deps. Verified by manual-verify hover-popup checks.
+- **Attachment icon `data-kind`:** `attachmentExtension.tsx` renders
+  `<span data-kind="pdf" ...>`, giving browser tests a stable selector.
+- **Task #13 DONE --- Block drag-and-drop paragraph reordering.** Added
+  `@tiptap/extension-dropcursor` to `editingExtensions.ts` (2px blue
+  `#3b82f6` indicator). The vendored drag-handle already dispatches
+  `NodeSelection` on dragstart and serializes the slice to `dataTransfer`;
+  the dropcursor extension adds the visual ghost line at the target position.
+  Verified by a new vitest ("includes the Dropcursor extension configured with
+  blue color") + all editor loads pass without errors.
+- **Manual harness:** `e2e/manual-verify.mjs` (21 UI checks) +
+  `e2e/start-dev-server.sh` (records dev env vars, no `.env` file).
 
 ## Previous (resolved) issue — do not re-introduce
 

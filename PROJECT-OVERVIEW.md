@@ -268,7 +268,9 @@ Tiptap bound to the canonical content, autosaving on a debounce. As of the most 
   content* (`contentMatchAt` threw on every later insert), so file uploads silently did nothing on
   affected pages. Inline images render with invisible `.ProseMirror-separator` placeholder `<img>`s
   (standard ProseMirror cursor-positioning behavior) — browser/DOM tests must exclude them with
-  `img:not(.ProseMirror-separator)`.
+  `img:not(.ProseMirror-separator)`. Uploads are laid out Docmost-style: the image always lands on its
+  own line (paragraph split before and after), never side-by-side with existing text — see the
+  `uploadFile` command-order note in §5.5.
 - Styling status: the editor and app render with custom CSS in `src/client/theme.css`, but a formal
   theming/token system (CSS variables, light/dark/contrast themes) is still on the board as §7.8a.
 
@@ -289,6 +291,19 @@ page can hold invalid content. (2) Non-image files now insert a real link node v
 instead of the literal text `[name](url)`. A schema-level regression test asserts `image` is inline
 and that `paragraph { image }` validates; three E2E tests cover the toolbar upload, upload-on-top-of-
 markdown-imported-content, and anonymous share-view image rendering.
+
+A third upload bug was found and fixed 2026-08-04: image uploads after typing text threw
+`RangeError: Position N out of range` whenever the cursor sat in a non-empty paragraph. `uploadFile`
+ran `splitBlock → setImage → splitBlock` through a **single Tiptap chain**; chained commands share one
+transaction, and Tiptap's `splitBlock` command reads the transaction's *already-mapped* selection
+(`tr.selection`) and maps it a **second** time through `tr.mapping`, so the final position landed past
+the end of the document. Fix: dispatch the three commands **separately**
+(`ed.commands.splitBlock()`, then `ed.commands.setImage(...)`, then `ed.commands.splitBlock()`), so
+each runs against a fresh state and the selection is remapped exactly once. This also enforces the
+Docmost-style layout rule — an image always lands on its own line (a non-empty paragraph is split
+before the image, and a trailing empty paragraph is split after it) — without the chained-command
+position drift. Covered by the E2E "shared page renders embedded images" test and the manual 21-check
+run.
 
 ### 5.6 Git versioning, snapshots, history
 Every save triggers a real Git commit of the page's Markdown export (verified: an actual `git log`
@@ -347,6 +362,14 @@ placeholders and Tiptap's cosmetic React "duplicate key `marks`" warning are not
 empty-editor and missing-toolbar bugs were only caught by a human using the app; the E2E suite now
 includes regression tests for the editor flows that historically broke (uploads, markdown paste,
 share rendering).
+
+**Manual verification harness (`e2e/manual-verify.mjs`, 21 checks):** a headless-Chromium script that
+runs against the dev server and asserts the UI-level behaviors the E2E specs don't cover: narrow view
+(canvas narrows to 780px while header/toolbar stay full-width), slash-menu alias search, image-own-line
+layout, attachment `data-kind` icon, invisible separators, comment hover popup (appears/shows body/
+shows author), sticky comment panel, and tree chevron/collapse/expand/indent. All 21 checks pass.
+Dev-server helper `e2e/start-dev-server.sh` records the exact env vars needed to run the real app
+for manual verification (no `.env` file exists in the repo).
 
 ---
 
@@ -571,6 +594,12 @@ were found and fixed on 2026-08-01, verified live:
   references even if the position range later drifts. Backfilled for existing threads from their
   current doc text via `prosemirror-model`. The block is clickable and scrolls the editor to the
   highlighted span with a `comment-flash` pulse (mirrors Docmost's `.comment-highlight` jump behavior).
+- **Hover popup stuck on "…" (fixed 2026-08-04):** the popup component's load effect included
+  `state.threadId` in its dependency array, so every thread change (including the initial `null → id`
+  transition and any re-render where the object identity changed) tore down an in-flight fetch and
+  started a new one — the first request's abort raced the second, and the popup never resolved its
+  loading state. Fix: the effect now guards with a ref and omits `state.threadId` so it fetches once
+  per mount; covered by the manual-verify "hover popup appears / shows body / shows author" checks.
 
 Reference source for these choices was pulled into `../reference/` (workspace root, not part of this
 repo): `docmost`, `siyuan-note/siyuan`, `zadam/trilium` (all shallow clones). A deep-dive comparison
@@ -1175,6 +1204,28 @@ UI + tests), not a redesign, and the security-critical core is unchanged.
 - Every phase lands with its tests; the suite must stay green and fast (target: < ~60s full run).
 - The MCP server stays the AI surface (ahead of all three references); the export is the SSG
   surface; git is the version/backup/sync surface; DB is the single runtime truth.
+
+#### 7.12h Current phase — "Phase 1 v14" editor UX pass (status as of 2026-08-04)
+
+User-approved scope for this phase (all editor-facing, Docmost/Siyuan reference):
+- **Narrow view — COMPLETED.** The full-width/narrow toggle (§4.6) now constrains **only the editor
+  canvas** (`.narrow` → max-width 780px, centered). The page header, toolbar, and right-pane stay
+  full-width and static — verified by manual E2E measurements (canvas=780px, header=972px on a
+  972px-wide viewport) plus the `manual-verify.mjs` narrow checks.
+- **Task #13: Block drag-and-drop (paragraph reordering) — PENDING.** This is the next item to build.
+  Docmost/Siyuan style: drag a paragraph (via the existing drag handle) and drop it between other
+  blocks to reorder. Added `@tiptap/extension-dropcursor` (2px blue `#3b82f6`) to
+  `editingExtensions.ts`; the vendored `drag-handle.ts` (§7.9/§8.2) already dispatches
+  `NodeSelection` on `dragstart` + serializes the slice to `dataTransfer`, so the dropcursor
+  provides the visual ghost line during drag. Verified by vitest (147th test:
+  "includes the Dropcursor extension configured with blue color") + all editor loads pass.
+- **Comment hover popup — COMPLETED** (see §7.6 fix).
+- **Attachment icon `data-kind` — COMPLETED** (`attachmentExtension.tsx` renders
+  `<span data-kind="pdf" …>`, giving browser tests a stable selector; verified by manual-verify).
+- **Slash-command improvements (Docmost/Siyuan reference) and file attachments — the upload flow is
+  DONE** (slash "Upload file" command routes to the same hidden input as the toolbar button via a
+  `window` `wiki-upload-request` event; attachments render as a real block-level node with icon +
+  hover full-name; images always land on their own line).
 
 ---
 

@@ -155,6 +155,12 @@ function blockToMarkdown(node: PMNode, listDepth = 0, ctx?: MarkdownExportContex
       }
       return `![${alt}](${src})`;
     }
+    case "attachment": {
+      // File attachment node → markdown link so the file survives export.
+      const url = (node.attrs?.url as string) ?? "";
+      const name = (node.attrs?.name as string) ?? "";
+      return `[${name}](${url})`;
+    }
     default:
       // Unrecognized block type - degrade to its inline text content rather than
       // dropping it silently or throwing. Better to export something imperfect

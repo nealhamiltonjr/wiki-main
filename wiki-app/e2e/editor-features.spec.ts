@@ -170,13 +170,14 @@ test.describe("editor features", () => {
     await expect(editorImage(page)).toHaveCount(1, { timeout: 8000 });
 
     // Upload a non-image attachment on top of that content. Must insert a real
-    // link node (not throw, and not insert literal `[name](url)` text).
+    // attachment block (icon + name + size; not throw, and not insert literal
+    // `[name](url)` text).
     const fileInput = page.locator('input[type="file"]');
     await fileInput.setInputFiles({ name: "spec.pdf", mimeType: "application/pdf", buffer: PDF_BYTES });
 
-    const link = page.locator('.ProseMirror a[href*="/api/branches/"]');
-    await expect(link).toHaveCount(1, { timeout: 8000 });
-    await expect(link).toHaveText("spec.pdf");
+    const attachment = page.locator(".ProseMirror .wiki-attachment");
+    await expect(attachment).toHaveCount(1, { timeout: 8000 });
+    await expect(attachment.locator(".wiki-attachment-name")).toHaveText("spec.pdf");
     expect(errors).toEqual([]);
     void editor;
   });

@@ -34,10 +34,12 @@ export interface CommentThread {
   selection: string | null;
   resolvedAt: string | null; resolvedBy: string | null; createdBy: string;
   createdAt: string; comments: Comment[];
+  authorName?: string | null; resolvedByName?: string | null;
 }
 export interface Comment {
   id: string; threadId: string; body: string; userId: string;
   createdAt: string; updatedAt: string;
+  authorName?: string | null;
 }
 
 export interface AdminSettingView {

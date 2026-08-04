@@ -165,6 +165,10 @@ function TreeItem({
   const selected = node.id === selectedBranchId;
   const [cloneOpen, setCloneOpen] = useState(false);
   const [cloneTarget, setCloneTarget] = useState(spaces[0]?.id ?? "");
+  // Trilium-style collapsible tree: expanded by default, remembered per node
+  // for the session so collapsing a subtree sticks while navigating.
+  const [collapsed, setCollapsed] = useState(false);
+  const hasChildren = (node.children?.length ?? 0) > 0;
 
   async function handleRename() {
     const slug = window.prompt("New slug:", node.slug);
@@ -225,13 +229,25 @@ function TreeItem({
   }
 
   return (
-    <div>
+    <div className="tree-branch">
       <div className={`wiki-tree-item${selected ? " selected" : ""}`} style={{ paddingLeft: depth * 14 }}>
+        {hasChildren ? (
+          <button
+            className={`tree-chevron${collapsed ? " collapsed" : ""}`}
+            onClick={() => setCollapsed((v) => !v)}
+            title={collapsed ? "Expand" : "Collapse"}
+          >
+            ▾
+          </button>
+        ) : (
+          <span className="tree-chevron-spacer" />
+        )}
         <span
           onClick={() => onSelectBranch(node.id, activeSpace)}
           className="tree-label"
           title={node.slug}
         >
+          <span className="tree-page-dot" aria-hidden />
           {node.slug}
         </span>
         <span className="tree-actions">
@@ -260,19 +276,23 @@ function TreeItem({
           <button onClick={() => setCloneOpen(false)} className="wiki-icon-btn" title="Cancel">✕</button>
         </div>
       )}
-      {node.children.map((child) => (
-        <TreeItem
-          key={child.id}
-          node={child}
-          depth={depth + 1}
-          onSelectBranch={onSelectBranch}
-          activeSpace={activeSpace}
-          selectedBranchId={selectedBranchId}
-          onAddChild={onAddChild}
-          onChanged={onChanged}
-          spaces={spaces}
-        />
-      ))}
+      {hasChildren && !collapsed && (
+        <div className="tree-children">
+          {node.children.map((child) => (
+            <TreeItem
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              onSelectBranch={onSelectBranch}
+              activeSpace={activeSpace}
+              selectedBranchId={selectedBranchId}
+              onAddChild={onAddChild}
+              onChanged={onChanged}
+              spaces={spaces}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { branches, pages, commentThreads, comments } from "../db/schema.js";
+import { branches, pages, commentThreads, comments, users } from "../db/schema.js";
 import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
@@ -32,6 +32,34 @@ const updateBody = z.object({
 async function getPageId(branchId: string): Promise<string | null> {
   const [branch] = await db.select({ pageId: branches.pageId }).from(branches).where(eq(branches.id, branchId));
   return branch?.pageId ?? null;
+}
+
+/**
+ * Attach display names to comment threads/comments so the UI can show "who said
+ * this" without a second round-trip per author. Comments only store user ids;
+ * resolve them in one batched query.
+ */
+async function attachAuthorNames<T extends { createdBy?: string; resolvedBy?: string | null; comments?: { userId: string }[] }>(
+  rows: T[]
+): Promise<T[]> {
+  const ids = new Set<string>();
+  for (const r of rows) {
+    if (r.createdBy) ids.add(r.createdBy);
+    if (r.resolvedBy) ids.add(r.resolvedBy);
+    for (const c of r.comments ?? []) ids.add(c.userId);
+  }
+  if (ids.size === 0) return rows;
+  const usersRows = await db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(inArray(users.id, [...ids]));
+  const names = new Map(usersRows.map((u) => [u.id, u.name]));
+  return rows.map((r) => ({
+    ...r,
+    authorName: r.createdBy ? names.get(r.createdBy) ?? null : null,
+    resolvedByName: r.resolvedBy ? names.get(r.resolvedBy) ?? null : null,
+    comments: r.comments?.map((c) => ({ ...c, authorName: names.get(c.userId) ?? null })),
+  }));
 }
 
 /**
@@ -95,7 +123,7 @@ export async function commentRoutes(app: FastifyInstance) {
         })
       );
 
-      return reply.send(result);
+      return reply.send(await attachAuthorNames(result));
     }
   );
 

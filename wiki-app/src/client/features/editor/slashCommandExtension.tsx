@@ -42,9 +42,14 @@ export const SlashCommandExtension = Extension.create({
         items: ({ query }: { query: string }): SlashCommand[] => {
           const all = getSlashCommands();
           if (!query) return all.slice(0, 12);
-          const q = query.toLowerCase();
+          const q = query.trim().toLowerCase();
           return all
-            .filter((cmd) => cmd.label.toLowerCase().includes(q) || cmd.name.toLowerCase().includes(q))
+            .filter((cmd) => {
+              const haystack = [cmd.label, cmd.name, ...(cmd.searchTerms ?? [])].join(" ").toLowerCase();
+              // Match each word of the query independently (e.g. "h2", "to do",
+              // "img") so multi-word and alias queries behave like Docmost.
+              return q.split(/\s+/).every((word) => haystack.includes(word));
+            })
             .slice(0, 12);
         },
         render: () => createReactRenderer(),

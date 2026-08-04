@@ -23,6 +23,9 @@ export interface SlashCommand {
   icon?: string;
   /** Optional helper text shown below the label */
   description?: string;
+  /** Extra keywords matched by the filter (e.g. "table", "toc") so queries that
+   *  don't literally appear in the label still surface the command */
+  searchTerms?: string[];
   /** Executed when the user picks this command from the menu */
   command: (opts: { editor: TiptapEditor }) => void;
 }

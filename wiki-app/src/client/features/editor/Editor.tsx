@@ -8,6 +8,7 @@ import { editingExtensions } from "./editingExtensions.js";
 import { getEditorExtensions } from "./pluginEngine.js";
 import "./editorPlugins.js";
 import { CommentPanel } from "./CommentPanel.js";
+import { CommentHoverPopup } from "./CommentHoverPopup.js";
 import { PermissionsDialog } from "./PermissionsDialog.js";
 import { BacklinksPanel } from "./BacklinksPanel.js";
 import { AttributesPanel } from "./AttributesPanel.js";
@@ -16,7 +17,6 @@ import { useSession } from "../../api/authClient.js";
 import { DragHandleMenu, blockAtPos, type BlockAnchor } from "./DragHandleMenu.js";
 import { SearchReplacePopup } from "./SearchReplacePopup.js";
 import { handleMarkdownPaste } from "./paste.js";
-import { markdownToTiptap } from "../../../server/services/markdown.service.js";
 import { NotificationBell } from "./NotificationBell.js";
 
 const USER_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#be185d", "#4f46e5"];
@@ -280,6 +280,14 @@ export function Editor({ branchId }: { branchId: string }) {
     editor?.setEditable(isEditing && (page.access === "editor" || page.access === "admin"));
   }, [isEditing]);
 
+  // The "Upload file" slash command fires this event; route it to the same
+  // hidden file input as the toolbar upload button.
+  useEffect(() => {
+    const onUploadRequest = () => fileInputRef.current?.click();
+    window.addEventListener("wiki-upload-request", onUploadRequest);
+    return () => window.removeEventListener("wiki-upload-request", onUploadRequest);
+  }, []);
+
   const save = useCallback(
     async (content: unknown) => {
       if (!page) return;
@@ -339,17 +347,35 @@ export function Editor({ branchId }: { branchId: string }) {
     if (!file) return;
     const result = await api.uploadFile(page.branchId, file);
     const url = `/api/branches/${page.branchId}/files/${result.id}`;
-    if (file.type.startsWith("image/")) {
-      editor?.chain().focus().setImage({ src: url, alt: result.filename }).run();
-    } else {
-      // Route the link through the canonical markdown converter (same as
-      // handleMarkdownPaste) so it becomes a real link node, not literal
-      // `[name](url)` text. Insert just the inline content so the link lands in
-      // the current paragraph instead of splitting it.
-      const doc = markdownToTiptap(`[${result.filename}](${url})`);
-      const inline = doc.content?.[0]?.content;
-      if (inline) {
-        editor?.chain().focus().insertContent(inline as any).run();
+    const ed = editor;
+    if (ed) {
+      if (file.type.startsWith("image/")) {
+        // Always place the image on its own line — never "side by side" with
+        // existing text. If the cursor is inside a non-empty paragraph, split
+        // it first so the image gets a fresh paragraph; then split again after
+        // the image so consecutive uploads stack on new lines instead of
+        // interleaving with each other.
+        //
+        // Run these as separate commands, not chained: Tiptap chained commands
+        // share one transaction, and `splitBlock` maps the transaction's
+        // already-mapped selection through the mapping a second time, throwing
+        // "Position N out of range" once an earlier step has changed the doc.
+        // Dispatching each command separately remaps the selection exactly once.
+        const parentEmpty = ed.state.selection.$from.parent.textContent.length === 0;
+        if (!parentEmpty) ed.commands.splitBlock();
+        ed.commands.setImage({ src: url, alt: result.filename });
+        ed.commands.splitBlock();
+      } else {
+        // Real attachment node (icon + name + hover-to-see-full-name), not a
+        // bare text link. Block-level, so ProseMirror splits the paragraph and
+        // the file always lands on its own line.
+        ed.chain()
+          .focus()
+          .insertContent({
+            type: "attachment",
+            attrs: { url, name: result.filename, mime: file.type, size: file.size },
+          })
+          .run();
       }
     }
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -410,7 +436,8 @@ export function Editor({ branchId }: { branchId: string }) {
   const triggerUpload = () => fileInputRef.current?.click();
 
   return (
-    <div className="page-editor" style={{ padding: 24, maxWidth: editorWidth === "full" ? "none" : 760, margin: editorWidth === "full" ? 0 : "0 auto" }}>
+    <div className="page-editor" style={{ padding: 24 }}>
+      {/* Header stays full-width; only the reading canvas narrows below. */}
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, alignItems: "center" }}>
         <span className="wiki-page-slug">
           <button onClick={toggleFavorite} className="star-btn" title={favorited ? "Remove favorite" : "Add to favorites"}>{favorited ? "★" : "☆"}</button>
@@ -527,24 +554,42 @@ export function Editor({ branchId }: { branchId: string }) {
         </BubbleMenu>
       )}
 
-      <div style={{ display: "flex", gap: 0 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <EditorContent
-            editor={editor}
-            className="wiki-editor-content"
-            style={{
-              border: "1px solid var(--color-border)",
-              borderRadius: 6,
-              minHeight: 300,
-              padding: "12px 16px",
-              background: isEditing ? "var(--color-surface)" : "var(--color-bg-secondary)",
-            }}
-          />
+      {/* Reading canvas: the only part that narrows. Header + toolbar above stay
+          full width. The comment panel is sticky so it follows the viewport
+          instead of staying pinned to the top of the (possibly long) document. */}
+      <div
+        className="wiki-canvas"
+        style={{
+          maxWidth: editorWidth === "full" ? "none" : 780,
+          margin: editorWidth === "full" ? 0 : "0 auto",
+        }}
+      >
+        <div style={{ display: "flex", gap: 0, alignItems: "flex-start" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <EditorContent
+              editor={editor}
+              className="wiki-editor-content"
+              style={{
+                border: "1px solid var(--color-border)",
+                borderRadius: 6,
+                minHeight: 300,
+                padding: "12px 16px",
+                background: isEditing ? "var(--color-surface)" : "var(--color-bg-secondary)",
+              }}
+            />
+          </div>
+          {activeCommentId && (
+            <CommentPanel threadId={activeCommentId} branchId={page.branchId} onClose={() => setActiveCommentId(null)} />
+          )}
         </div>
-        {activeCommentId && (
-          <CommentPanel threadId={activeCommentId} branchId={page.branchId} onClose={() => setActiveCommentId(null)} />
-        )}
       </div>
+
+      {/* Siyuan-style hover preview: hovering a highlight shows the comment
+          inline; clicking the highlight (or the popup) opens the side panel. */}
+      <CommentHoverPopup
+        branchId={page.branchId}
+        onOpen={(id) => setActiveCommentId(id)}
+      />
 
       {dragMenu && editor && (
         <DragHandleMenu

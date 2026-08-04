@@ -133,8 +133,11 @@ function CommentBubble({ comment, onDelete }: { comment: Comment; onDelete: () =
   const date = new Date(comment.createdAt).toLocaleString();
   return (
     <div style={{ marginBottom: 8, padding: "6px 10px", background: "var(--color-surface)", borderRadius: 6, border: "1px solid var(--color-border-light)", fontSize: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
-        <span style={{ color: "var(--color-text-muted)", fontSize: 10 }}>{date}</span>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2, gap: 8 }}>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--color-text-muted)", fontSize: 10 }}>
+          <strong style={{ color: "var(--color-text-secondary)", fontWeight: 600 }}>{comment.authorName ?? "Unknown"}</strong>
+          {" · "}{date}
+        </span>
         <button onClick={onDelete} title="Delete" style={{ fontSize: 10, padding: 0, border: "none", background: "none", cursor: "pointer", color: "var(--color-text-muted)" }}>
           🗑
         </button>
