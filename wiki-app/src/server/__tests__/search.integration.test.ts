@@ -93,10 +93,73 @@ describe("search (§7.12d.2)", () => {
     expect(JSON.parse(r2.body).results).toHaveLength(0);
   });
 
+  it("finds partial and stemmed words via prefix + porter", async () => {
+    const c = await signupAsAdmin("search-prefix@example.com");
+    const spaceId = await createSpace(c, "SRCH");
+    const { pageId, branchId } = await createPage(c, spaceId, "linux-notes");
+
+    const doc = {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "The Linux networking codebase lives under net/." }] },
+      ],
+    };
+    await savePage(c, pageId, branchId, doc);
+
+    // Prefix: "net" should match "networking"
+    const r1 = await app.inject({ method: "GET", url: "/api/search?q=net", headers: { cookie: c } });
+    const results1 = JSON.parse(r1.body).results as { slug: string }[];
+    expect(results1.some(r => r.slug === "linux-notes")).toBe(true);
+
+    // Multi-word AND: bare words "linux network code" must match the page
+    const r2 = await app.inject({ method: "GET", url: `/api/search?q=${encodeURIComponent("linux network code")}`, headers: { cookie: c } });
+    const results2 = JSON.parse(r2.body).results as { slug: string }[];
+    expect(results2.some(r => r.slug === "linux-notes")).toBe(true);
+
+    // "codebase" stems to "codebas", so "code" alone (stemmed) also matches
+    const r3 = await app.inject({ method: "GET", url: "/api/search?q=code", headers: { cookie: c } });
+    const results3 = JSON.parse(r3.body).results as { slug: string }[];
+    expect(results3.some(r => r.slug === "linux-notes")).toBe(true);
+
+    // Quoted phrase requires adjacency; "linux code" is not adjacent so no match
+    const r4 = await app.inject({ method: "GET", url: `/api/search?q=${encodeURIComponent('"linux code"')}`, headers: { cookie: c } });
+    const results4 = JSON.parse(r4.body).results as { slug: string }[];
+    expect(results4.some(r => r.slug === "linux-notes")).toBe(false);
+  });
+
+  it("returns spaces alongside pages", async () => {
+    const c = await signupAsAdmin("search-spaces@example.com");
+    const spaceId = await createSpace(c, "Linux Laptop");
+    const { pageId, branchId } = await createPage(c, spaceId, "arch-install");
+
+    const doc = {
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Arch Install" }] },
+        { type: "paragraph", content: [{ type: "text", text: "Linux dual-boot setup steps for a ThinkPad." }] },
+      ],
+    };
+    await savePage(c, pageId, branchId, doc);
+
+    // Space name match should appear in `spaces` with a page count
+    const r = await app.inject({ method: "GET", url: "/api/search?q=linux", headers: { cookie: c } });
+    const body = JSON.parse(r.body);
+    const space = (body.spaces as { id: string; name: string; pageCount: number }[]).find(s => s.id === spaceId);
+    expect(space).toBeDefined();
+    expect(space!.name).toBe("Linux Laptop");
+    expect(space!.pageCount).toBeGreaterThanOrEqual(1);
+
+    // Page results now carry the space name for display
+    const page = (body.results as { slug: string; spaceName: string }[]).find(p => p.slug === "arch-install");
+    expect(page).toBeDefined();
+    expect(page!.spaceName).toBe("Linux Laptop");
+  });
+
   it("returns empty for empty query", async () => {
     const c = await signupAsAdmin("search-empty@example.com");
     const r = await app.inject({ method: "GET", url: "/api/search?q=", headers: { cookie: c } });
     expect(r.statusCode).toBe(200);
     expect(JSON.parse(r.body).results).toHaveLength(0);
+    expect(JSON.parse(r.body).spaces).toHaveLength(0);
   });
 });

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BASE = "http://192.168.1.13:5173";
+const BASE = "http://127.0.0.1:5173";
 
 const PNG_BYTES = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -24,7 +24,7 @@ const email = `verify-${Date.now()}@test.local`;
 const password = "VerifyPass-123";
 const seedRes = await fetch("http://localhost:3000/api/auth/sign-up/email", {
   method: "POST",
-  headers: { "Content-Type": "application/json", "Origin": "http://192.168.1.13:3000" },
+  headers: { "Content-Type": "application/json", "Origin": "http://127.0.0.1:3000" },
   body: JSON.stringify({ email, password, name: "Verify User" }),
 });
 console.log("seed status:", seedRes.status);
@@ -195,6 +195,32 @@ if (await panel.isVisible().catch(() => false)) {
   });
   check("comment: panel is sticky", sticky === "sticky", `position=${sticky}`);
 }
+
+// ---- 4b. Search: spaces + pages in the command palette -------------------
+await page.keyboard.press("ControlOrMeta+k");
+await page.waitForSelector(".cmd-palette", { timeout: 5000 });
+await page.type(".cmd-input", "comment");
+await page.waitForTimeout(700);
+const pageSection = await page.locator(".cmd-section", { hasText: "Pages" }).isVisible().catch(() => false);
+const pageResultCount = await page.locator(".cmd-item").count();
+check("search: palette opens and shows Pages section", pageSection);
+check("search: content word finds the page", pageResultCount >= 1, `${pageResultCount} items`);
+const hasSlug = await page.evaluate((slug) => {
+  const items = [...document.querySelectorAll(".cmd-item")];
+  return items.some((el) => el.textContent.includes(slug));
+}, slug);
+check("search: result shows the matching page slug", hasSlug);
+
+// Clear and search for the space name -> Spaces section appears
+await page.fill(".cmd-input", "VerifySpace");
+await page.waitForTimeout(700);
+const spaceSection = await page.locator(".cmd-section", { hasText: "Spaces" }).isVisible().catch(() => false);
+const spaceItem = await page.locator(".cmd-item", { hasText: "VerifySpace" }).count();
+check("search: space name shows Spaces section", spaceSection);
+check("search: space match appears", spaceItem >= 1, `${spaceItem} space items`);
+
+await page.keyboard.press("Escape");
+await page.waitForTimeout(300);
 
 // ---- 5. Tree: chevron + indent guide ------------------------------------
 await page.goto(`${BASE}/`);

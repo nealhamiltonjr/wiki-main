@@ -363,11 +363,12 @@ empty-editor and missing-toolbar bugs were only caught by a human using the app;
 includes regression tests for the editor flows that historically broke (uploads, markdown paste,
 share rendering).
 
-**Manual verification harness (`e2e/manual-verify.mjs`, 21 checks):** a headless-Chromium script that
+**Manual verification harness (`e2e/manual-verify.mjs`, 26 checks):** a headless-Chromium script that
 runs against the dev server and asserts the UI-level behaviors the E2E specs don't cover: narrow view
 (canvas narrows to 780px while header/toolbar stay full-width), slash-menu alias search, image-own-line
 layout, attachment `data-kind` icon, invisible separators, comment hover popup (appears/shows body/
-shows author), sticky comment panel, and tree chevron/collapse/expand/indent. All 21 checks pass.
+shows author), sticky comment panel, **search palette (Pages section, content-word match, matching
+slug, Spaces section, space match)**, and tree chevron/collapse/expand/indent. All 26 checks pass.
 Dev-server helper `e2e/start-dev-server.sh` records the exact env vars needed to run the real app
 for manual verification (no `.env` file exists in the repo).
 
@@ -1212,13 +1213,32 @@ User-approved scope for this phase (all editor-facing, Docmost/Siyuan reference)
   canvas** (`.narrow` → max-width 780px, centered). The page header, toolbar, and right-pane stay
   full-width and static — verified by manual E2E measurements (canvas=780px, header=972px on a
   972px-wide viewport) plus the `manual-verify.mjs` narrow checks.
-- **Task #13: Block drag-and-drop (paragraph reordering) — PENDING.** This is the next item to build.
+- **Task #13: Block drag-and-drop (paragraph reordering) — COMPLETED.**
   Docmost/Siyuan style: drag a paragraph (via the existing drag handle) and drop it between other
   blocks to reorder. Added `@tiptap/extension-dropcursor` (2px blue `#3b82f6`) to
   `editingExtensions.ts`; the vendored `drag-handle.ts` (§7.9/§8.2) already dispatches
   `NodeSelection` on `dragstart` + serializes the slice to `dataTransfer`, so the dropcursor
-  provides the visual ghost line during drag. Verified by vitest (147th test:
-  "includes the Dropcursor extension configured with blue color") + all editor loads pass.
+  provides the visual ghost line during drag. Verified by a vitest unit test
+  ("includes the Dropcursor extension configured with blue color") + all editor loads pass.
+- **Task #14: Wiki-wide search — COMPLETED.** The existing SQLite FTS5 engine (§7.12d.2) was kept
+  (no external engine needed) and the query layer upgraded:
+  - `buildFtsQuery()` (`search.service.ts`) turns free-form input into an FTS5 MATCH expression:
+    quoted `"phrases"` require adjacency; each bare word becomes `(word OR word*)` — the unquoted
+    alternative lets the porter stemmer handle suffix variants ("crampons"→"crampon") while the
+    `*` prefix handles partial words ("net"→"networking", "code"→"codebase"). FTS5 special chars
+    (`" * ^ ( ) :`) are stripped and boolean keywords (`and/or/not/near`) are quoted, so arbitrary
+    input can never produce an invalid MATCH query.
+  - `searchSpaces()` adds name search (`LIKE %q%`, escaped) returning `{ id, name, pageCount }`
+    (live, non-system pages only), ordered exact-name-first then by name length.
+  - `/api/search` now returns `{ results, spaces, count }` (`results` unchanged/backward-compatible;
+    page results gain `spaceName` via a join).
+  - `CommandPalette.tsx` (Cmd+K) shows a "Spaces" section above "Pages", each page shows its space
+    (`/Space/page`), a result-count line is shown, and navigation was fixed to use React Router
+    `useNavigate` (`/pages/:branchId`) instead of the broken `window.location.hash`; clicking a space
+    navigates to its first page. Keyboard nav spans both sections.
+  - Verified: 4 search integration tests (exact, prefix, multi-word AND, quoted-phrase adjacency,
+    space matches + counts + spaceName, empty query), 7 `buildFtsQuery` unit tests, manual-verify
+    search checks, 176 vitest total, 11 E2E, 26/26 manual checks.
 - **Comment hover popup — COMPLETED** (see §7.6 fix).
 - **Attachment icon `data-kind` — COMPLETED** (`attachmentExtension.tsx` renders
   `<span data-kind="pdf" …>`, giving browser tests a stable selector; verified by manual-verify).

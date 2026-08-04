@@ -9,7 +9,7 @@ export, real-time collab (Hocuspocus/Yjs), group/space permissions. See
 - `npm run dev:server` — API + WebSocket on :3000 (`tsx watch`)
 - `npm run dev:client` — Vite on :5173 (proxies /api to :3000)
 - `npm run typecheck` — `tsc --noEmit`
-- `npm test` — vitest (20 files, 167 tests)
+- `npm test` — vitest (21 files, 176 tests)
 - `npm run build:client` — vite build
 - `npx playwright test --config=e2e/playwright.config.ts` — E2E tests (11 tests, headless Chromium)
 
@@ -64,8 +64,10 @@ Dev server started for UI work:
   `ClipperSection`. `theme.css` holds design tokens + all component styles.
 - Editor features: `Editor.tsx` (main page view with toolbar, bubble menu,
   drag-handle, search-replace, comment panel, permissions dialog, backlinks,
-  attributes, collab toggle), `CommandPalette.tsx` (Cmd+K global search),
-  `NotificationBell.tsx` (bell icon + dropdown feed), `wikiLinkExtension.tsx`
+  attributes, collab toggle), `CommandPalette.tsx` (Cmd+K global search over
+  spaces AND pages, grouped into "Spaces" + "Pages" sections; navigates via
+  `useNavigate` to `/pages/:branchId`), `NotificationBell.tsx` (bell icon +
+  dropdown feed), `wikiLinkExtension.tsx`
   ([[page]] linking), `mentionExtension.ts` (@mentions), `slashCommandExtension.tsx`
   (/slash commands). All three use `@tiptap/suggestion` v3 with plain-DOM popup
   renderers. The mention node lives in `baseEditorExtensions()` (shared by the
@@ -171,8 +173,35 @@ clean, prod build OK.
   the dropcursor extension adds the visual ghost line at the target position.
   Verified by a new vitest ("includes the Dropcursor extension configured with
   blue color") + all editor loads pass without errors.
-- **Manual harness:** `e2e/manual-verify.mjs` (21 UI checks) +
-  `e2e/start-dev-server.sh` (records dev env vars, no `.env` file).
+- **Manual harness:** `e2e/manual-verify.mjs` (26 UI checks) +
+  `e2e/start-dev-server.sh` (records dev env vars, no `.env` file). BASE is
+  `http://127.0.0.1:5173` (dev server env also uses 127.0.0.1) — do NOT
+  hardcode a stale LAN IP.
+
+## Search feature (2026-08-04, Phase 1 v15)
+
+Task #14 DONE — wiki-wide search on the existing SQLite FTS5 engine (no external
+engine). `buildFtsQuery()` in `search.service.ts`:
+
+- Quoted `"phrases"` → verbatim phrase (adjacency required).
+- Each bare word → `(word OR word*)`: the unquoted alternative is porter-stemmed
+  ("crampons"→"crampon"), the `word*` alternative matches partials
+  ("net"→"networking"). Words are AND'd.
+- Bare-word special chars `" * ^ ( ) :` are stripped; boolean keywords
+  (`and/or/not/near`) are quoted so arbitrary input can never break MATCH syntax.
+
+`searchSpaces()` does escaped `LIKE %q%` over space names, returning
+`{ id, name, pageCount }` (live non-system pages only), exact-name-first then
+shortest name. `/api/search` returns `{ results, spaces, count }` — `results` is
+unchanged/backward compatible, each page result now has `spaceName`.
+`CommandPalette.tsx` groups Spaces above Pages, shows `/Space/page` breadcrumbs,
+a result-count line, and navigates via `useNavigate` (`/pages/:branchId`); space
+results load the space tree and open its first page. The old
+`window.location.hash = '#/wiki/...'` navigation was broken under BrowserRouter
+and was replaced.
+
+Verified: 4 search integration tests + 7 `buildFtsQuery` unit tests added; 176
+vitest, 11 E2E, 26/26 manual checks, typecheck, prod build all green.
 
 ## Previous (resolved) issue — do not re-introduce
 
