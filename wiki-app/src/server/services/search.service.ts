@@ -74,13 +74,16 @@ export function extractPlainText(doc: unknown): string {
 }
 
 /**
- * Index or re-index a page in FTS5. Called after every page save.
+ * Index or re-index a page in FTS5. Called after every page save. The FTS
+ * title falls back to the page slug when the document has no H1, so a page is
+ * always findable by its slug even before any body text exists.
  */
-export function indexPage(pageId: string, title: string, content: unknown): void {
+export function indexPage(pageId: string, title: string, content: unknown, slug?: string): void {
   const body = extractPlainText(content);
+  const ftsTitle = title || slug || "";
   sqlite.prepare("INSERT OR REPLACE INTO page_fts(rowid, page_id, title, body) VALUES (?, ?, ?, ?)").run(
     // Use a stable rowid derived from pageId so REPLACE works
-    hashToRowid(pageId), pageId, title, body,
+    hashToRowid(pageId), pageId, ftsTitle, body,
   );
 }
 

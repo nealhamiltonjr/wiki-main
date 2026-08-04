@@ -109,6 +109,9 @@ export async function pageRoutes(app: FastifyInstance) {
       parentBranchId: body.parentBranchId,
       initialContent: initialContent ?? undefined,
     });
+    const emptyDoc = { type: "doc", content: [{ type: "paragraph" }] };
+    const doc = (initialContent as unknown) ?? emptyDoc;
+    await indexPage(result.pageId, extractTitle(doc), doc, body.slug);
     return reply.code(201).send(result);
   });
 
@@ -127,7 +130,8 @@ export async function pageRoutes(app: FastifyInstance) {
       });
       if (!result.ok) return reply.code(409).send({ error: "conflict", message: "Reload the latest version" });
       await refreshBacklinks(pageId, body.content);
-      await indexPage(pageId, extractTitle(body.content), body.content);
+      const pageRow = await db.query.pages.findFirst({ where: (t, { eq }) => eq(t.id, pageId) });
+      await indexPage(pageId, extractTitle(body.content), body.content, pageRow?.slug);
       // Fire-and-forget: mention processing must not block the save response.
       const title = extractTitle(body.content);
       processMentions(pageId, branchId, title, (request as any).userContext?.id, body.content).catch(() => {});

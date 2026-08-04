@@ -1,38 +1,30 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useWikiSearch, useWikiSearchNavigation, type SearchItem } from "./useWikiSearch.js";
 
-export function CommandPalette() {
-  const [open, setOpen] = useState(false);
-  const { query, setQuery, pages, spaces, loading, items, selectedIdx, setSelectedIdx, reset } = useWikiSearch();
+/**
+ * Always-visible search bar in the main panel. Types ahead against
+ * /api/search and shows a dropdown grouped into Spaces + Pages; Enter/click
+ * navigates (page → /pages/:branchId, space → its first page).
+ */
+export function SearchBox() {
+  const { query, setQuery, pages, spaces, loading, items, selectedIdx, setSelectedIdx } = useWikiSearch();
   const { navigateToSpace, openPage } = useWikiSearchNavigation();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setOpen(v => !v);
-        reset();
-      }
-      if (e.key === "Escape") setOpen(false);
+    const handler = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [reset]);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
-  useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 50);
-  }, [open]);
-
-  const activate = useCallback((item: SearchItem) => {
-    if (item.kind === "space") {
-      setOpen(false);
-      void navigateToSpace(item.id);
-    } else {
-      setOpen(false);
-      openPage(item.branchId);
-    }
-  }, [navigateToSpace, openPage]);
+  const activate = (item: SearchItem) => {
+    setOpen(false);
+    if (item.kind === "space") void navigateToSpace(item.id);
+    else openPage(item.branchId);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") { e.preventDefault(); setSelectedIdx(i => Math.min(i + 1, items.length - 1)); }
@@ -41,23 +33,27 @@ export function CommandPalette() {
     if (e.key === "Escape") setOpen(false);
   };
 
-  if (!open) return null;
+  const showDropdown = open && query.trim() !== "";
 
   return (
-    <div className="cmd-overlay" onClick={() => setOpen(false)}>
-      <div className="cmd-palette" onClick={e => e.stopPropagation()}>
+    <div className="main-search" ref={rootRef}>
+      <div className="main-search-bar">
+        <span className="main-search-icon" aria-hidden>🔍</span>
         <input
-          ref={inputRef}
-          className="cmd-input"
-          placeholder="Search spaces and pages…"
           value={query}
-          onChange={e => setQuery(e.target.value)}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
+          placeholder="Search pages and spaces…"
+          aria-label="Search pages and spaces"
         />
-        <div className="cmd-results">
+        {loading && <span className="main-search-spinner" aria-hidden />}
+      </div>
+      {showDropdown && (
+        <div className="main-search-dropdown">
           {loading && <div className="cmd-status">Searching…</div>}
-          {!loading && query && items.length === 0 && <div className="cmd-status">No results</div>}
-          {!loading && query && items.length > 0 && (
+          {!loading && items.length === 0 && <div className="cmd-status">No results</div>}
+          {!loading && items.length > 0 && (
             <div className="cmd-status">{items.length} result{items.length === 1 ? "" : "s"}</div>
           )}
           {spaces.length > 0 && (
@@ -97,7 +93,7 @@ export function CommandPalette() {
             </>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

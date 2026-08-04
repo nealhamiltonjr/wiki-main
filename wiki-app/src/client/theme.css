@@ -1816,6 +1816,54 @@ span.wiki-mention {
 .cmd-snippet { width: 100%; color: var(--color-text-secondary); font-size: 12px; line-height: 1.4; }
 .cmd-snippet mark { background: var(--color-primary-bg, rgba(37, 99, 235, 0.15)); color: inherit; border-radius: 2px; padding: 0 1px; }
 
+/* Main-panel search box — always-visible wiki-wide search (§7.12d.2) */
+.main-search {
+  position: relative;
+  z-index: 500;
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+.main-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+}
+.main-search-icon { color: var(--color-text-muted); font-size: 14px; }
+.main-search-bar input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  outline: none;
+}
+.main-search-bar input::placeholder { color: var(--color-text-muted); }
+.main-search-bar input:focus { border-color: var(--color-primary); }
+.main-search-spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: main-search-spin 0.7s linear infinite;
+}
+@keyframes main-search-spin { to { transform: rotate(360deg); } }
+.main-search-dropdown {
+  position: absolute;
+  top: 100%; left: 12px; right: 12px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px;
+}
+
 /* ============================================================
    Suggestion popups — slash commands + wiki links (§7.12d.3)
    ============================================================ */

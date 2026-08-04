@@ -1236,9 +1236,26 @@ User-approved scope for this phase (all editor-facing, Docmost/Siyuan reference)
     (`/Space/page`), a result-count line is shown, and navigation was fixed to use React Router
     `useNavigate` (`/pages/:branchId`) instead of the broken `window.location.hash`; clicking a space
     navigates to its first page. Keyboard nav spans both sections.
+  - **Search UI integration (rework after user report — COMPLETED).** The palette was mounted in
+    `App.tsx` but the user reported no visible search box, so a second, always-visible entry point
+    was added: `SearchBox.tsx` renders a search bar pinned at the top of the main panel (below the
+    sidebar, above the editor) with a dropdown grouped into Spaces + Pages, same result rendering
+    and navigation as the palette. Shared logic extracted into `useWikiSearch.ts`
+    (`useWikiSearch` hook: debounced `/api/search` fetch with abort-on-new-query, merged item list;
+    `useWikiSearchNavigation`: space→first-page and page→`/pages/:branchId`). `indexPage` now falls
+    back to the page slug as the FTS title when a document has no H1, and both the create and save
+    page routes index with the slug — so pages are findable by slug immediately (including empty
+    pages). Re-indexed the dev DB's surviving pages with this logic.
   - Verified: 4 search integration tests (exact, prefix, multi-word AND, quoted-phrase adjacency,
     space matches + counts + spaceName, empty query), 7 `buildFtsQuery` unit tests, manual-verify
     search checks, 176 vitest total, 11 E2E, 26/26 manual checks.
+  - **Dev-DB test-data cleanup — COMPLETED.** Removed 33 test spaces, 41 test pages, and 31 test
+    users (the `VerifySpace`/`Dbg*`/`DragSpace`/`KeyFresh*`/`UploadProbe` spaces and their
+    `verify-*`/`dbg-*`/`imgdbg-*`/`drag-*`/`probe2` users created by manual-verify and debug runs),
+    deleted orphaned `page_fts`/`favorites` rows and stale attachment dirs in `data/files/`, and
+    purged the test dirs from the `data/repo` mirror. Surviving data is 4 spaces (Home Lab, Test
+    Space, TEST1, Main), 7 pages, 11 users. The idempotent `scripts/cleanup-test-data.ts` re-runs
+    this whenever test data accumulates again.
 - **Comment hover popup — COMPLETED** (see §7.6 fix).
 - **Attachment icon `data-kind` — COMPLETED** (`attachmentExtension.tsx` renders
   `<span data-kind="pdf" …>`, giving browser tests a stable selector; verified by manual-verify).

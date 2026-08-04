@@ -7,6 +7,7 @@ import { Settings } from "./settings/Settings.js";
 import { useTheme } from "./theme/ThemeContext.js";
 import { PublicView } from "./public/PublicView.js";
 import { CommandPalette } from "./search/CommandPalette.js";
+import { SearchBox } from "./search/SearchBox.js";
 import { useState, useEffect } from "react";
 
 function Sidebar() {
@@ -97,16 +98,19 @@ export default function App() {
   return (
     <div style={{ display: "flex", height: "100vh" }}>
       <Sidebar />
-      <div style={{ flex: 1, overflow: "auto" }}>
-        <Routes>
-          <Route path="/pages/:branchId" element={<EditorRoute />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/" element={
-            <div style={{ padding: "var(--space-6)", color: "var(--color-text-muted)" }}>
-              Select or create a page
-            </div>
-          } />
-        </Routes>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <SearchBox />
+        <div style={{ flex: 1, overflow: "auto" }}>
+          <Routes>
+            <Route path="/pages/:branchId" element={<EditorRoute />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="/" element={
+              <div style={{ padding: "var(--space-6)", color: "var(--color-text-muted)" }}>
+                Select or create a page
+              </div>
+            } />
+          </Routes>
+        </div>
       </div>
       <CommandPalette />
     </div>
