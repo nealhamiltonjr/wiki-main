@@ -6,3 +6,4 @@ e2e/auth-*.json
 reference/
 wiki-app-phase1-v14.zip
 wiki-app/scripts/
+.github-token
