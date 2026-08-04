@@ -72,17 +72,80 @@ describe("attributes (§7.12d.2)", () => {
     expect(r2.statusCode).toBe(200);
     expect(JSON.parse(r2.body).attributes).toHaveLength(1);
 
-    // Update
-    const r3 = await app.inject({ method: "PUT", url: `/api/attributes/${a1.id}`, headers: { cookie: c }, payload: { value: "https://updated.com" } });
+    // Update (branchId is required so the server can check editor access)
+    const r3 = await app.inject({ method: "PUT", url: `/api/attributes/${a1.id}`, headers: { cookie: c }, payload: { branchId, value: "https://updated.com" } });
     expect(r3.statusCode).toBe(200);
     expect(JSON.parse(r3.body).value).toBe("https://updated.com");
 
-    // Delete
-    const r4 = await app.inject({ method: "DELETE", url: `/api/attributes/${a1.id}`, headers: { cookie: c } });
+    // Delete (branchId is required as a query param)
+    const r4 = await app.inject({ method: "DELETE", url: `/api/attributes/${a1.id}?branchId=${branchId}`, headers: { cookie: c } });
     expect(r4.statusCode).toBe(200);
 
     // List after delete
     const r5 = await app.inject({ method: "GET", url: `/api/branches/${branchId}/attributes`, headers: { cookie: c } });
     expect(JSON.parse(r5.body).attributes).toHaveLength(0);
+  });
+
+  it("update/delete require editor access on the supplied branchId, not just any login", async () => {
+    const ownerCookie = await signupAsAdmin("attr-owner@example.com");
+    const viewerCookie = await signupAsAdmin("attr-viewer@example.com");
+    const spaceId = await createSpace(ownerCookie, "ATTR-PERM");
+    const { branchId } = await createPage(ownerCookie, spaceId, "guarded-page");
+
+    const created = await app.inject({
+      method: "POST", url: `/api/branches/${branchId}/attributes`,
+      headers: { cookie: ownerCookie }, payload: { name: "k", value: "v" },
+    });
+    const attr = JSON.parse(created.body);
+
+    const { db } = await import("../db/index.js");
+    const { users, spaceMembers } = await import("../db/schema.js");
+    const { sql } = await import("drizzle-orm");
+    const [viewer] = await db.select({ id: users.id }).from(users).where(sql`email = 'attr-viewer@example.com'`);
+    await db.insert(spaceMembers).values({ spaceId, userId: viewer!.id, role: "viewer" }).run();
+
+    // A viewer (not editor) on the owning branch must be rejected, not silently allowed.
+    const putAsViewer = await app.inject({
+      method: "PUT", url: `/api/attributes/${attr.id}`,
+      headers: { cookie: viewerCookie }, payload: { branchId, value: "hijacked" },
+    });
+    expect(putAsViewer.statusCode).toBe(403);
+
+    const deleteAsViewer = await app.inject({
+      method: "DELETE", url: `/api/attributes/${attr.id}?branchId=${branchId}`,
+      headers: { cookie: viewerCookie },
+    });
+    expect(deleteAsViewer.statusCode).toBe(403);
+
+    // The attribute must be untouched.
+    const stillThere = await app.inject({ method: "GET", url: `/api/branches/${branchId}/attributes`, headers: { cookie: ownerCookie } });
+    expect(JSON.parse(stillThere.body).attributes[0].value).toBe("v");
+  });
+
+  it("update/delete reject a branchId that has editor access but doesn't own the attribute", async () => {
+    const c = await signupAsAdmin("attr-crossbranch@example.com");
+    const spaceId = await createSpace(c, "ATTR-CROSS");
+    const pageA = await createPage(c, spaceId, "page-a");
+    const pageB = await createPage(c, spaceId, "page-b");
+
+    const created = await app.inject({
+      method: "POST", url: `/api/branches/${pageA.branchId}/attributes`,
+      headers: { cookie: c }, payload: { name: "k", value: "v" },
+    });
+    const attr = JSON.parse(created.body);
+
+    // The caller has editor access to pageB's branch (they created the whole
+    // space), but that branch does not own this attribute - must be rejected.
+    const put = await app.inject({
+      method: "PUT", url: `/api/attributes/${attr.id}`,
+      headers: { cookie: c }, payload: { branchId: pageB.branchId, value: "hijacked" },
+    });
+    expect(put.statusCode).toBe(403);
+
+    const del = await app.inject({
+      method: "DELETE", url: `/api/attributes/${attr.id}?branchId=${pageB.branchId}`,
+      headers: { cookie: c },
+    });
+    expect(del.statusCode).toBe(403);
   });
 });

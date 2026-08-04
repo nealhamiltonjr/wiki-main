@@ -42,7 +42,7 @@ export function AttributesPanel({ branchId }: { branchId: string }) {
     await fetch(`/api/attributes/${attr.id}`, {
       method: "PUT", credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ isPromoted: !attr.isPromoted }),
+      body: JSON.stringify({ branchId, isPromoted: !attr.isPromoted }),
     });
     fetchAttrs();
   };
@@ -51,14 +51,14 @@ export function AttributesPanel({ branchId }: { branchId: string }) {
     await fetch(`/api/attributes/${id}`, {
       method: "PUT", credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, value }),
+      body: JSON.stringify({ branchId, name, value }),
     });
     setEditingId(null);
     fetchAttrs();
   };
 
   const deleteAttr = async (id: string) => {
-    await fetch(`/api/attributes/${id}`, { method: "DELETE", credentials: "include" });
+    await fetch(`/api/attributes/${id}?branchId=${encodeURIComponent(branchId)}`, { method: "DELETE", credentials: "include" });
     fetchAttrs();
   };
 

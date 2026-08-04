@@ -53,7 +53,7 @@ export function useWikiSearch(delay = 200, maxSpaces = 5, maxPages = 10) {
     abortRef.current = ac;
     setLoading(true);
     const timer = setTimeout(() => {
-      fetch(`/api/search?q=${encodeURIComponent(query)}`, { credentials: "include", signal: ac.signal })
+      fetch(`/api/search?q=${encodeURIComponent(query)}&limit=30`, { credentials: "include", signal: ac.signal })
         .then((r) => r.json())
         .then((d) => {
           setSpaces((d.spaces ?? []).slice(0, maxSpaces));

@@ -162,4 +162,103 @@ describe("search (§7.12d.2)", () => {
     expect(JSON.parse(r.body).results).toHaveLength(0);
     expect(JSON.parse(r.body).spaces).toHaveLength(0);
   });
+
+  it("advanced query syntax: multi-word AND, quoted phrase, OR, and exclusion", async () => {
+    const c = await signupAsAdmin("search-advanced@example.com");
+    const spaceId = await createSpace(c, "ADV");
+
+    const linuxReview = await createPage(c, spaceId, "linux-code-review");
+    await savePage(c, linuxReview.pageId, linuxReview.branchId, {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Our team runs linux code review sessions every Friday." }] }],
+    });
+    const linuxOnly = await createPage(c, spaceId, "linux-only");
+    await savePage(c, linuxOnly.pageId, linuxOnly.branchId, {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Just a page about linux, no review content here." }] }],
+    });
+    const bsdPage = await createPage(c, spaceId, "bsd-notes");
+    await savePage(c, bsdPage.pageId, bsdPage.branchId, {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Notes about bsd systems." }] }],
+    });
+    const deprecatedLinux = await createPage(c, spaceId, "linux-deprecated");
+    await savePage(c, deprecatedLinux.pageId, deprecatedLinux.branchId, {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "This linux howto is deprecated, do not use." }] }],
+    });
+
+    // Bare multi-word query is an implicit AND - only the page with all three words matches.
+    const and = await app.inject({ method: "GET", url: "/api/search?q=linux+code+review", headers: { cookie: c } });
+    const andSlugs = (JSON.parse(and.body).results as { slug: string }[]).map((r) => r.slug);
+    expect(andSlugs).toContain("linux-code-review");
+    expect(andSlugs).not.toContain("linux-only");
+    expect(andSlugs).not.toContain("bsd-notes");
+
+    // Quoted phrase requires the exact phrase, not just all the words present.
+    const phrase = await app.inject({ method: "GET", url: `/api/search?q=${encodeURIComponent('"code review"')}`, headers: { cookie: c } });
+    const phraseSlugs = (JSON.parse(phrase.body).results as { slug: string }[]).map((r) => r.slug);
+    expect(phraseSlugs).toContain("linux-code-review");
+
+    // OR matches either term.
+    const or = await app.inject({ method: "GET", url: `/api/search?q=${encodeURIComponent("bsd OR linux-only")}`, headers: { cookie: c } });
+    const orSlugs = (JSON.parse(or.body).results as { slug: string }[]).map((r) => r.slug);
+    expect(orSlugs).toContain("bsd-notes");
+    expect(orSlugs).toContain("linux-only");
+
+    // Exclusion drops pages containing the negated term.
+    const exclude = await app.inject({ method: "GET", url: `/api/search?q=${encodeURIComponent("linux -deprecated")}`, headers: { cookie: c } });
+    const excludeSlugs = (JSON.parse(exclude.body).results as { slug: string }[]).map((r) => r.slug);
+    expect(excludeSlugs).toContain("linux-only");
+    expect(excludeSlugs).not.toContain("linux-deprecated");
+  });
+
+  it("filters results by permission - a non-member never sees another space's matches, even with an identical query", async () => {
+    const ownerCookie = await signupAsAdmin("search-perm-owner@example.com");
+    const outsiderCookie = await signupAsAdmin("search-perm-outsider@example.com");
+
+    // Space names contain "linux" so they also match the query below, letting
+    // us assert that restricted spaces are filtered from the `spaces` list too.
+    const privateSpace = await createSpace(ownerCookie, "Private Linux Space");
+    const memberSpace = await createSpace(ownerCookie, "Shared Linux Space");
+
+    const { db } = await import("../db/index.js");
+    const { users, spaceMembers } = await import("../db/schema.js");
+    const { sql } = await import("drizzle-orm");
+    const [outsider] = await db.select({ id: users.id }).from(users).where(sql`email = 'search-perm-outsider@example.com'`);
+    await db.insert(spaceMembers).values({ spaceId: memberSpace, userId: outsider!.id, role: "viewer" }).run();
+
+    const secretPage = await createPage(ownerCookie, privateSpace, "secret-linux-runbook");
+    await savePage(ownerCookie, secretPage.pageId, secretPage.branchId, {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "linux runbook only the owner should be able to find" }] }],
+    });
+    const sharedPage = await createPage(ownerCookie, memberSpace, "shared-linux-runbook");
+    await savePage(ownerCookie, sharedPage.pageId, sharedPage.branchId, {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "linux runbook the outsider IS a member for" }] }],
+    });
+
+    // The owner sees both pages and both spaces.
+    const ownerRes = await app.inject({ method: "GET", url: "/api/search?q=linux", headers: { cookie: ownerCookie } });
+    const ownerBody = JSON.parse(ownerRes.body);
+    const ownerSlugs = (ownerBody.results as { slug: string }[]).map((r) => r.slug);
+    expect(ownerSlugs).toContain("secret-linux-runbook");
+    expect(ownerSlugs).toContain("shared-linux-runbook");
+    expect((ownerBody.spaces as { id: string }[]).some((s) => s.id === privateSpace)).toBe(true);
+    expect((ownerBody.spaces as { id: string }[]).some((s) => s.id === memberSpace)).toBe(true);
+
+    // The outsider is only a viewer of memberSpace - the identical query must
+    // never surface the private space's page (title, slug, or snippet), and
+    // the private space itself must not appear in the spaces list either.
+    const outsiderRes = await app.inject({ method: "GET", url: "/api/search?q=linux", headers: { cookie: outsiderCookie } });
+    const outsiderBody = JSON.parse(outsiderRes.body);
+    const outsiderResults = outsiderBody.results as { slug: string; snippet: string; title: string }[];
+    const outsiderSlugs = outsiderResults.map((r) => r.slug);
+    expect(outsiderSlugs).toContain("shared-linux-runbook");
+    expect(outsiderSlugs).not.toContain("secret-linux-runbook");
+    expect(outsiderResults.some((r) => /secret/i.test(r.snippet) || /secret/i.test(r.title))).toBe(false);
+    expect((outsiderBody.spaces as { id: string }[]).some((s) => s.id === privateSpace)).toBe(false);
+    expect((outsiderBody.spaces as { id: string }[]).some((s) => s.id === memberSpace)).toBe(true);
+  });
 });

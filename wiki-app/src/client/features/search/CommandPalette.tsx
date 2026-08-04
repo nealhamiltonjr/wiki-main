@@ -49,7 +49,7 @@ export function CommandPalette() {
         <input
           ref={inputRef}
           className="cmd-input"
-          placeholder="Search spaces and pages…"
+          placeholder='Search the wiki… try "linux code", linux OR bsd, or -deprecated'
           value={query}
           onChange={e => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}

@@ -33,9 +33,9 @@ export function NotificationBell() {
     api.markNotificationRead(n.id).catch(() => {});
     setOpen(false);
     if (n.payload.branchId) {
-      navigate(`/wiki/${n.payload.branchId}`);
+      navigate(`/pages/${n.payload.branchId}`);
     } else if (n.payload.resourceUrl) {
-      window.location.hash = n.payload.resourceUrl;
+      navigate(n.payload.resourceUrl);
     }
     refresh();
   }

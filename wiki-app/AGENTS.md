@@ -9,7 +9,7 @@ export, real-time collab (Hocuspocus/Yjs), group/space permissions. See
 - `npm run dev:server` — API + WebSocket on :3000 (`tsx watch`)
 - `npm run dev:client` — Vite on :5173 (proxies /api to :3000)
 - `npm run typecheck` — `tsc --noEmit`
-- `npm test` — vitest (21 files, 176 tests)
+- `npm test` — vitest (21 files, 187 tests)
 - `npm run build:client` — vite build
 - `npx playwright test --config=e2e/playwright.config.ts` — E2E tests (11 tests, headless Chromium)
 
@@ -58,6 +58,16 @@ Dev server started for UI work:
 - `src/server/routes/` — Fastify route plugins. `config.access: "admin"`
   gates admin routes. git.routes.ts: status/log/test-remote read-only;
   push/pull enqueue queue jobs (never run inline).
+- Security invariants (Task #15, do not regress):
+  - `/api/search` results (pages AND spaces) are filtered through
+    `resolveAccess()` per candidate — a restricted page/space must never
+    appear in title/slug/snippet for someone who can't open it.
+  - `PUT/DELETE /api/attributes/:id` require a `branchId` (body / query
+    param) and editor+ access on it, plus a cross-check that the branch owns
+    the attribute's page. Clients must always send `branchId`.
+  - `parseSearchQuery` (`search.service.ts`) is the only query parser;
+    bare `or` is an operator, `-word` excludes, hyphenated words split into
+    sub-tokens (FTS5 unicode61 separates on non-alphanumerics).
 - `src/client/` — React SPA. `api/client.ts` is the typed API wrapper
   (all new endpoints must be added there). `features/settings/` has
   `AdminSettings` (registry-driven sections), `GitSection`, `SettingRow`,

@@ -1189,6 +1189,10 @@ meant and what the build actually needs:
 4. **Restricted-ancestor integration** — Docmost uses `hasRestrictedAncestor` to exclude
    restricted subtrees from share links and search results. Our share links + public mode + MCP
    search must consult the same boundary logic, or a shared link could leak a restricted child.
+   **Progress (Task #15):** the wiki-wide search endpoints (`/api/search` pages + spaces) now run
+   every candidate through `resolveAccess()` and drop anything the caller can't read, so the
+   restricted-ancestor boundary is enforced there. Still TODO: the same for share-link/public-mode
+   page serving and the MCP search tool, plus the API surface/UI/per-user overrides in items 1–3.
 5. **Semantics decision** — ours = nearest boundary fully decides (deny-by-default inside a
    boundary). Docmost = every restricted ancestor must grant, edit from nearest. Ours is simpler
    and already tested; keep it, document it.
@@ -1222,12 +1226,17 @@ User-approved scope for this phase (all editor-facing, Docmost/Siyuan reference)
   ("includes the Dropcursor extension configured with blue color") + all editor loads pass.
 - **Task #14: Wiki-wide search — COMPLETED.** The existing SQLite FTS5 engine (§7.12d.2) was kept
   (no external engine needed) and the query layer upgraded:
-  - `buildFtsQuery()` (`search.service.ts`) turns free-form input into an FTS5 MATCH expression:
-    quoted `"phrases"` require adjacency; each bare word becomes `(word OR word*)` — the unquoted
-    alternative lets the porter stemmer handle suffix variants ("crampons"→"crampon") while the
-    `*` prefix handles partial words ("net"→"networking", "code"→"codebase"). FTS5 special chars
-    (`" * ^ ( ) :`) are stripped and boolean keywords (`and/or/not/near`) are quoted, so arbitrary
-    input can never produce an invalid MATCH query.
+  - `parseSearchQuery()` (`search.service.ts`) turns free-form input into an FTS5 MATCH expression
+    (formerly `buildFtsQuery`): quoted `"phrases"` require adjacency; each bare word becomes
+    `(word OR word*)` — the unquoted alternative lets the porter stemmer handle suffix variants
+    ("crampons"→"crampon") while the `*` prefix handles partial words ("net"→"networking",
+    "code"→"codebase"). FTS5 special chars (`" * ^ ( ) :`) are stripped and boolean keywords
+    (`and/or/not/near`) are quoted, so arbitrary input can never produce an invalid MATCH query.
+    `word1 OR word2` (bare, unquoted "or") matches either term and `-word` / `-"phrase"` excludes,
+    implemented as a trailing `(positives) NOT (negatives)` clause. Hyphenated bare words
+    ("linux-only") are split into AND'd sub-tokens because the unicode61 tokenizer separates on
+    non-alphanumerics — the naive form would raise FTS5's "no such column" and 500'd before this
+    fix (now safely returns no-results instead).
   - `searchSpaces()` adds name search (`LIKE %q%`, escaped) returning `{ id, name, pageCount }`
     (live, non-system pages only), ordered exact-name-first then by name length.
   - `/api/search` now returns `{ results, spaces, count }` (`results` unchanged/backward-compatible;
@@ -1246,9 +1255,10 @@ User-approved scope for this phase (all editor-facing, Docmost/Siyuan reference)
     back to the page slug as the FTS title when a document has no H1, and both the create and save
     page routes index with the slug — so pages are findable by slug immediately (including empty
     pages). Re-indexed the dev DB's surviving pages with this logic.
-  - Verified: 4 search integration tests (exact, prefix, multi-word AND, quoted-phrase adjacency,
-    space matches + counts + spaceName, empty query), 7 `buildFtsQuery` unit tests, manual-verify
-    search checks, 176 vitest total, 11 E2E, 26/26 manual checks.
+  - Verified: 6 search integration tests (exact, prefix, multi-word AND, quoted-phrase adjacency,
+    space matches + counts + spaceName, empty query, advanced OR/exclusion syntax, permission
+    filtering), 14 `parseSearchQuery` unit tests, manual-verify search checks, 176 vitest total
+    (see Task #15 for the +11), 11 E2E, 26/26 manual checks.
   - **Dev-DB test-data cleanup — COMPLETED.** Removed 33 test spaces, 41 test pages, and 31 test
     users (the `VerifySpace`/`Dbg*`/`DragSpace`/`KeyFresh*`/`UploadProbe` spaces and their
     `verify-*`/`dbg-*`/`imgdbg-*`/`drag-*`/`probe2` users created by manual-verify and debug runs),
@@ -1256,6 +1266,33 @@ User-approved scope for this phase (all editor-facing, Docmost/Siyuan reference)
     purged the test dirs from the `data/repo` mirror. Surviving data is 4 spaces (Home Lab, Test
     Space, TEST1, Main), 7 pages, 11 users. The idempotent `scripts/cleanup-test-data.ts` re-runs
     this whenever test data accumulates again.
+- **Task #15: Search permissions + attribute authorization — COMPLETED.** Ported from a review
+  patch; the permission work is in, adapted to the Task #14 search design:
+  - **Search is now permission-filtered.** `searchPages()` (async) and `searchSpaces()` (async) run
+    every candidate through the canonical `resolveAccess()` (`getBranchChain()` + `resolveSpaceRole`
+    per space, cached), dropping anything the caller can't read — so a restricted page or space
+    never leaks via title, slug, snippet, or space name, even with an identical query. Admins skip
+    the per-row check. Candidates are over-fetched (limit×5, capped 300) to compensate for drops;
+    rows from deleted pages (`p.deleted_at IS NULL`) and system branches (`b.is_system = 0`) are
+    excluded at the SQL level. `/api/search` passes `request.userContext` + a clamped `limit`
+    (1–100, default 25) and keeps returning `{ results, spaces, count }`. Branch/space-scoped API
+    tokens were already blocked from `/api/search` by the `authenticated` access gate (only
+    account tokens pass, acting as their creator).
+  - **Attribute update/delete now require editor access on the owning branch.** Previously any
+    authenticated user could edit/delete any attribute (`access: "authenticated"`). PUT now takes
+    `branchId` in the body and DELETE as a query param; both use
+    `{ branchParam: "branchId", minRole: "editor" }` through the shared middleware and then
+    cross-validate that the branch actually owns the attribute's page (mirrors §5.3's
+    page/branch cross-validation). `AttributesPanel.tsx` sends `branchId` on all update/delete
+    calls. New `getAttributeById()` in `attribute.service.ts`.
+  - **NotificationBell navigation fix.** Clicking a notification navigated to the dead `/wiki/…`
+    route and used the same broken `window.location.hash` pattern the palette previously had;
+    now uses `useNavigate` (`/pages/:branchId`).
+  - **Client:** `useWikiSearch` requests `limit=30`; the Cmd+K palette placeholder now hints at the
+    query syntax (`"linux code"`, `linux OR bsd`, `-deprecated`). No new dependencies.
+  - Verified: 187 vitest total (176 → 187: +7 parser unit tests, +2 search integration, +2
+    attribute authz), typecheck clean, 11/11 E2E, manual browser checks of OR/exclusion/phrase
+    search against the running dev server.
 - **Comment hover popup — COMPLETED** (see §7.6 fix).
 - **Attachment icon `data-kind` — COMPLETED** (`attachmentExtension.tsx` renders
   `<span data-kind="pdf" …>`, giving browser tests a stable selector; verified by manual-verify).

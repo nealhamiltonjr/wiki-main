@@ -12,6 +12,10 @@ export interface AttributeRow {
   createdAt: Date;
 }
 
+export async function getAttributeById(id: string): Promise<AttributeRow | null> {
+  return (db.select().from(attributes).where(eq(attributes.id, id)).get() as AttributeRow | undefined) ?? null;
+}
+
 export async function listAttributes(pageId: string): Promise<AttributeRow[]> {
   return db.select().from(attributes).where(eq(attributes.pageId, pageId)).orderBy(attributes.position).all() as AttributeRow[];
 }
