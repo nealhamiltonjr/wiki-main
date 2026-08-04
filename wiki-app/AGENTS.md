@@ -175,8 +175,13 @@ clean, prod build OK.
   blue color") + all editor loads pass without errors.
 - **Manual harness:** `e2e/manual-verify.mjs` (26 UI checks) +
   `e2e/start-dev-server.sh` (records dev env vars, no `.env` file). BASE is
-  `http://127.0.0.1:5173` (dev server env also uses 127.0.0.1) — do NOT
-  hardcode a stale LAN IP.
+  `http://127.0.0.1:5173` (in-sandbox run). The API server listens on
+  `0.0.0.0:3000` and Vite must be started with `--host 0.0.0.0` so the app is
+  reachable through the host's published ports (`http://192.168.1.13:5173`);
+  `BETTER_AUTH_URL`/`BETTER_EXTRA_TRUSTED_ORIGINS` must include that LAN host
+  PLUS `127.0.0.1`/`localhost` so auth works both from the LAN and inside the
+  sandbox. A Vite instance bound only to `127.0.0.1` is unreachable from
+  outside the container even though the API still answers.
 
 ## Search feature (2026-08-04, Phase 1 v15)
 
