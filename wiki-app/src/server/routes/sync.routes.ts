@@ -129,6 +129,7 @@ export async function syncRoutes(app: FastifyInstance) {
         .select({
           pageId: pages.id,
           slug: pages.slug,
+          title: pages.title, // real title column (UI overhaul A5)
           content: pages.content,
           branchId: branches.id,
         })
@@ -160,7 +161,7 @@ export async function syncRoutes(app: FastifyInstance) {
             ...syncBodyWithSpace.params,
             arguments: {
               slug: b.slug,
-              title: b.slug.replace(/-/g, " "),
+              title: b.title, // real title column (UI overhaul A5)
               spaceId: targetSpaceId,
               content: contentTypeToMd(b.content),
             },

@@ -80,6 +80,7 @@ export const spaceGroupPermissions = sqliteTable("space_group_permissions", {
 export const pages = sqliteTable("pages", {
   id: id(),
   slug: text("slug").notNull(), // added this revision - was missing from the reviewed handoff's own doc
+  title: text("title").notNull().default("Untitled"), // real title column (UI overhaul Track A1); body H1s are content, not the title
   content: text("content", { mode: "json" }).notNull().default(sql`'{"type":"doc","content":[{"type":"paragraph"}]}'`), // Tiptap/ProseMirror JSON - must contain at least one block node, an empty content array isn't a valid document
   ownerId: text("owner_id").notNull().references(() => users.id),
   deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),

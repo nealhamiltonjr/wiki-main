@@ -4,7 +4,7 @@ import path from "node:path";
 import { eq, and, isNull } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { pages, branches, spaces, users } from "../db/schema.js";
-import { tiptapToMarkdown, markdownToTiptap } from "./markdown.service.js";
+import { tiptapToMarkdown, markdownToTiptap, frontmatterToMarkdown, stripFrontmatter } from "./markdown.service.js";
 import { getSettingValue } from "./settings.service.js";
 import { log } from "./log.service.js";
 import { ensureBlockIds, type JSONBlock } from "../../shared/blockIds.js";
@@ -46,7 +46,9 @@ export async function commitPageChange(pageId: string, branchId: string) {
   const [space] = await db.select().from(spaces).where(eq(spaces.id, branch.spaceId));
   const spaceSlug = slugify(space?.name ?? "space");
 
-  const markdown = tiptapToMarkdown(page.content as any);
+  // UI overhaul A4: YAML frontmatter makes title changes visible in git history.
+  const frontmatter = frontmatterToMarkdown({ title: page.title, slug: page.slug, date: page.updatedAt?.toISOString() ?? null });
+  const markdown = frontmatter + "\n" + tiptapToMarkdown(page.content as any);
   const relPath = path.join(spaceSlug, `${page.slug}.md`);
   const fullPath = path.join(REPO_ROOT, relPath);
 
@@ -69,7 +71,9 @@ export async function commitManualSnapshot(pageId: string, message: string, user
   const [page] = await db.select().from(pages).where(eq(pages.id, pageId));
   if (!page) throw new Error(`commitManualSnapshot: page ${pageId} not found`);
 
-  const markdown = tiptapToMarkdown(page.content as any);
+  // UI overhaul A4: YAML frontmatter makes the title visible in snapshot files.
+  const frontmatter = frontmatterToMarkdown({ title: page.title, slug: page.slug, date: new Date().toISOString() });
+  const markdown = frontmatter + "\n" + tiptapToMarkdown(page.content as any);
   const relPath = path.join("_snapshots", `${page.id}.md`);
   const fullPath = path.join(REPO_ROOT, relPath);
 
@@ -354,7 +358,7 @@ async function importMarkdownPage(spaceSlug: string, pageSlug: string, markdown:
   const space = spaceRows.find((s) => slugify(s.name) === spaceSlug);
   if (!space) return false; // no matching space — skip (creating spaces on pull is out of scope)
 
-  const tiptap = ensureBlockIds(markdownToTiptap(markdown) as unknown as JSONBlock);
+  const tiptap = ensureBlockIds(markdownToTiptap(stripFrontmatter(markdown)) as unknown as JSONBlock);
 
   const [existing] = await db
     .select({ id: pages.id, updatedAt: pages.updatedAt })

@@ -153,7 +153,7 @@ async function callTool(name: string, args: Record<string, unknown>, user: UserC
       const spaceIds = await accessibleSpaceIds(user);
       if (spaceIds.length === 0) return [];
       const results = await db
-        .select({ id: pages.id, slug: pages.slug, content: pages.content, updatedAt: pages.updatedAt })
+        .select({ id: pages.id, slug: pages.slug, title: pages.title, content: pages.content, updatedAt: pages.updatedAt })
         .from(pages)
         .innerJoin(branches, eq(branches.pageId, pages.id))
         .where(
@@ -168,6 +168,7 @@ async function callTool(name: string, args: Record<string, unknown>, user: UserC
       return results.map((r) => ({
         id: r.id,
         slug: r.slug,
+        title: r.title, // real title column (UI overhaul A1/A5)
         snippet: typeof r.content === "string" ? r.content.slice(0, 300) : JSON.stringify(r.content).slice(0, 300),
         updatedAt: r.updatedAt?.toISOString(),
       }));
@@ -182,10 +183,13 @@ async function callTool(name: string, args: Record<string, unknown>, user: UserC
         }
       }
       const bodyMd = typeof args.content === "string" ? args.content : "";
-      const fullMd = `# ${title}\n\n${bodyMd}`;
-      const content = markdownToTiptap(fullMd);
+      // UI overhaul A1/A5: the title is its own column now, not forced into the
+      // body as an H1 (body content may contain zero/many H1s with no special
+      // first-H1 meaning).
+      const content = bodyMd.trim() ? markdownToTiptap(bodyMd) : undefined;
       const result = await createPage({
         slug: slug as string,
+        title: typeof title === "string" ? title : undefined,
         ownerId: user.id,
         spaceId: spaceId as string,
         parentBranchId: null,

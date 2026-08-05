@@ -8,7 +8,7 @@ import { getPageHistory, getFileContentAtCommit } from "../services/git.service.
 import { refreshBacklinks } from "../services/backlink.service.js";
 import { indexPage, extractTitle } from "../services/search.service.js";
 import { processMentions } from "../services/mention.service.js";
-import { markdownToTiptap } from "../services/markdown.service.js";
+import { markdownToTiptap, stripFrontmatter } from "../services/markdown.service.js";
 import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
 import { getTemplateContent } from "../services/template.service.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
@@ -16,12 +16,14 @@ import type { UserContext } from "../../shared/types.js";
 
 const createPageBody = z.object({
   slug: z.string().min(1),
+  title: z.string().max(500).optional(), // UI overhaul A1: real title column
   spaceId: z.string(),
   parentBranchId: z.string().nullable(),
   templateId: z.string().optional(),
 });
 
 const saveBody = z.object({
+  title: z.string().max(500).optional(), // UI overhaul A3: title is independent of body OCC
   content: z.unknown(),
   expectedUpdatedAt: z.coerce.date(),
 });
@@ -68,6 +70,7 @@ export async function pageRoutes(app: FastifyInstance) {
         pageId: page.id,
         branchId: branch.id,
         slug: page.slug,
+        title: page.title, // real title column (UI overhaul A1)
         content: page.content,
         updatedAt: page.updatedAt,
         access: (request as any).resolvedAccess,
@@ -104,6 +107,7 @@ export async function pageRoutes(app: FastifyInstance) {
     const initialContent = body.templateId ? await getTemplateContent(body.templateId) : undefined;
     const result = await createPage({
       slug: body.slug,
+      title: body.title,
       ownerId: user.id,
       spaceId: body.spaceId,
       parentBranchId: body.parentBranchId,
@@ -111,7 +115,7 @@ export async function pageRoutes(app: FastifyInstance) {
     });
     const emptyDoc = { type: "doc", content: [{ type: "paragraph" }] };
     const doc = (initialContent as unknown) ?? emptyDoc;
-    await indexPage(result.pageId, extractTitle(doc), doc, body.slug);
+    await indexPage(result.pageId, body.title?.trim() || extractTitle(doc), doc, body.slug);
     return reply.code(201).send(result);
   });
 
@@ -122,19 +126,24 @@ export async function pageRoutes(app: FastifyInstance) {
       const { pageId, branchId } = request.params as { pageId: string; branchId: string };
       const body = saveBody.parse(request.body);
       if (!(await requireBranchForPage(pageId, branchId, reply))) return;
+      // UI overhaul A3: an explicit title wins; otherwise keep today's
+      // behavior of deriving it from the first body H1 so nothing regresses
+      // until the client ships a real title input (B5).
+      const title = body.title?.trim() || extractTitle(body.content) || undefined;
       const result = await savePageOCC({
         pageId,
         branchId,
+        title,
+        titleProvided: body.title !== undefined,
         content: body.content,
         expectedUpdatedAt: body.expectedUpdatedAt,
       });
       if (!result.ok) return reply.code(409).send({ error: "conflict", message: "Reload the latest version" });
       await refreshBacklinks(pageId, body.content);
       const pageRow = await db.query.pages.findFirst({ where: (t, { eq }) => eq(t.id, pageId) });
-      await indexPage(pageId, extractTitle(body.content), body.content, pageRow?.slug);
+      await indexPage(pageId, title ?? "", body.content, pageRow?.slug);
       // Fire-and-forget: mention processing must not block the save response.
-      const title = extractTitle(body.content);
-      processMentions(pageId, branchId, title, (request as any).userContext?.id, body.content).catch(() => {});
+      processMentions(pageId, branchId, title ?? pageRow?.slug ?? "", (request as any).userContext?.id, body.content).catch(() => {});
       return reply.send({ ok: true });
     }
   );
@@ -183,7 +192,7 @@ export async function pageRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: "Content not found at that commit" });
       }
 
-      const content = markdownToTiptap(markdown);
+      const content = markdownToTiptap(stripFrontmatter(markdown));
 
       // Fetch the current updatedAt for OCC — restore is still an
       // optimistic-locking save, so we need the latest timestamp.

@@ -3,7 +3,7 @@ import path from "node:path";
 import { eq, and, isNull } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { pages, branches, files } from "../db/schema.js";
-import { exportMarkdown, extractTitle, type ExportMarkdownOptions } from "./markdown.service.js";
+import { exportMarkdown, type ExportMarkdownOptions } from "./markdown.service.js";
 import { accessibleBranchIds } from "./branch.service.js";
 import type { UserContext, SpaceRole } from "../../shared/types.js";
 
@@ -88,7 +88,7 @@ export async function exportPageBundle(
   if (!page) throw new Error("Page not found");
 
   const doc = loadDoc(page.content);
-  const title = extractTitle(doc) ?? page.slug;
+  const title = page.title; // real title column (UI overhaul A5)
   const fm: ExportMarkdownOptions["frontmatter"] = opts.frontmatter
     ? { title, slug: page.slug, date: page.updatedAt?.toISOString() ?? null }
     : undefined;
@@ -145,7 +145,7 @@ export async function exportSpaceBundle(
     if (!page) continue;
 
     const doc = loadDoc(page.content);
-    const title = extractTitle(doc) ?? meta.slug;
+    const title = page.title; // real title column (UI overhaul A5)
     const fm: ExportMarkdownOptions["frontmatter"] = opts.frontmatter
       ? { title, slug: meta.slug, date: page.updatedAt?.toISOString() ?? null }
       : undefined;

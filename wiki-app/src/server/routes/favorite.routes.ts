@@ -16,7 +16,7 @@ export async function favoriteRoutes(app: FastifyInstance) {
           id: favorites.id,
           branchId: favorites.branchId,
           slug: pagesTable.slug,
-          title: pagesTable.slug, // placeholder; real title lives in page content
+          title: pagesTable.title, // real title column (UI overhaul A5)
         })
         .from(favorites)
         .innerJoin(branches, eq(branches.id, favorites.branchId))

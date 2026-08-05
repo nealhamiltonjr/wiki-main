@@ -93,7 +93,17 @@ function inlineText(nodes: PMNode[] | undefined): string {
   return nodes.map((n) => n.text ?? (n.content ? inlineText(n.content) : "")).join("");
 }
 
-function frontmatterToMarkdown(fm: NonNullable<ExportMarkdownOptions["frontmatter"]>): string {
+/**
+ * Strips a leading YAML frontmatter block (`---` ... `---`) from exported
+ * Markdown so round-trip paths (restore-from-git, markdown import) get only
+ * the body. Returns the input unchanged when there's no frontmatter block.
+ */
+export function stripFrontmatter(markdown: string): string {
+  const m = markdown.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  return m ? markdown.slice(m[0].length) : markdown;
+}
+
+export function frontmatterToMarkdown(fm: NonNullable<ExportMarkdownOptions["frontmatter"]>): string {
   const lines = ["---", `title: ${yamlQuote(fm.title ?? "")}`];
   if (fm.slug) lines.push(`slug: ${yamlQuote(fm.slug)}`);
   if (fm.date) lines.push(`date: ${yamlQuote(new Date(fm.date).toISOString().slice(0, 10))}`);

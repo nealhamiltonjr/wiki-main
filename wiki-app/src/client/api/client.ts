@@ -22,7 +22,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export interface SpaceSummary { id: string; name: string }
 export interface TreeNode { id: string; pageId: string; slug: string; children: TreeNode[] }
 export interface PageContent {
-  pageId: string; branchId: string; slug: string; content: unknown; updatedAt: string; access: string;
+  pageId: string; branchId: string; slug: string; title: string; content: unknown; updatedAt: string; access: string;
 }
 export interface HistoryEntry { hash: string; message: string; date: string }
 export interface FileUploadResult { id: string; filename: string }

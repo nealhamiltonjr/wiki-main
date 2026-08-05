@@ -1,5 +1,26 @@
 import { describe, it, expect } from "vitest";
-import { tiptapToMarkdown, markdownToTiptap } from "../markdown.service.js";
+import { tiptapToMarkdown, markdownToTiptap, frontmatterToMarkdown, stripFrontmatter } from "../markdown.service.js";
+
+describe("frontmatterToMarkdown / stripFrontmatter (UI overhaul A4)", () => {
+  it("round-trips a git-commit file: frontmatter + body survives stripFrontmatter", () => {
+    const fm = frontmatterToMarkdown({ title: 'My "Page"', slug: "my-page", date: "2026-08-01T00:00:00.000Z" });
+    const body = "# Heading\n\nBody text.\n";
+    const file = fm + "\n" + body;
+
+    expect(fm).toBe('---\ntitle: "My \\"Page\\""\nslug: "my-page"\ndate: "2026-08-01"\n---');
+    expect(stripFrontmatter(file)).toBe(body);
+  });
+
+  it("stripFrontmatter returns the input unchanged when there is no frontmatter", () => {
+    const body = "# Just a body\n\nNo frontmatter here.\n";
+    expect(stripFrontmatter(body)).toBe(body);
+  });
+
+  it("stripFrontmatter handles CRLF line endings", () => {
+    const file = '---\r\ntitle: "Foo"\r\n---\r\n# Body\r\n';
+    expect(stripFrontmatter(file)).toBe("# Body\r\n");
+  });
+});
 
 describe("tiptapToMarkdown", () => {
   it("converts a realistic document with headings, marks, lists, and code blocks", () => {
