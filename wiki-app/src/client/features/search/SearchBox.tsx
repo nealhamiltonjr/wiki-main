@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { SearchX } from "lucide-react";
 import { useWikiSearch, useWikiSearchNavigation, type SearchItem } from "./useWikiSearch.js";
+import { EmptyState } from "../../components/EmptyState.js";
 
 /**
  * Always-visible search bar in the main panel. Types ahead against
@@ -52,7 +54,14 @@ export function SearchBox() {
       {showDropdown && (
         <div className="main-search-dropdown">
           {loading && <div className="cmd-status">Searching…</div>}
-          {!loading && items.length === 0 && <div className="cmd-status">No results</div>}
+          {!loading && items.length === 0 && (
+            <EmptyState
+              compact
+              icon={SearchX}
+              title={`No results for “${query}”`}
+              description="Try a different search term."
+            />
+          )}
           {!loading && items.length > 0 && (
             <div className="cmd-status">{items.length} result{items.length === 1 ? "" : "s"}</div>
           )}

@@ -4,7 +4,7 @@ import { Tree as ArboristTree, type NodeApi, type NodeRendererProps } from "reac
 import { api, type SpaceSummary, type TreeNode } from "../../api/client.js";
 import { cn } from "../../lib/utils.js";
 import {
-  ArrowUpDown, ChevronRight, Copy, FilePlus2, FileText, FolderMinus, MoreHorizontal, Pencil, Plus, Trash2,
+  ArrowUpDown, ChevronRight, Copy, FilePlus2, FileText, FolderMinus, Link2, MoreHorizontal, Pencil, Plus, Share2, Trash2,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuItem,
@@ -21,11 +21,17 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "../../components/ui/select.js";
 import { PageCreateDialog } from "./PageCreateDialog.js";
+import { RenameDialog, MoveDialog, ShareDialog, copyText } from "./PageActionDialogs.js";
+import { EmptyState } from "../../components/EmptyState.js";
 
 interface TreeActions {
   onSelectBranch: (branchId: string) => void;
   openCreateDialog: (parentBranchId: string | null, parentLabel?: string | null) => void;
   openCloneDialog: (node: TreeNode) => void;
+  openRenameDialog: (node: TreeNode) => void;
+  openMoveDialog: (node: TreeNode) => void;
+  openShareDialog: (node: TreeNode) => void;
+  copyPageLink: (node: TreeNode) => void;
   refreshTree: () => Promise<void>;
 }
 
@@ -81,7 +87,9 @@ interface MenuAction {
 
 /** Shared action list for the row's ⋯ DropdownMenu AND right-click ContextMenu. */
 function buildMenuActions(node: NodeApi<TreeNode>): MenuAction[] {
-  const { onSelectBranch, openCreateDialog, openCloneDialog, refreshTree } = useTreeActions();
+  const {
+    onSelectBranch, openCreateDialog, openCloneDialog, openRenameDialog, openMoveDialog, openShareDialog, copyPageLink, refreshTree,
+  } = useTreeActions();
   const d = node.data;
 
   const guard = async (fn: () => Promise<unknown>) => {
@@ -96,17 +104,11 @@ function buildMenuActions(node: NodeApi<TreeNode>): MenuAction[] {
   return [
     { key: "open", label: "Open", icon: FileText, onSelect: () => onSelectBranch(d.id) },
     { key: "add-child", label: "Add subpage…", icon: Plus, onSelect: () => openCreateDialog(d.id, d.slug) },
-    { key: "rename", label: "Rename…", icon: Pencil, onSelect: () => {
-      const slug = window.prompt("New slug:", d.slug);
-      if (!slug || slug === d.slug) return;
-      void guard(() => api.renamePage(d.pageId, d.id, slug.trim()).then(() => {}));
-    } },
-    { key: "move", label: "Move…", icon: ArrowUpDown, onSelect: () => {
-      const target = window.prompt("Move to which parent branch ID? (blank = top level)", "");
-      if (target === null) return;
-      void guard(() => api.moveBranch(d.id, target.trim() || null).then(() => {}));
-    } },
+    { key: "rename", label: "Rename…", icon: Pencil, onSelect: () => openRenameDialog(d) },
+    { key: "move", label: "Move…", icon: ArrowUpDown, onSelect: () => openMoveDialog(d) },
     { key: "clone", label: "Clone to space…", icon: Copy, onSelect: () => openCloneDialog(d) },
+    { key: "share", label: "Share…", icon: Share2, onSelect: () => openShareDialog(d) },
+    { key: "copy-link", label: "Copy link", icon: Link2, onSelect: () => copyPageLink(d) },
     { key: "remove-placement", label: "Remove placement", icon: FolderMinus, danger: true, onSelect: () => {
       if (!window.confirm(`Remove this placement of "/${d.slug}"? The content persists if it's placed elsewhere.`)) return;
       void guard(() => api.removePlacement(d.id).then(() => {}));
@@ -262,6 +264,10 @@ export function Tree({
   // B7: the title-first creation dialog (null parent = top-level).
   const [createTarget, setCreateTarget] = useState<{ parentBranchId: string | null; parentLabel?: string | null } | null>(null);
   const [cloneTarget, setCloneTarget] = useState<TreeNode | null>(null);
+  // B6: Rename / Move / Share use real dialogs instead of window.prompt.
+  const [renameTarget, setRenameTarget] = useState<TreeNode | null>(null);
+  const [moveTarget, setMoveTarget] = useState<TreeNode | null>(null);
+  const [shareTarget, setShareTarget] = useState<TreeNode | null>(null);
   const [containerRef, containerSize] = useContainerSize<HTMLDivElement>();
 
   useEffect(() => {
@@ -315,6 +321,14 @@ export function Tree({
     onSelectBranch: (id) => onSelectBranch(id, activeSpace ?? undefined),
     openCreateDialog: (parentBranchId, parentLabel) => setCreateTarget({ parentBranchId, parentLabel }),
     openCloneDialog: (node) => setCloneTarget(node),
+    openRenameDialog: (node) => setRenameTarget(node),
+    openMoveDialog: (node) => setMoveTarget(node),
+    openShareDialog: (node) => setShareTarget(node),
+    copyPageLink: async (node) => {
+      const ok = await copyText(`${window.location.origin}/pages/${node.id}`);
+      if (ok) toast.success("Link copied");
+      else toast.error("Could not copy the link");
+    },
     refreshTree,
   };
 
@@ -369,7 +383,13 @@ export function Tree({
             </ArboristTree>
           )}
           {tree.length === 0 && containerSize.height > 0 && (
-            <div className="tree-empty">No pages yet</div>
+            <EmptyState
+              compact
+              icon={FilePlus2}
+              title="Create your first page"
+              description="This space is empty."
+              action={<Button size="sm" onClick={() => setCreateTarget({ parentBranchId: null })}>New page</Button>}
+            />
           )}
         </div>
       </TreeActionsContext.Provider>
@@ -395,6 +415,30 @@ export function Tree({
           spaces={spaces}
           onClose={() => setCloneTarget(null)}
           onCloned={() => void refreshTree()}
+        />
+      )}
+
+      {renameTarget && (
+        <RenameDialog
+          target={renameTarget}
+          onClose={() => setRenameTarget(null)}
+          onRenamed={() => void refreshTree()}
+        />
+      )}
+
+      {moveTarget && (
+        <MoveDialog
+          target={moveTarget}
+          tree={tree}
+          onClose={() => setMoveTarget(null)}
+          onMoved={() => void refreshTree()}
+        />
+      )}
+
+      {shareTarget && (
+        <ShareDialog
+          target={shareTarget}
+          onClose={() => setShareTarget(null)}
         />
       )}
     </div>

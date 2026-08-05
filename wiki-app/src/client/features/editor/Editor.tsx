@@ -1,7 +1,10 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { Fragment, useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
+import { Bold, Italic, Link as LinkIcon, MessageSquare, Underline, type LucideIcon } from "lucide-react";
 import { useEditor, EditorContent, type Editor as TiptapEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { api, ApiError, type PageContent, type HistoryEntry, type CommentThread } from "../../api/client.js";
+import { api, ApiError, type PageContent, type HistoryEntry, type CommentThread, type AncestryResult } from "../../api/client.js";
+import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from "../../components/ui/breadcrumb.js";
 import { Toolbar } from "./Toolbar.js";
 import { baseEditorExtensions } from "./baseExtensions.js";
 import { editingExtensions } from "./editingExtensions.js";
@@ -33,8 +36,11 @@ export function Editor({ branchId }: { branchId: string }) {
   const titleSaveTimer = useRef<ReturnType<typeof setTimeout>>();
   // UI overhaul B3: the page icon (reserved `icon` attribute) shown next to the title.
   const [pageIcon, setPageIcon] = useState("");
+  // UI overhaul B8: breadcrumb trail (space → ancestors → this page).
+  const [ancestry, setAncestry] = useState<AncestryResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { data: session } = useSession();
+  const navigate = useNavigate();
 
   // Latest page content, tracked in a ref so effects that must NOT reset the
   // editor on every autosave refresh of `page` can still read it.
@@ -288,6 +294,7 @@ export function Editor({ branchId }: { branchId: string }) {
       setTitle(p.title ?? "");
       editor?.setEditable(false);
     });
+    api.getAncestry(branchId).then(setAncestry).catch(() => setAncestry(null));
   }, [branchId]);
 
   useEffect(() => {
@@ -499,6 +506,57 @@ export function Editor({ branchId }: { branchId: string }) {
 
   return (
     <div className="page-editor" style={{ padding: 24 }}>
+      {/* B8 breadcrumb trail: Space → ancestors → current page, each clickable
+          (the current page renders as the non-clickable last segment). */}
+      {ancestry && (
+        <div className="wiki-breadcrumb-row">
+          <Breadcrumb className="min-w-0">
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                {ancestry.trail.length > 1 ? (
+                  <BreadcrumbLink
+                    className="inline-flex items-center gap-1"
+                    onClick={() => navigate(`/pages/${ancestry.trail[0]!.id}`)}
+                  >
+                    <span aria-hidden className="breadcrumb-space-icon">◈</span>
+                    {ancestry.space.name}
+                  </BreadcrumbLink>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-text-muted">
+                    <span aria-hidden className="breadcrumb-space-icon">◈</span>
+                    {ancestry.space.name}
+                  </span>
+                )}
+              </BreadcrumbItem>
+              {ancestry.trail.map((seg, i) => {
+                const isLast = i === ancestry.trail.length - 1;
+                return (
+                  <Fragment key={seg.id}>
+                    <BreadcrumbSeparator />
+                    <BreadcrumbItem className="min-w-0">
+                      {isLast ? (
+                        <BreadcrumbPage className="inline-flex min-w-0 items-center gap-1">
+                          {seg.icon && <span aria-hidden>{seg.icon}</span>}
+                          <span className="truncate">{seg.title || seg.slug}</span>
+                        </BreadcrumbPage>
+                      ) : (
+                        <BreadcrumbLink
+                          className="inline-flex min-w-0 items-center gap-1"
+                          onClick={() => navigate(`/pages/${seg.id}`)}
+                        >
+                          {seg.icon && <span aria-hidden>{seg.icon}</span>}
+                          <span className="truncate">{seg.title || seg.slug}</span>
+                        </BreadcrumbLink>
+                      )}
+                    </BreadcrumbItem>
+                  </Fragment>
+                );
+              })}
+            </BreadcrumbList>
+          </Breadcrumb>
+          <span className="wiki-last-edited">Edited {fmtEdited(page.updatedAt)}</span>
+        </div>
+      )}
       {/* Header stays full-width; only the reading canvas narrows below. */}
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, alignItems: "center" }}>
         <span className="wiki-page-slug">
@@ -601,17 +659,17 @@ export function Editor({ branchId }: { branchId: string }) {
       {editor && canEdit && isEditing && (
         <BubbleMenu editor={editor}>
           <div className="wiki-bubble-menu">
-            <BubbleBtn active={editor.isActive("bold")} label="B" title="Bold" onClick={() => editor.chain().focus().toggleBold().run()} />
-            <BubbleBtn active={editor.isActive("italic")} label="I" title="Italic" onClick={() => editor.chain().focus().toggleItalic().run()} />
-            <BubbleBtn active={editor.isActive("underline")} label="U" title="Underline" onClick={() => editor.chain().focus().toggleUnderline().run()} />
-            <BubbleBtn active={editor.isActive("link")} label="🔗" title="Link" onClick={() => {
+            <BubbleBtn active={editor.isActive("bold")} icon={Bold} title="Bold" onClick={() => editor.chain().focus().toggleBold().run()} />
+            <BubbleBtn active={editor.isActive("italic")} icon={Italic} title="Italic" onClick={() => editor.chain().focus().toggleItalic().run()} />
+            <BubbleBtn active={editor.isActive("underline")} icon={Underline} title="Underline" onClick={() => editor.chain().focus().toggleUnderline().run()} />
+            <BubbleBtn active={editor.isActive("link")} icon={LinkIcon} title="Link" onClick={() => {
               const prev = editor.getAttributes("link").href ?? "";
               const href = window.prompt("URL:", prev);
               if (href === null) return;
               if (href === "") editor.chain().focus().unsetLink().run();
               else editor.chain().focus().setLink({ href }).run();
             }} />
-            <BubbleBtn active={false} label="💬" title="Add comment" onClick={addCommentOnSelection} />
+            <BubbleBtn active={false} icon={MessageSquare} title="Add comment" onClick={addCommentOnSelection} />
           </div>
         </BubbleMenu>
       )}
@@ -675,15 +733,16 @@ export function Editor({ branchId }: { branchId: string }) {
   );
 }
 
-function BubbleBtn({ active, label, title, onClick }: { active: boolean; label: string; title: string; onClick: () => void }) {
+function BubbleBtn({ active, icon: Icon, title, onClick }: { active: boolean; icon: LucideIcon; title: string; onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
+      aria-label={title}
       className={active ? "active" : ""}
     >
-      {label}
+      <Icon aria-hidden />
     </button>
   );
 }
@@ -692,4 +751,18 @@ function StatusLabel({ status }: { status: string }) {
   const label = { idle: "", saving: "Saving…", saved: "Saved", conflict: "Conflict", error: "Error saving" }[status] ?? "";
   const cls = status === "saved" ? "status-saved" : status === "saving" ? "status-saving" : status === "conflict" ? "status-conflict" : status === "error" ? "status-error" : "";
   return <span className={`wiki-status ${cls}`}>{label}</span>;
+}
+
+/** B8: relative "last edited" timestamp, e.g. "just now", "5m ago", "2h ago", "3d ago". */
+function fmtEdited(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(diff) || diff < 0) return "just now";
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
 }

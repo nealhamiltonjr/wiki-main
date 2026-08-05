@@ -418,10 +418,9 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   /* UI overhaul B6: the react-arborist tree scrolls internally; padding here
      would skew the measured container, so the empty state carries its own. */
 }
-.wiki-tree .tree-empty {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  padding: var(--space-1) var(--space-2);
+.wiki-tree .empty-state {
+  position: absolute;
+  inset: 0;
 }
 .wiki-tree-item {
   display: flex;
@@ -429,9 +428,14 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   border-radius: var(--radius-sm);
   margin: 1px 0;
   position: relative;
+  transition: background 0.12s ease;
 }
 .wiki-tree-item:hover {
   background: var(--color-surface-hover);
+}
+.wiki-tree-item:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
 }
 .wiki-tree-item.selected {
   background: var(--color-bg-tertiary);
@@ -689,6 +693,24 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   padding: 3px 8px;
   border-radius: var(--radius-sm);
 }
+/* B8: breadcrumb trail above the page header. */
+.wiki-breadcrumb-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+.breadcrumb-space-icon {
+  color: var(--color-primary);
+  font-size: 11px;
+}
+.wiki-last-edited {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
 .wiki-status {
   font-size: var(--font-size-xs);
   color: var(--color-text-muted);
@@ -810,23 +832,34 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   align-items: center;
 }
 .wiki-toolbar .wiki-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 4px 8px;
+  min-width: 28px;
+  height: 28px;
   font-size: 13px;
-  border: 1px solid var(--color-border);
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  background: var(--color-surface);
+  background: transparent;
   color: var(--color-text);
   cursor: pointer;
-  min-width: 30px;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 .wiki-toolbar .wiki-toolbar-btn:hover {
   background: var(--color-bg-tertiary);
+  border-color: var(--color-border);
+}
+.wiki-toolbar .wiki-toolbar-btn:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
 }
 .wiki-toolbar .wiki-toolbar-btn.active {
   background: var(--color-primary);
   border-color: var(--color-primary);
   color: var(--color-primary-text);
 }
+.wiki-toolbar-icon { width: 16px; height: 16px; }
 .wiki-toolbar .wiki-toolbar-sep {
   width: 1px;
   background: var(--color-border);
@@ -1153,7 +1186,14 @@ span.wiki-mention {
 }
 .wiki-editor-content .ProseMirror:hover .drag-handle,
 .wiki-editor-content:hover .drag-handle { opacity: 1; }
-.drag-handle::before { content: "⠿"; line-height: 1; }
+/* B10: lucide GripVertical rendered as an inline SVG data URI (the handle is a
+   plain div created by the vendor extension, so no JSX to put an <svg> in). */
+.drag-handle::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 3v18M15 3v18'/%3E%3C/svg%3E") center / 16px no-repeat;
+}
 
 /* Search & replace result decorations */
 .wiki-editor-content .search-result {
@@ -1181,19 +1221,30 @@ span.wiki-mention {
   box-shadow: var(--shadow-md);
 }
 .wiki-bubble-menu button {
-  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
   font-size: 13px;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text);
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 .wiki-bubble-menu button:hover { background: var(--color-bg-tertiary); }
+.wiki-bubble-menu button:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
 .wiki-bubble-menu button.active {
   background: var(--color-primary);
   color: var(--color-primary-text);
 }
+.wiki-bubble-menu button svg { width: 15px; height: 15px; }
 
 .wiki-popup {
   background: var(--color-surface-elevated);
@@ -2073,9 +2124,36 @@ span.wiki-mention {
   font-family: var(--font-sans);
 }
 .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: var(--space-6);
+  text-align: center;
   color: var(--color-text-muted);
   font-family: var(--font-sans);
+}
+.empty-state-compact {
+  padding: var(--space-4);
+  gap: 4px;
+}
+.empty-state-icon {
+  width: 32px;
+  height: 32px;
+  opacity: 0.55;
+}
+.empty-state-title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.empty-state-desc {
+  font-size: var(--font-size-sm);
+  max-width: 34ch;
+}
+.empty-state-action {
+  margin-top: 6px;
 }
 
 /* Keyboard shortcut hints */
@@ -2085,3 +2163,63 @@ kbd {
   background: var(--color-surface); border: 1px solid var(--color-border);
   border-radius: 4px; box-shadow: 0 1px 1px rgba(0,0,0,0.1);
 }
+
+/* ============================================================
+   B11: final polish — focus, motion, responsive
+   ============================================================ */
+
+/* Consistent keyboard focus on interactive elements that don't declare their
+   own (components with bespoke focus styles keep them). */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+/* Subtle entrance motion for transient chrome + page loads. */
+@keyframes wiki-fade-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+.wiki-bubble-menu,
+.wiki-popup,
+.page-editor {
+  animation: wiki-fade-in 0.14s ease-out;
+}
+
+/* Responsive: the layout is token-driven (--sidebar-width / --panel-width),
+   so narrower viewports just tighten the tokens. */
+@media (max-width: 1100px) {
+  :root { --panel-width: 280px; }
+}
+@media (max-width: 900px) {
+  :root {
+    --sidebar-width: 220px;
+    --panel-width: 260px;
+  }
+  .page-editor { padding: 16px; }
+}
+@media (max-width: 720px) {
+  :root { --sidebar-width: 190px; }
+  .wiki-breadcrumb-row { flex-wrap: wrap; }
+  .wiki-page-action { padding: 4px 8px; font-size: var(--font-size-xs); }
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .wiki-bubble-menu,
+  .wiki-popup,
+  .page-editor,
+  .wiki-tree-item,
+  .wiki-toolbar-btn,
+  .wiki-bubble-menu button {
+    animation: none;
+    transition: none;
+  }
+}
+

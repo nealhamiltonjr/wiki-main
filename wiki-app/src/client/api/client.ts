@@ -24,6 +24,8 @@ export interface TreeNode { id: string; pageId: string; slug: string; icon?: str
 export interface PageContent {
   pageId: string; branchId: string; slug: string; title: string; content: unknown; updatedAt: string; access: string;
 }
+export interface AncestrySegment { id: string; slug: string; title: string; icon: string | null }
+export interface AncestryResult { space: { id: string; name: string }; trail: AncestrySegment[] }
 export interface HistoryEntry { hash: string; message: string; date: string }
 export interface FileUploadResult { id: string; filename: string }
 export interface ShareLinkResult { id: string; token: string }
@@ -115,6 +117,7 @@ export const api = {
   createSpace: (name: string) => request<SpaceSummary>("/api/spaces", { method: "POST", body: JSON.stringify({ name }) }),
   getSpaceTree: (spaceId: string) => request<TreeNode[]>(`/api/spaces/${spaceId}/tree`),
   getPage: (branchId: string) => request<PageContent>(`/api/branches/${branchId}/page`),
+  getAncestry: (branchId: string) => request<AncestryResult>(`/api/branches/${branchId}/ancestry`),
   createPage: (opts: { slug: string; spaceId: string; parentBranchId: string | null; templateId?: string; title?: string }) =>
     request<{ pageId: string; branchId: string }>("/api/pages", { method: "POST", body: JSON.stringify(opts) }),
   savePage: (pageId: string, branchId: string, content: unknown, expectedUpdatedAt: string, opts?: { title?: string }) =>

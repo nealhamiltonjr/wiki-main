@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { SearchX } from "lucide-react";
 import { useWikiSearch, useWikiSearchNavigation, type SearchItem } from "./useWikiSearch.js";
+import { EmptyState } from "../../components/EmptyState.js";
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
@@ -56,7 +58,14 @@ export function CommandPalette() {
         />
         <div className="cmd-results">
           {loading && <div className="cmd-status">Searching…</div>}
-          {!loading && query && items.length === 0 && <div className="cmd-status">No results</div>}
+          {!loading && query && items.length === 0 && (
+            <EmptyState
+              compact
+              icon={SearchX}
+              title={`No results for “${query}”`}
+              description="Try a different search term."
+            />
+          )}
           {!loading && query && items.length > 0 && (
             <div className="cmd-status">{items.length} result{items.length === 1 ? "" : "s"}</div>
           )}

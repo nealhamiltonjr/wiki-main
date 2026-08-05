@@ -7,6 +7,7 @@ import { useTheme, type Theme } from "./theme/ThemeContext.js";
 import { CommandPalette } from "./search/CommandPalette.js";
 import { SearchBox } from "./search/SearchBox.js";
 import { Toaster } from "../components/ui/sonner.js";
+import { EmptyState } from "../components/EmptyState.js";
 import { cn } from "../lib/utils.js";
 import { BookMarked, Contrast, LogOut, Moon, Monitor, Settings as SettingsIcon, Sun } from "lucide-react";
 
@@ -140,10 +141,11 @@ export default function App() {
                 <Route path="/pages/:branchId" element={<EditorRoute />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/" element={
-                  <div style={{ padding: "var(--space-6)", color: "var(--color-text-muted)" }}>
-                    <BookMarked className="h-5 w-5" aria-hidden />
-                    <span className="align-middle">Select or create a page</span>
-                  </div>
+                  <EmptyState
+                    icon={BookMarked}
+                    title="Select or create a page"
+                    description="Pick a page from the sidebar or create a new one to get started."
+                  />
                 } />
               </Routes>
             </Suspense>

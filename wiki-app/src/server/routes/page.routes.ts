@@ -1,8 +1,8 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { pages, branches } from "../db/schema.js";
+import { pages, branches, spaces, attributes } from "../db/schema.js";
 import { createPage, savePageOCC, createSnapshot } from "../services/page.service.js";
 import { getPageHistory, getFileContentAtCommit } from "../services/git.service.js";
 import { refreshBacklinks } from "../services/backlink.service.js";
@@ -75,6 +75,65 @@ export async function pageRoutes(app: FastifyInstance) {
         updatedAt: page.updatedAt,
         access: (request as any).resolvedAccess,
       });
+    }
+  );
+
+  // B8 breadcrumbs: the branch's ancestor chain (space root first, target last)
+  // with the page slug/title/icon for each hop, plus the space name. Same
+  // branchParam viewer gate as getPage, and the chain itself is the same
+  // recursive CTE the permission layer already uses - so the trail can never
+  // show a branch the caller can't actually read.
+  app.get(
+    "/api/branches/:branchId/ancestry",
+    { config: { access: { branchParam: "branchId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const { branchId } = request.params as { branchId: string };
+      const chain = await getBranchChain(branchId).catch(() => null);
+      if (!chain || chain.length === 0) return reply.code(404).send({ error: "Branch not found" });
+
+      const chainIds = chain.map((c) => c.id);
+      const spaceId = chain[0]!.spaceId;
+
+      const [space] = await db.select({ id: spaces.id, name: spaces.name }).from(spaces).where(eq(spaces.id, spaceId));
+      if (!space) return reply.code(404).send({ error: "Space not found" });
+
+      const rows = await db
+        .select({
+          id: branches.id,
+          pageId: branches.pageId,
+          slug: pages.slug,
+          title: pages.title,
+        })
+        .from(branches)
+        .innerJoin(pages, eq(pages.id, branches.pageId))
+        .where(inArray(branches.id, chainIds));
+      const byId = new Map(rows.map((r) => [r.id, r]));
+
+      let icons = new Map<string, string>();
+      const pageIds = rows.map((r) => r.pageId);
+      if (pageIds.length > 0) {
+        const iconRows = await db
+          .select({ pageId: attributes.pageId, value: attributes.value })
+          .from(attributes)
+          .where(and(inArray(attributes.pageId, pageIds), eq(attributes.name, "icon")));
+        icons = new Map(iconRows.map((r) => [r.pageId, r.value]));
+      }
+
+      // The space's system root branch is a scaffold, not a page — skip it so
+      // the trail is Space → top-level ancestor → … → current page.
+      const trail = chain
+        .filter((c) => !c.isSystem)
+        .map((c) => byId.get(c.id))
+        .filter((r): r is NonNullable<typeof r> => Boolean(r))
+        .reverse()
+        .map((r) => ({
+          id: r.id,
+          slug: r.slug,
+          title: r.title,
+          icon: icons.get(r.pageId) ?? null,
+        }));
+
+      return reply.send({ space: { id: space.id, name: space.name }, trail });
     }
   );
 

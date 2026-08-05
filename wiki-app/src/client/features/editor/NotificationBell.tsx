@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
+import { CheckCheck } from "lucide-react";
 import { api } from "../../api/client.js";
 import { useNavigate } from "react-router-dom";
+import { EmptyState } from "../../components/EmptyState.js";
 
 interface NotificationItem {
   id: string;
@@ -56,7 +58,9 @@ export function NotificationBell() {
             {unread > 0 && <button className="wiki-page-action" onClick={markAll}>Mark all read</button>}
           </div>
           <div className="bell-list">
-            {items.length === 0 && <div className="bell-empty">No notifications yet.</div>}
+            {items.length === 0 && (
+              <EmptyState compact icon={CheckCheck} title="You're all caught up" />
+            )}
             {items.map((n) => (
               <button key={n.id} className={`bell-item${n.readAt ? "" : " unread"}`} onClick={() => handleClick(n)}>
                 <span className="bell-kind">{n.kind === "mention" ? "💬" : n.kind === "system" ? "⚙" : "⚠"}</span>
