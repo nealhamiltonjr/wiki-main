@@ -14,6 +14,8 @@ export interface UserContext {
   id: string;
   isAdmin: boolean;
   groupIds: string[];
+  /** Capabilities inherited from the user's groups (union). Empty for admin (isAdmin grants everything). */
+  capabilities: string[];
   /** Space id -> role, from space_members ∪ best role via space_group_permissions. Pre-resolved by the caller. */
   spaceRoles: Record<string, SpaceRole>;
 }

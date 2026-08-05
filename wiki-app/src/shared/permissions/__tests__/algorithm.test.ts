@@ -16,6 +16,7 @@ const user = (over: Partial<UserContext> = {}): UserContext => ({
   id: "u",
   isAdmin: false,
   groupIds: [],
+  capabilities: [],
   spaceRoles: {},
   ...over,
 });

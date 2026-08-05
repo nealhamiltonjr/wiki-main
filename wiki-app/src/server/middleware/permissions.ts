@@ -175,7 +175,12 @@ export async function registerPermissionMiddleware(app: FastifyInstance) {
         principal.kind === "user"
           ? principal.user.isAdmin
           : principal.token.scopeType === "account" && principal.token.permission === "admin";
-      if (!isAdmin) return reply.code(403).send({ error: "Admin access required" });
+      if (!isAdmin) {
+        // Capability-based fallback: a non-admin user can still access admin
+        // routes if one of their groups carries the matching capability.
+        if (principal.kind === "user" && hasCapabilityForRoute(principal.user, request.url)) return;
+        return reply.code(403).send({ error: "Admin access required" });
+      }
       return;
     }
 
@@ -337,4 +342,22 @@ function capAccess(access: AccessResult, permission: TokenPermission): AccessRes
 function capSpaceRole(role: SpaceRole, permission: TokenPermission): SpaceRole {
   const cap = tokenSpaceAccess(permission);
   return rankMap[role] <= rankMap[cap] ? role : cap;
+}
+
+/** Maps URL prefixes to the capability needed to access admin routes without isAdmin. */
+const CAPABILITY_ROUTE_MAP: [string, string][] = [
+  ["/api/admin/users", "admin.users"],
+  ["/api/admin/logs", "admin.logs"],
+  ["/api/groups", "admin.groups"],
+  ["/api/settings", "admin.settings"],
+  ["/api/git", "admin.git"],
+];
+
+function hasCapabilityForRoute(user: UserContext, url: string): boolean {
+  if (user.isAdmin) return true;
+  if (user.capabilities.includes("admin.*")) return true;
+  for (const [prefix, cap] of CAPABILITY_ROUTE_MAP) {
+    if (url.startsWith(prefix) && user.capabilities.includes(cap)) return true;
+  }
+  return false;
 }

@@ -1469,6 +1469,20 @@ span.wiki-mention {
   margin-bottom: var(--space-5);
   color: var(--color-text);
 }
+/* Admin tabs */
+.settings-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 10px 16px;
+  background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--color-text-muted); font-size: var(--font-size-sm);
+  font-family: var(--font-sans); cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.settings-tab:hover { color: var(--color-text); }
+.settings-tab.active {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
 .settings-card {
   margin-bottom: var(--space-6);
   padding: 18px 22px;

@@ -249,4 +249,16 @@ export async function branchRoutes(app: FastifyInstance) {
       return reply.send({ ok: true });
     }
   );
+
+  // Set branch visibility (public / private / inherit).
+  app.put(
+    "/api/branches/:branchId/visibility",
+    { config: { access: { branchParam: "branchId", minRole: "editor" } } },
+    async (request, reply) => {
+      const { branchId } = request.params as { branchId: string };
+      const body = z.object({ visibility: z.enum(["public", "private", "inherit"]) }).parse(request.body);
+      await db.update(branches).set({ visibility: body.visibility }).where(eq(branches.id, branchId));
+      return reply.send({ ok: true });
+    }
+  );
 }

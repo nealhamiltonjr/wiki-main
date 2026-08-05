@@ -35,4 +35,16 @@ export function applyMigrations() {
   if (!userCols.some((c) => c.name === "suspended")) {
     sqlite.exec(`ALTER TABLE "user" ADD COLUMN "suspended" integer DEFAULT 0`);
   }
+
+  // Add `default_role` to spaces table.
+  const spaceCols = sqlite.pragma("table_info(spaces)") as Array<{ name: string }>;
+  if (!spaceCols.some((c) => c.name === "default_role")) {
+    sqlite.exec(`ALTER TABLE "spaces" ADD COLUMN "default_role" text DEFAULT 'none'`);
+  }
+
+  // Add `capabilities` to groups table.
+  const groupCols = sqlite.pragma("table_info(groups)") as Array<{ name: string }>;
+  if (!groupCols.some((c) => c.name === "capabilities")) {
+    sqlite.exec(`ALTER TABLE "groups" ADD COLUMN "capabilities" text DEFAULT '[]'`);
+  }
 }

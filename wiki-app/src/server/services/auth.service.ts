@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { userGroups, users } from "../db/schema.js";
+import { userGroups, users, groups } from "../db/schema.js";
 import { auth } from "../auth/config.js";
 import type { UserContext } from "../../shared/types.js";
 
@@ -11,6 +11,25 @@ import type { UserContext } from "../../shared/types.js";
  * expiry-check logic that better-auth already owns correctly - exactly the kind
  * of subtle auth bug this project has been careful to avoid elsewhere.
  */
+/**
+ * Resolve a user's capabilities from all their groups. Returns empty for admins
+ * (isAdmin implicitly grants everything, no need to enumerate).
+ */
+async function resolveCapabilities(userId: string, groupIds: string[]): Promise<string[]> {
+  if (groupIds.length === 0) return [];
+  const groupRows = await db
+    .select({ capabilities: groups.capabilities })
+    .from(groups)
+    .where(sql`${groups.id} IN ${groupIds}`);
+  const caps = new Set<string>();
+  for (const g of groupRows) {
+    if (Array.isArray(g.capabilities)) {
+      for (const c of g.capabilities) caps.add(c);
+    }
+  }
+  return [...caps];
+}
+
 export async function getUserContext(headers: Headers): Promise<UserContext | null> {
   const result = await auth.api.getSession({ headers });
   if (!result) return null;
@@ -19,12 +38,15 @@ export async function getUserContext(headers: Headers): Promise<UserContext | nu
     .select({ groupId: userGroups.groupId })
     .from(userGroups)
     .where(eq(userGroups.userId, result.user.id));
+  const groupIds = groupRows.map((g) => g.groupId);
+  const isAdmin = (result.user as unknown as { isAdmin?: boolean }).isAdmin ?? false;
 
   return {
     id: result.user.id,
-    isAdmin: (result.user as unknown as { isAdmin?: boolean }).isAdmin ?? false,
-    groupIds: groupRows.map((g) => g.groupId),
-    spaceRoles: {}, // resolved lazily per-space by the permission middleware, not eagerly here
+    isAdmin,
+    groupIds,
+    capabilities: await resolveCapabilities(result.user.id, groupIds),
+    spaceRoles: {},
   };
 }
 
@@ -42,11 +64,13 @@ export async function getUserContextById(userId: string): Promise<UserContext> {
     .select({ groupId: userGroups.groupId })
     .from(userGroups)
     .where(eq(userGroups.userId, userId));
+  const groupIds = groupRows.map((g) => g.groupId);
 
   return {
     id: userRow.id,
     isAdmin: userRow.isAdmin ?? false,
-    groupIds: groupRows.map((g) => g.groupId),
+    groupIds,
+    capabilities: await resolveCapabilities(userId, groupIds),
     spaceRoles: {},
   };
 }

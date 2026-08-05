@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { eq, and, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
-import { spaces, spaceMembers, spaceGroupPermissions, branches, pages } from "../db/schema.js";
+import { spaces, spaceMembers, spaceGroupPermissions, branches, pages, users, groups } from "../db/schema.js";
 import { buildSpaceTree, resolveSpaceRole } from "../services/branch.service.js";
 import type { UserContext } from "../../shared/types.js";
 
@@ -63,6 +63,131 @@ export async function spaceRoutes(app: FastifyInstance) {
         (request as any).principalKind === "token" && tokenScope?.scopeType === "branch" ? tokenScope.scopeId : null;
 
       return reply.send(await buildSpaceTree(spaceId, { user, spaceRole, branchTokenScopeId }));
+    }
+  );
+
+  // -----------------------------------------------------------------------
+  // Space permission management — space admin only (or global admin).
+  // -----------------------------------------------------------------------
+
+  const spaceAdminGuard = async (request: any, reply: any) => {
+    const { spaceId } = request.params as { spaceId: string };
+    const user = request.userContext as UserContext;
+    if (user.isAdmin) return null;
+    const role = await resolveSpaceRole(user.id, spaceId, user.groupIds);
+    if (role !== "admin") return reply.code(403).send({ error: "Space admin access required" });
+    return null;
+  };
+
+  app.get(
+    "/api/spaces/:spaceId/permissions",
+    { config: { access: { spaceParam: "spaceId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const blocked = await spaceAdminGuard(request, reply);
+      if (blocked) return blocked;
+      const { spaceId } = request.params as { spaceId: string };
+
+      const [space] = await db.select({ defaultRole: spaces.defaultRole }).from(spaces).where(eq(spaces.id, spaceId));
+      const members = await db
+        .select({
+          userId: spaceMembers.userId,
+          role: spaceMembers.role,
+          email: users.email,
+          name: users.name,
+        })
+        .from(spaceMembers)
+        .innerJoin(users, eq(users.id, spaceMembers.userId))
+        .where(eq(spaceMembers.spaceId, spaceId));
+
+      const groupGrants = await db
+        .select({
+          id: spaceGroupPermissions.id,
+          groupId: spaceGroupPermissions.groupId,
+          role: spaceGroupPermissions.role,
+          groupName: groups.name,
+        })
+        .from(spaceGroupPermissions)
+        .innerJoin(groups, eq(groups.id, spaceGroupPermissions.groupId))
+        .where(eq(spaceGroupPermissions.spaceId, spaceId));
+
+      return reply.send({ defaultRole: space?.defaultRole ?? "editor", members, groupGrants });
+    }
+  );
+
+  app.post(
+    "/api/spaces/:spaceId/members",
+    { config: { access: { spaceParam: "spaceId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const blocked = await spaceAdminGuard(request, reply);
+      if (blocked) return blocked;
+      const { spaceId } = request.params as { spaceId: string };
+      const body = z.object({ userId: z.string().min(1), role: z.enum(["viewer", "editor", "admin"]) }).parse(request.body);
+
+      await db.insert(spaceMembers).values({ spaceId, userId: body.userId, role: body.role }).onConflictDoUpdate({
+        target: [spaceMembers.spaceId, spaceMembers.userId],
+        set: { role: body.role },
+      });
+      return reply.code(201).send({ ok: true });
+    }
+  );
+
+  app.delete(
+    "/api/spaces/:spaceId/members/:userId",
+    { config: { access: { spaceParam: "spaceId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const blocked = await spaceAdminGuard(request, reply);
+      if (blocked) return blocked;
+      const { spaceId, userId } = request.params as { spaceId: string; userId: string };
+      await db.delete(spaceMembers).where(
+        and(eq(spaceMembers.spaceId, spaceId), eq(spaceMembers.userId, userId))
+      );
+      return reply.send({ ok: true });
+    }
+  );
+
+  app.post(
+    "/api/spaces/:spaceId/group-grants",
+    { config: { access: { spaceParam: "spaceId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const blocked = await spaceAdminGuard(request, reply);
+      if (blocked) return blocked;
+      const { spaceId } = request.params as { spaceId: string };
+      const body = z.object({ groupId: z.string().min(1), role: z.enum(["viewer", "editor", "admin"]) }).parse(request.body);
+
+      await db.insert(spaceGroupPermissions).values({
+        id: crypto.randomUUID(),
+        spaceId,
+        groupId: body.groupId,
+        role: body.role,
+      });
+      return reply.code(201).send({ ok: true });
+    }
+  );
+
+  app.delete(
+    "/api/spaces/:spaceId/group-grants/:grantId",
+    { config: { access: { spaceParam: "spaceId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const blocked = await spaceAdminGuard(request, reply);
+      if (blocked) return blocked;
+      const { spaceId, grantId } = request.params as { spaceId: string; grantId: string };
+      await db.delete(spaceGroupPermissions).where(
+        and(eq(spaceGroupPermissions.id, grantId), eq(spaceGroupPermissions.spaceId, spaceId))
+      );
+      return reply.send({ ok: true });
+    }
+  );
+
+  app.put(
+    "/api/spaces/:spaceId/default-role",
+    { config: { access: { spaceParam: "spaceId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const blocked = await spaceAdminGuard(request, reply);
+      if (blocked) return blocked;
+      const { spaceId } = request.params as { spaceId: string };
+      const body = z.object({ defaultRole: z.enum(["editor", "viewer", "none"]) }).parse(request.body);
+      await db.update(spaces).set({ defaultRole: body.defaultRole }).where(eq(spaces.id, spaceId));
+      return reply.send({ ok: true });
     }
   );
 }

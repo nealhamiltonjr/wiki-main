@@ -1,6 +1,6 @@
 import { sql, eq, and, isNull, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { branches, pages, groups, groupPermissions, spaceMembers, spaceGroupPermissions, attributes } from "../db/schema.js";
+import { branches, pages, groups, groupPermissions, spaceMembers, spaceGroupPermissions, attributes, spaces } from "../db/schema.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { BranchContext, BranchRole, SpaceRole, UserContext } from "../../shared/types.js";
 
@@ -285,6 +285,12 @@ export async function resolveSpaceRole(
     for (const gr of groupRoles) {
       if (!best || rank[gr.role] > rank[best]) best = gr.role;
     }
+  }
+
+  // Fall back to the space's default role when the user has no explicit membership.
+  if (!best) {
+    const [s] = await db.select({ defaultRole: spaces.defaultRole }).from(spaces).where(eq(spaces.id, spaceId));
+    if (s?.defaultRole && s.defaultRole !== "none") best = s.defaultRole;
   }
 
   return best;

@@ -6,10 +6,14 @@ export async function listGroups() {
   return db.select().from(groups);
 }
 
-export async function createGroup(name: string) {
+export async function createGroup(name: string, capabilities: string[] = []) {
   const id = crypto.randomUUID();
-  await db.insert(groups).values({ id, name });
-  return { id, name };
+  await db.insert(groups).values({ id, name, capabilities });
+  return { id, name, capabilities };
+}
+
+export async function updateGroupCapabilities(groupId: string, capabilities: string[]) {
+  await db.update(groups).set({ capabilities }).where(eq(groups.id, groupId));
 }
 
 export async function deleteGroup(id: string) {
@@ -29,7 +33,7 @@ export async function addGroupMember(groupId: string, userId: string) {
     .select()
     .from(userGroups)
     .where(and(eq(userGroups.groupId, groupId), eq(userGroups.userId, userId)));
-  if (existing.length > 0) return; // idempotent - adding twice is a no-op, not an error
+  if (existing.length > 0) return;
   await db.insert(userGroups).values({ groupId, userId });
 }
 

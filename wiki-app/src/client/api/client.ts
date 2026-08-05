@@ -95,8 +95,9 @@ export const api = {
   getRepoLog: (limit?: number) =>
     request<RepoLogEntry[]>(`/api/git/log${limit ? `?limit=${limit}` : ""}`),
   testGitRemote: () => request<{ ok: true; reachable: boolean; message: string }>("/api/git/test-remote", { method: "POST" }),
-  listGroups: () => request<{ id: string; name: string }[]>("/api/groups"),
-  createGroup: (name: string) => request<{ id: string; name: string }>("/api/groups", { method: "POST", body: JSON.stringify({ name }) }),
+  listGroups: () => request<{ id: string; name: string; capabilities?: string[] }[]>("/api/groups"),
+  createGroup: (name: string, capabilities?: string[]) =>
+    request<{ id: string; name: string }>("/api/groups", { method: "POST", body: JSON.stringify({ name, capabilities }) }),
   deleteGroup: (id: string) => request<void>(`/api/groups/${id}`, { method: "DELETE" }),
   listGroupMembers: (groupId: string) => request<{ userId: string; email: string; name: string }[]>(`/api/groups/${groupId}/members`),
   addGroupMember: (groupId: string, userId: string) =>
@@ -216,4 +217,38 @@ export const api = {
   /** Favorites (§7.12d.7). */
   getFavorites: () => request<{ id: string; branchId: string; slug: string }[]>("/api/favorites"),
   toggleFavorite: (branchId: string) => request<{ favorited: boolean }>(`/api/favorites/${encodeURIComponent(branchId)}`, { method: "POST" }),
+
+  // Space permissions
+  getSpacePermissions: (spaceId: string) =>
+    request<{ defaultRole: string; members: { userId: string; role: string; email: string; name: string }[]; groupGrants: { id: string; groupId: string; role: string; groupName: string }[] }>(
+      `/api/spaces/${spaceId}/permissions`
+    ),
+  addSpaceMember: (spaceId: string, userId: string, role: string) =>
+    request<void>(`/api/spaces/${spaceId}/members`, { method: "POST", body: JSON.stringify({ userId, role }) }),
+  removeSpaceMember: (spaceId: string, userId: string) =>
+    request<void>(`/api/spaces/${spaceId}/members/${userId}`, { method: "DELETE" }),
+  addSpaceGroupGrant: (spaceId: string, groupId: string, role: string) =>
+    request<void>(`/api/spaces/${spaceId}/group-grants`, { method: "POST", body: JSON.stringify({ groupId, role }) }),
+  removeSpaceGroupGrant: (spaceId: string, grantId: string) =>
+    request<void>(`/api/spaces/${spaceId}/group-grants/${grantId}`, { method: "DELETE" }),
+  setSpaceDefaultRole: (spaceId: string, defaultRole: string) =>
+    request<void>(`/api/spaces/${spaceId}/default-role`, { method: "PUT", body: JSON.stringify({ defaultRole }) }),
+
+  // Group capabilities
+  updateGroupCapabilities: (groupId: string, capabilities: string[]) =>
+    request<void>(`/api/groups/${groupId}/capabilities`, { method: "PUT", body: JSON.stringify({ capabilities }) }),
+
+  // Admin logs
+  listAdminLogs: () => request<{ id: string; level: string; source: string; message: string; meta: unknown; createdAt: string }[]>(
+    "/api/admin/logs"
+  ),
+
+  // Branch visibility
+  setBranchVisibility: (branchId: string, visibility: "public" | "private" | "inherit") =>
+    request<void>(`/api/branches/${branchId}/visibility`, { method: "PUT", body: JSON.stringify({ visibility }) }),
+
+  // User export
+  exportUserData: (userId: string) => {
+    window.open(`/api/admin/users/${userId}/export`, "_blank");
+  },
 };

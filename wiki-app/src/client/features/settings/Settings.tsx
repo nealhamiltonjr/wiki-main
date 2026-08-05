@@ -8,16 +8,9 @@ import { Check, Palette } from "lucide-react";
 
 const THEMES: Theme[] = ["light", "dark", "contrast", "system"];
 
-/**
- * Settings page. Two parts:
- * - "Appearance" is available to every user (theme + editor reading width,
- *   persisted via user_settings).
- * - The admin-only management sections (groups, system settings) are only
- *   rendered when the signed-in user is a global admin.
- */
 export function Settings() {
   const { data: session } = useSession();
-  const { theme, setTheme, accent, setAccent } = useTheme();
+  const { theme, setTheme, accent, setAccent, presetId, setPresetId } = useTheme();
   const [editorWidth, setEditorWidth] = useState<"full" | "narrow">("full");
 
   useEffect(() => {
@@ -34,8 +27,9 @@ export function Settings() {
     api.setUserSetting("editor.width", next);
   }
 
-  const { presetId, setPresetId } = useTheme();
-  const isAdmin = session?.user.isAdmin === true;
+  const canManageSettings = session?.user.isAdmin === true ||
+    (session?.user as any)?.capabilities?.includes("admin.*") ||
+    (session?.user as any)?.capabilities?.some((c: string) => c.startsWith("admin."));
 
   return (
     <div className="settings-page">
@@ -44,7 +38,7 @@ export function Settings() {
       <section className="settings-card">
         <h3>Appearance</h3>
         <div className="settings-row">
-          <span className="label">Theme</span>
+          <span className="label">Mode</span>
           <div className="settings-theme-pills">
             {THEMES.map((t) => (
               <button
@@ -82,6 +76,33 @@ export function Settings() {
           </div>
         </div>
         <div className="settings-row">
+          <span className="label">Presets</span>
+          <div className="settings-preset-grid">
+            {THEME_PRESETS.map((preset) => {
+              const active = presetId === preset.id;
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={cn("settings-preset-card", active && "active")}
+                  onClick={() => setPresetId(active ? null : preset.id)}
+                  title={preset.description}
+                >
+                  <div className="settings-preset-preview" style={{ backgroundColor: preset.previewColor }}>
+                    <Palette className="h-4 w-4" style={{ color: "#fff" }} />
+                    <span className="settings-preset-kind">{preset.kind}</span>
+                  </div>
+                  <div className="settings-preset-body">
+                    <span className="settings-preset-name">{preset.name}</span>
+                    <span className="settings-preset-desc">{preset.description}</span>
+                  </div>
+                  {active && <Check className="settings-preset-check h-4 w-4" aria-hidden />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="settings-row">
           <span className="label">Editor width</span>
           <button onClick={toggleWidth} className="settings-btn">
             {editorWidth === "full" ? "Full width" : "Narrow"}
@@ -92,38 +113,7 @@ export function Settings() {
         </div>
       </section>
 
-      <section className="settings-card">
-        <h3>Theme preset</h3>
-        <p className="hint" style={{ marginBottom: 12 }}>
-          Override the default color palette with a curated preset. Presets work across light and dark modes.
-        </p>
-        <div className="settings-preset-grid">
-          {THEME_PRESETS.map((preset) => {
-            const active = presetId === preset.id;
-            return (
-              <button
-                key={preset.id}
-                type="button"
-                className={cn("settings-preset-card", active && "active")}
-                onClick={() => setPresetId(active ? null : preset.id)}
-                title={preset.description}
-              >
-                <div className="settings-preset-preview" style={{ backgroundColor: preset.previewColor }}>
-                  <Palette className="h-4 w-4" style={{ color: "#fff" }} />
-                  <span className="settings-preset-kind">{preset.kind}</span>
-                </div>
-                <div className="settings-preset-body">
-                  <span className="settings-preset-name">{preset.name}</span>
-                  <span className="settings-preset-desc">{preset.description}</span>
-                </div>
-                {active && <Check className="settings-preset-check h-4 w-4" aria-hidden />}
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {isAdmin && <AdminSettings />}
+      {canManageSettings && <AdminSettings />}
     </div>
   );
 }

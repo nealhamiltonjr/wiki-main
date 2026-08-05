@@ -32,6 +32,8 @@ export { users, sessions, identities, verification };
 export const groups = sqliteTable("groups", {
   id: id(),
   name: text("name").notNull().unique(),
+  /** JSON string[] — the union of all group capabilities defines what members can do system-wide. */
+  capabilities: text("capabilities", { mode: "json" }).$type<string[]>().default([]).notNull(),
   ...timestamps,
 });
 
@@ -52,6 +54,9 @@ export const spaces = sqliteTable("spaces", {
   id: id(),
   name: text("name").notNull(),
   createdBy: text("created_by").notNull().references(() => users.id),
+  /** Default role for authenticated users with no explicit membership or group grant.
+   *  'editor' = open collaboration, 'viewer' = read-only, 'none' = members-only (safe default). */
+  defaultRole: text("default_role", { enum: ["editor", "viewer", "none"] }).default("none").notNull(),
   ...timestamps,
 });
 
