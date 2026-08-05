@@ -1,6 +1,6 @@
 import { sql, eq, and, isNull, inArray } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { branches, pages, groups, groupPermissions, spaceMembers, spaceGroupPermissions } from "../db/schema.js";
+import { branches, pages, groups, groupPermissions, spaceMembers, spaceGroupPermissions, attributes } from "../db/schema.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { BranchContext, BranchRole, SpaceRole, UserContext } from "../../shared/types.js";
 
@@ -135,6 +135,8 @@ export interface SpaceTreeNode {
   id: string;
   pageId: string;
   slug: string;
+  /** UI overhaul B3: the page's `icon` attribute (emoji), if set. */
+  icon?: string | null;
   children: SpaceTreeNode[];
 }
 
@@ -180,6 +182,26 @@ export async function buildSpaceTree(
     if (!visible.has(r.branchId)) continue;
     map.set(r.branchId, { id: r.branchId, pageId: r.pageId, slug: r.slug, children: [] });
   }
+
+  // UI overhaul B3: attach each page's `icon` attribute (emoji) so the tree can
+  // render it next to the slug. One indexed query for the whole space.
+  if (map.size > 0) {
+    const iconRows = await db
+      .select({ pageId: attributes.pageId, value: attributes.value })
+      .from(attributes)
+      .where(
+        and(
+          inArray(attributes.pageId, [...map.values()].map((n) => n.pageId)),
+          eq(attributes.name, "icon")
+        )
+      );
+    const iconByPage = new Map(iconRows.map((r) => [r.pageId, r.value]));
+    for (const node of map.values()) {
+      const icon = iconByPage.get(node.pageId);
+      if (icon) node.icon = icon;
+    }
+  }
+
   for (const r of rows) {
     const node = map.get(r.branchId);
     if (!node) continue;

@@ -18,6 +18,7 @@ import { DragHandleMenu, blockAtPos, type BlockAnchor } from "./DragHandleMenu.j
 import { SearchReplacePopup } from "./SearchReplacePopup.js";
 import { handleMarkdownPaste } from "./paste.js";
 import { NotificationBell } from "./NotificationBell.js";
+import { PageTitleInput } from "./PageTitleInput.js";
 
 const USER_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#d97706", "#9333ea", "#0891b2", "#be185d", "#4f46e5"];
 
@@ -26,6 +27,12 @@ export function Editor({ branchId }: { branchId: string }) {
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "conflict" | "error">("idle");
   const [history, setHistory] = useState<HistoryEntry[] | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  // UI overhaul B5: the display title has its own debounced save path (it is
+  // independent of the body's OCC window), so it keeps a separate state + timer.
+  const [title, setTitle] = useState("");
+  const titleSaveTimer = useRef<ReturnType<typeof setTimeout>>();
+  // UI overhaul B3: the page icon (reserved `icon` attribute) shown next to the title.
+  const [pageIcon, setPageIcon] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { data: session } = useSession();
 
@@ -33,6 +40,12 @@ export function Editor({ branchId }: { branchId: string }) {
   // editor on every autosave refresh of `page` can still read it.
   const pageRef = useRef<PageContent | null>(null);
   pageRef.current = page;
+  // Same idea for the title (B5): `save` is captured by the editor's onUpdate
+  // at creation time, so it must read the CURRENT title from a ref instead of
+  // a render closure, or a late body autosave would revert a freshly renamed
+  // title to the slug-derived value it saw at mount.
+  const titleRef = useRef("");
+  titleRef.current = title;
   const collabEnabledRef = useRef(false);
 
   const [editorWidth, setEditorWidth] = useState<"full" | "narrow">("full");
@@ -269,8 +282,10 @@ export function Editor({ branchId }: { branchId: string }) {
     setHistory(null);
     setIsEditing(false);
     setUseCollabMode(false);
+    setTitle("");
     api.getPage(branchId).then((p) => {
       setPage(p);
+      setTitle(p.title ?? "");
       editor?.setEditable(false);
     });
   }, [branchId]);
@@ -280,6 +295,30 @@ export function Editor({ branchId }: { branchId: string }) {
     editor?.setEditable(isEditing && (page.access === "editor" || page.access === "admin"));
   }, [isEditing]);
 
+  // UI overhaul B5: keep the browser tab title in sync with the page title.
+  useEffect(() => {
+    document.title = title.trim() ? `${title.trim()} — Wiki` : "Wiki";
+    return () => { document.title = "Wiki"; };
+  }, [title]);
+
+  // UI overhaul B3: load the page icon from its `icon` attribute and keep it in
+  // sync when the AttributesPanel changes it.
+  useEffect(() => {
+    if (!branchId) return;
+    let cancelled = false;
+    const loadIcon = () => {
+      fetch(`/api/branches/${branchId}/attributes`, { credentials: "include" })
+        .then((r) => r.json())
+        .then((d) => {
+          if (!cancelled) setPageIcon((d.attributes ?? []).find((a: { name: string }) => a.name === "icon")?.value ?? "");
+        })
+        .catch(() => {});
+    };
+    loadIcon();
+    window.addEventListener("wiki-page-icon-changed", loadIcon);
+    return () => { cancelled = true; window.removeEventListener("wiki-page-icon-changed", loadIcon); };
+  }, [branchId]);
+
   // The "Upload file" slash command fires this event; route it to the same
   // hidden file input as the toolbar upload button.
   useEffect(() => {
@@ -288,25 +327,48 @@ export function Editor({ branchId }: { branchId: string }) {
     return () => window.removeEventListener("wiki-upload-request", onUploadRequest);
   }, []);
 
-  const save = useCallback(
-    async (content: unknown) => {
-      if (!page) return;
-      setStatus("saving");
-      try {
-        await api.savePage(page.pageId, page.branchId, content, page.updatedAt);
-        const fresh = await api.getPage(branchId);
-        setPage(fresh);
-        setStatus("saved");
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 409) {
-          setStatus("conflict");
-        } else {
-          setStatus("error");
-        }
+  const save = useCallback(async (content: unknown, opts?: { title?: string }) => {
+    // Read from refs so the editor's onUpdate (which captures this callback at
+    // editor-creation time) always acts on the latest page/title, never the
+    // ones it saw on mount.
+    const p = pageRef.current;
+    if (!p) return;
+    setStatus("saving");
+    try {
+      await api.savePage(p.pageId, p.branchId, content, p.updatedAt, {
+        title: opts?.title ?? titleRef.current,
+      });
+      const fresh = await api.getPage(p.branchId);
+      setPage(fresh);
+      setTitle(fresh.title ?? "");
+      setStatus("saved");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setStatus("conflict");
+      } else {
+        setStatus("error");
       }
-    },
-    [page, branchId]
-  );
+    }
+  }, []);
+
+  // UI overhaul B5: title saves run on their own debounce and always send the
+  // title explicitly (never letting the route re-derive it from the body H1).
+  function handleTitleChange(next: string) {
+    setTitle(next);
+    if (titleSaveTimer.current) clearTimeout(titleSaveTimer.current);
+    titleSaveTimer.current = setTimeout(() => {
+      const content = editorRef.current?.getJSON() ?? pageRef.current?.content;
+      if (content) void save(content, { title: next });
+    }, 600);
+  }
+
+  function commitTitle() {
+    if (!titleSaveTimer.current) return;
+    clearTimeout(titleSaveTimer.current);
+    titleSaveTimer.current = undefined;
+    const content = editorRef.current?.getJSON() ?? pageRef.current?.content;
+    if (content) void save(content, { title });
+  }
 
   async function toggleCollab() {
     // Exiting collab mode: the Collaboration extension owns the document while
@@ -564,6 +626,15 @@ export function Editor({ branchId }: { branchId: string }) {
           margin: editorWidth === "full" ? 0 : "0 auto",
         }}
       >
+        <div className="wiki-page-heading-row">
+          {pageIcon && <span className="wiki-page-icon-large" aria-hidden>{pageIcon}</span>}
+          <PageTitleInput
+            value={title}
+            onChange={handleTitleChange}
+            editable={canEdit}
+            onCommit={commitTitle}
+          />
+        </div>
         <div style={{ display: "flex", gap: 0, alignItems: "flex-start" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <EditorContent

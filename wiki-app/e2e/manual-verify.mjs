@@ -45,8 +45,11 @@ const slug = "manual-verify-" + Date.now();
 await page.fill('.wiki-sidebar-controls input[placeholder="New space"]', "VerifySpace");
 await page.click('.wiki-sidebar-controls button[title="Create space"]');
 await page.waitForTimeout(400);
-await page.fill('input[placeholder="new-page-slug"]', slug);
-await page.click('button[title="Create page"]');
+// B7: title-first creation dialog (filling the title auto-derives the slug).
+await page.click('.wiki-sidebar-controls button:has-text("New page")');
+await page.waitForSelector('[role="dialog"]', { timeout: 5000 });
+await page.fill('[role="dialog"] #page-title', slug);
+await page.click('[role="dialog"] button:has-text("Create page")');
 await page.waitForTimeout(900);
 
 // get branch id

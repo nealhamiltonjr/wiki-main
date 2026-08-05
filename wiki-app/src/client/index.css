@@ -1,0 +1,76 @@
+/*
+ * Tailwind v4 entry (UI overhaul B1). Intentionally imports theme + utilities
+ * but NOT preflight: the app ships its own full reset + tokens in theme.css
+ * (including editor-critical rules like inline images), and preflight's
+ * `img { display: block }` / button resets would regress the existing UI.
+ *
+ * `@theme inline` maps Tailwind utility names onto the design-token custom
+ * properties defined in theme.css (light/dark/contrast via <html data-theme>),
+ * so utilities like `bg-surface` / `text-text-secondary` follow the active
+ * theme exactly like the hand-written CSS does.
+ */
+@import "tailwindcss/theme" layer(theme);
+@import "tw-animate-css";
+@import "tailwindcss/utilities" layer(utilities);
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  /* Surfaces */
+  --color-bg: var(--color-bg);
+  --color-bg-secondary: var(--color-bg-secondary);
+  --color-bg-tertiary: var(--color-bg-tertiary);
+  --color-surface: var(--color-surface);
+  --color-surface-hover: var(--color-surface-hover);
+  --color-surface-elevated: var(--color-surface-elevated);
+
+  /* Borders */
+  --color-border: var(--color-border);
+  --color-border-light: var(--color-border-light);
+  --color-border-strong: var(--color-border-strong);
+
+  /* Text */
+  --color-text: var(--color-text);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-text-muted: var(--color-text-muted);
+  --color-placeholder: var(--color-placeholder);
+
+  /* Accent */
+  --color-primary: var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-primary-text: var(--color-primary-text);
+  --color-link: var(--color-link);
+  --color-focus-ring: var(--color-focus-ring);
+
+  /* Semantic */
+  --color-danger: var(--color-danger);
+  --color-danger-hover: var(--color-danger-hover);
+  --color-danger-bg: var(--color-danger-bg);
+  --color-warning: var(--color-warning);
+  --color-warning-bg: var(--color-warning-bg);
+  --color-success: var(--color-success);
+  --color-success-bg: var(--color-success-bg);
+
+  /* Code & prose */
+  --color-code-bg: var(--color-code-bg);
+  --color-code-text: var(--color-code-text);
+  --color-inline-code-bg: var(--color-inline-code-bg);
+  --color-inline-code-text: var(--color-inline-code-text);
+  --color-highlight-bg: var(--color-highlight-bg);
+  --color-highlight-text: var(--color-highlight-text);
+  --color-blockquote-bg: var(--color-blockquote-bg);
+  --color-blockquote-border: var(--color-blockquote-border);
+  --color-table-header-bg: var(--color-table-header-bg);
+
+  /* Radii (namespaced so the app's scale never clobbers Tailwind's defaults) */
+  --radius-app-sm: var(--radius-sm);
+  --radius-app-md: var(--radius-md);
+  --radius-app-lg: var(--radius-lg);
+  --radius-app-full: var(--radius-full);
+
+  /* Shadows — app tokens override Tailwind's defaults for the shared names */
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+}

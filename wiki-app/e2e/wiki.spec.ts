@@ -13,8 +13,12 @@ async function createSpaceAndPage(page: import("@playwright/test").Page, spaceNa
   await expect(page.locator(".wiki-sidebar-controls select")).toContainText(spaceName, { timeout: 5000 });
 
   await page.waitForTimeout(300);
-  await page.fill('input[placeholder="new-page-slug"]', slug);
-  await page.click('button[title="Create page"]');
+  // B7: title-first creation dialog. Filling the title auto-derives the slug.
+  await page.click('.wiki-sidebar-controls button:has-text("New page")');
+  const dialog = page.locator('[role="dialog"]');
+  await expect(dialog).toBeVisible({ timeout: 5000 });
+  await dialog.locator('#page-title').fill(slug);
+  await dialog.locator('button:has-text("Create page")').click();
   await page.waitForTimeout(800);
 }
 
@@ -61,6 +65,53 @@ test.describe("wiki app", () => {
     await expect(page.locator(".wiki-editor-content")).toBeVisible();
   });
 
+
+  test("edits the page title and it persists without touching the slug", async ({ page }) => {
+    await createSpaceAndPage(page, "TitleTest", "title-test");
+
+    const branchId = await getFirstBranchId(page, "title-test");
+    await page.goto(`/pages/${branchId}`, { waitUntil: "networkidle", timeout: 15000 });
+    await expect(page.locator(".wiki-editor-content")).toBeVisible({ timeout: 5000 });
+
+    // B5: the title input is editable for editors
+    const titleInput = page.locator(".wiki-page-title-input");
+    await expect(titleInput).toBeVisible();
+    await expect(titleInput).not.toHaveAttribute("readonly", "");
+    await titleInput.fill("Renamed via E2E");
+    await page.keyboard.press("Enter"); // commits + flushes the debounce
+    await page.waitForTimeout(1500);
+
+    // Slug stays untouched; title persisted via the API
+    await expect(page.locator(".wiki-page-slug")).toContainText("title-test");
+    const title = await page.evaluate(async (branchId) => {
+      const res = await fetch(`/api/branches/${branchId}/page`);
+      return (await res.json()).title;
+    }, branchId);
+    expect(title).toBe("Renamed via E2E");
+  });
+
+  test("sets a page icon and it renders in the sidebar tree", async ({ page }) => {
+    await createSpaceAndPage(page, "IconTest", "icon-test");
+
+    const branchId = await getFirstBranchId(page, "icon-test");
+    await page.goto(`/pages/${branchId}`, { waitUntil: "networkidle", timeout: 15000 });
+    await expect(page.locator(".wiki-editor-content")).toBeVisible({ timeout: 5000 });
+
+    // Open the attributes panel and pick an icon
+    await page.click('button[title="Page attributes (labels/tags)"]');
+    const iconOption = page.locator('.attr-icon-option[title="🚀"]');
+    await expect(iconOption).toBeVisible({ timeout: 5000 });
+    await iconOption.click();
+    await expect(iconOption).toHaveClass(/active/);
+
+    // The icon appears next to the title and in the sidebar tree
+    await expect(page.locator(".wiki-page-icon-large")).toHaveText("🚀", { timeout: 5000 });
+    await page.goto("/"); // back to the tree view
+    // Pick the space this test created (spaces accumulate across parallel tests).
+    await page.selectOption('.wiki-sidebar-controls select', { label: "IconTest" });
+    const treeRow = page.locator('.wiki-tree-item[data-slug="icon-test"]');
+    await expect(treeRow.locator(".tree-page-icon")).toHaveText("🚀", { timeout: 5000 });
+  });
 
   test("types content, saves, and shows 'Saved' status", async ({ page }) => {
     await createSpaceAndPage(page, "SaveTest", "save-test");

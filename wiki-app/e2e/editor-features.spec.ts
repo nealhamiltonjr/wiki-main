@@ -26,8 +26,12 @@ async function createSpaceAndPage(page: import("@playwright/test").Page, spaceNa
   await expect(page.locator(".wiki-sidebar-controls select")).toContainText(spaceName, { timeout: 5000 });
 
   await page.waitForTimeout(300);
-  await page.fill('input[placeholder="new-page-slug"]', slug);
-  await page.click('button[title="Create page"]');
+  // B7: title-first creation dialog. Filling the title auto-derives the slug.
+  await page.click('.wiki-sidebar-controls button:has-text("New page")');
+  const dialog = page.locator('[role="dialog"]');
+  await expect(dialog).toBeVisible({ timeout: 5000 });
+  await dialog.locator('#page-title').fill(slug);
+  await dialog.locator('button:has-text("Create page")').click();
   await page.waitForTimeout(800);
 }
 

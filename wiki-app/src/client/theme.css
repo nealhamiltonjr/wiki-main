@@ -344,15 +344,79 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   font-size: 11px;
   color: var(--color-text-muted);
   margin-right: 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
+.wiki-theme-switcher .theme-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  display: inline-block;
+}
+.wiki-theme-switcher .theme-active {
+  background: var(--color-primary) !important;
+  color: var(--color-primary-text) !important;
+  border-color: var(--color-primary) !important;
+}
+
+/* UI overhaul B4: accent color swatches in Settings */
+.settings-theme-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.settings-accent-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.settings-accent-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  border: 2px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+.settings-accent-swatch:hover { transform: scale(1.08); }
+.settings-accent-swatch.active { border-color: var(--color-text); }
+
+/* UI overhaul B5: page title input above the editor */
+.wiki-page-title-input {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-3xl);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+  padding: var(--space-1) 2px;
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid transparent;
+  outline: none;
+  border-radius: var(--radius-sm);
+}
+.wiki-page-title-input.readonly { cursor: default; }
+.wiki-page-title-input:not(.readonly):hover { border-bottom-color: var(--color-border-strong); }
+.wiki-page-title-input:not(.readonly):focus {
+  border-bottom-color: var(--color-primary);
+  box-shadow: 0 1px 0 var(--color-primary);
+}
+.wiki-page-title-input::placeholder { color: var(--color-placeholder); }
 
 /* ============================================================
    Sidebar tree
    ============================================================ */
 .wiki-tree {
   flex: 1;
-  overflow-y: auto;
-  padding: var(--space-2) var(--space-2) var(--space-3);
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  /* UI overhaul B6: the react-arborist tree scrolls internally; padding here
+     would skew the measured container, so the empty state carries its own. */
 }
 .wiki-tree .tree-empty {
   font-size: var(--font-size-xs);
@@ -429,6 +493,15 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
   transition: background 0.12s ease;
 }
 .wiki-tree-item.selected .tree-page-dot { background: var(--color-primary); opacity: 1; }
+
+/* UI overhaul B3: per-page emoji icon shown in the tree when set */
+.wiki-tree-item .tree-page-icon {
+  font-size: 13px;
+  line-height: 1;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+.wiki-tree-item.selected .tree-page-icon { transform: scale(1.05); }
 
 .wiki-tree-item .tree-label {
   cursor: pointer;
@@ -1760,6 +1833,45 @@ span.wiki-mention {
   padding: 4px 0;
 }
 .attr-loading { color: var(--color-text-muted); font-size: var(--font-size-sm); padding: 8px 0; }
+
+/* UI overhaul B3: page-icon picker in the attributes panel */
+.attr-icon-picker { padding-bottom: 8px; }
+.attr-icon-row { display: flex; align-items: center; gap: 6px; }
+.attr-icon-row .attr-current-icon { font-size: var(--font-size-base); }
+.attr-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 4px;
+  margin-top: 6px;
+}
+.attr-icon-option {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  line-height: 1;
+  padding: 0;
+  transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+.attr-icon-option:hover { background: var(--color-bg-tertiary); transform: scale(1.1); }
+.attr-icon-option.active { border-color: var(--color-primary); background: var(--color-bg-tertiary); }
+
+/* UI overhaul B5/B3: page title heading row (icon + title input) */
+.wiki-page-heading-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.wiki-page-icon-large {
+  font-size: 2rem;
+  line-height: 1.25;
+  margin-top: var(--space-1);
+  flex-shrink: 0;
+  user-select: none;
+}
 
 /* ============================================================
    Command palette — Phase B (§7.12d.2) Cmd+K search

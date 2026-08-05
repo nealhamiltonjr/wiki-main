@@ -9,6 +9,19 @@ interface AttrRow {
   position: number;
 }
 
+// UI overhaul B3: page icons. Stored as the reserved `icon` attribute (emoji)
+// so they're versioned with the page's other attributes and survive clones.
+const PAGE_ICONS = [
+  "📄", "📝", "💡", "🚀", "📦", "🗂️", "🔒", "🌱", "🧪", "📖",
+  "🎯", "💬", "⚡", "🏗️", "🧠", "📌", "⭐", "📎", "🔨", "🧰",
+  "🎨", "📊", "✅", "🔥", "📅", "💾", "🌐", "⚙️", "🕐", "❓",
+];
+
+// Lets the tree and the page title header refresh their icons immediately.
+export function notifyPageIconChanged() {
+  window.dispatchEvent(new Event("wiki-page-icon-changed"));
+}
+
 export function AttributesPanel({ branchId }: { branchId: string }) {
   const [attrs, setAttrs] = useState<AttrRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,12 +75,65 @@ export function AttributesPanel({ branchId }: { branchId: string }) {
     fetchAttrs();
   };
 
+  // B3: page icon (the reserved `icon` attribute, rendered in the tree).
+  const iconAttr = attrs.find(a => a.name === "icon");
+  const currentIcon = iconAttr?.value ?? "";
+
+  const setIcon = async (emoji: string) => {
+    if (iconAttr) {
+      if (iconAttr.value === emoji) return;
+      await fetch(`/api/attributes/${iconAttr.id}`, {
+        method: "PUT", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branchId, name: "icon", value: emoji }),
+      });
+    } else {
+      await fetch(`/api/branches/${branchId}/attributes`, {
+        method: "POST", credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "icon", value: emoji }),
+      });
+    }
+    fetchAttrs();
+    notifyPageIconChanged();
+  };
+
+  const clearIcon = async () => {
+    if (!iconAttr) return;
+    await deleteAttr(iconAttr.id);
+    notifyPageIconChanged();
+  };
+
   const promoted = attrs.filter(a => a.isPromoted);
   const rest = attrs.filter(a => !a.isPromoted);
 
   return (
     <div className="attributes-panel">
       <h4 className="attributes-heading">Attributes</h4>
+
+      {/* B3: page icon picker */}
+      <div className="attr-icon-picker">
+        <div className="attr-icon-row">
+          <span className="attr-name">Icon</span>
+          <span className="attr-current-icon">{currentIcon || "—"}</span>
+          {currentIcon && (
+            <button className="attr-btn danger" onClick={() => void clearIcon()} title="Remove icon">×</button>
+          )}
+        </div>
+        <div className="attr-icon-grid">
+          {PAGE_ICONS.map(emoji => (
+            <button
+              key={emoji}
+              type="button"
+              className={`attr-icon-option${emoji === currentIcon ? " active" : ""}`}
+              title={emoji}
+              onClick={() => void setIcon(emoji)}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Promoted — always visible */}
       {promoted.map(a => (

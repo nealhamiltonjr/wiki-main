@@ -20,7 +20,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export interface SpaceSummary { id: string; name: string }
-export interface TreeNode { id: string; pageId: string; slug: string; children: TreeNode[] }
+export interface TreeNode { id: string; pageId: string; slug: string; icon?: string | null; children: TreeNode[] }
 export interface PageContent {
   pageId: string; branchId: string; slug: string; title: string; content: unknown; updatedAt: string; access: string;
 }
@@ -115,12 +115,18 @@ export const api = {
   createSpace: (name: string) => request<SpaceSummary>("/api/spaces", { method: "POST", body: JSON.stringify({ name }) }),
   getSpaceTree: (spaceId: string) => request<TreeNode[]>(`/api/spaces/${spaceId}/tree`),
   getPage: (branchId: string) => request<PageContent>(`/api/branches/${branchId}/page`),
-  createPage: (opts: { slug: string; spaceId: string; parentBranchId: string | null; templateId?: string }) =>
+  createPage: (opts: { slug: string; spaceId: string; parentBranchId: string | null; templateId?: string; title?: string }) =>
     request<{ pageId: string; branchId: string }>("/api/pages", { method: "POST", body: JSON.stringify(opts) }),
-  savePage: (pageId: string, branchId: string, content: unknown, expectedUpdatedAt: string) =>
+  savePage: (pageId: string, branchId: string, content: unknown, expectedUpdatedAt: string, opts?: { title?: string }) =>
     request<{ ok: true }>(`/api/pages/${pageId}/branches/${branchId}`, {
       method: "PUT",
-      body: JSON.stringify({ content, expectedUpdatedAt }),
+      body: JSON.stringify({
+        content,
+        expectedUpdatedAt,
+        // UI overhaul B5: title-aware saves always send the title so the route
+        // never falls back to deriving it from the first body H1.
+        ...(opts?.title !== undefined ? { title: opts.title } : {}),
+      }),
     }),
   snapshot: (pageId: string, branchId: string, message: string) =>
     request<{ queued: true }>(`/api/pages/${pageId}/branches/${branchId}/snapshot`, {

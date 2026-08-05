@@ -1,7 +1,58 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext, useLayoutEffect, useEffect, useRef, useState, type ElementType, type ReactNode } from "react";
+import { toast } from "sonner";
+import { Tree as ArboristTree, type NodeApi, type NodeRendererProps } from "react-arborist";
 import { api, type SpaceSummary, type TreeNode } from "../../api/client.js";
+import { cn } from "../../lib/utils.js";
+import {
+  ArrowUpDown, ChevronRight, Copy, FilePlus2, FileText, FolderMinus, MoreHorizontal, Pencil, Plus, Trash2,
+} from "lucide-react";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuItem,
+} from "../../components/ui/dropdown-menu.js";
+import {
+  ContextMenu, ContextMenuContent, ContextMenuTrigger, ContextMenuItem,
+} from "../../components/ui/context-menu.js";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "../../components/ui/dialog.js";
+import { Button } from "../../components/ui/button.js";
+import { Label } from "../../components/ui/label.js";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "../../components/ui/select.js";
+import { PageCreateDialog } from "./PageCreateDialog.js";
 
-function FavoritesSection({ onSelect }: { onSelect: (branchId: string, spaceId: string) => void }) {
+interface TreeActions {
+  onSelectBranch: (branchId: string) => void;
+  openCreateDialog: (parentBranchId: string | null, parentLabel?: string | null) => void;
+  openCloneDialog: (node: TreeNode) => void;
+  refreshTree: () => Promise<void>;
+}
+
+const TreeActionsContext = createContext<TreeActions | null>(null);
+
+function useTreeActions(): TreeActions {
+  const ctx = useContext(TreeActionsContext);
+  if (!ctx) throw new Error("TreeActionsContext missing");
+  return ctx;
+}
+
+function useContainerSize<T extends HTMLElement>() {
+  const ref = useRef<T | null>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const update = () => setSize({ width: el.clientWidth, height: el.clientHeight });
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, size] as const;
+}
+
+function FavoritesSection({ onSelect }: { onSelect: (branchId: string) => void }) {
   const [favorites, setFavorites] = useState<{ id: string; branchId: string; slug: string }[]>([]);
   useEffect(() => {
     api.getFavorites().then(setFavorites).catch(() => {});
@@ -11,7 +62,7 @@ function FavoritesSection({ onSelect }: { onSelect: (branchId: string, spaceId: 
     <div className="favorites-section">
       <div className="section-title">★ Favorites</div>
       {favorites.map((f) => (
-        <button key={f.id} className="fav-item" onClick={() => onSelect(f.branchId, "")}>
+        <button key={f.id} className="fav-item" onClick={() => onSelect(f.branchId)}>
           <span className="fav-star">★</span>
           <span>{f.slug}</span>
         </button>
@@ -20,41 +71,222 @@ function FavoritesSection({ onSelect }: { onSelect: (branchId: string, spaceId: 
   );
 }
 
+interface MenuAction {
+  key: string;
+  label: string;
+  icon: ElementType;
+  danger?: boolean;
+  onSelect: () => void;
+}
+
+/** Shared action list for the row's ⋯ DropdownMenu AND right-click ContextMenu. */
+function buildMenuActions(node: NodeApi<TreeNode>): MenuAction[] {
+  const { onSelectBranch, openCreateDialog, openCloneDialog, refreshTree } = useTreeActions();
+  const d = node.data;
+
+  const guard = async (fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      await refreshTree();
+    } catch (err) {
+      window.alert((err as any)?.body?.error ?? "Operation failed");
+    }
+  };
+
+  return [
+    { key: "open", label: "Open", icon: FileText, onSelect: () => onSelectBranch(d.id) },
+    { key: "add-child", label: "Add subpage…", icon: Plus, onSelect: () => openCreateDialog(d.id, d.slug) },
+    { key: "rename", label: "Rename…", icon: Pencil, onSelect: () => {
+      const slug = window.prompt("New slug:", d.slug);
+      if (!slug || slug === d.slug) return;
+      void guard(() => api.renamePage(d.pageId, d.id, slug.trim()).then(() => {}));
+    } },
+    { key: "move", label: "Move…", icon: ArrowUpDown, onSelect: () => {
+      const target = window.prompt("Move to which parent branch ID? (blank = top level)", "");
+      if (target === null) return;
+      void guard(() => api.moveBranch(d.id, target.trim() || null).then(() => {}));
+    } },
+    { key: "clone", label: "Clone to space…", icon: Copy, onSelect: () => openCloneDialog(d) },
+    { key: "remove-placement", label: "Remove placement", icon: FolderMinus, danger: true, onSelect: () => {
+      if (!window.confirm(`Remove this placement of "/${d.slug}"? The content persists if it's placed elsewhere.`)) return;
+      void guard(() => api.removePlacement(d.id).then(() => {}));
+    } },
+    { key: "delete", label: "Delete everywhere", icon: Trash2, danger: true, onSelect: () => {
+      if (!window.confirm(`Delete "/${d.slug}" EVERYWHERE? This removes all placements and the page itself. This cannot be undone.`)) return;
+      void guard(() => api.deletePageEverywhere(d.pageId, d.id).then(() => {}));
+    } },
+  ];
+}
+
+function PageMenuItems({ node, Item }: { node: NodeApi<TreeNode>; Item: ElementType }) {
+  const actions = buildMenuActions(node);
+  return (
+    <>
+      {actions.map((a) => (
+        <Item key={a.key} onSelect={a.onSelect} className={cn(a.danger && "text-danger")}>
+          <a.icon aria-hidden />
+          {a.label}
+        </Item>
+      ))}
+    </>
+  );
+}
+
+function WikiTreeNode({ node, style }: NodeRendererProps<TreeNode>) {
+  const { onSelectBranch } = useTreeActions();
+  const isLeaf = node.isLeaf;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div
+          style={{ ...style, margin: 0, display: "flex", alignItems: "center" }}
+          className={cn("wiki-tree-item", node.isSelected && "selected")}
+          onClick={() => { if (node.isInternal) node.toggle(); }}
+          data-branch-id={node.data.id}
+          data-slug={node.data.slug}
+        >
+          {node.isInternal ? (
+            <button
+              type="button"
+              className={cn("tree-chevron", node.isOpen && "collapsed")}
+              onClick={(e) => { e.stopPropagation(); node.toggle(); }}
+              title={node.isOpen ? "Collapse" : "Expand"}
+              aria-label={node.isOpen ? "Collapse" : "Expand"}
+            >
+              <ChevronRight className="h-3 w-3" />
+            </button>
+          ) : (
+            <span className="tree-chevron-spacer" aria-hidden />
+          )}
+          <span
+            className="tree-label"
+            title={node.data.slug}
+            onClick={(e) => { e.stopPropagation(); onSelectBranch(node.data.id); }}
+          >
+            {node.data.icon ? (
+              <span className="tree-page-icon" aria-hidden>{node.data.icon}</span>
+            ) : (
+              <span className="tree-page-dot" aria-hidden />
+            )}
+            {node.data.slug}
+          </span>
+          <span className="tree-actions">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="wiki-icon-btn"
+                  title="Page actions"
+                  aria-label={`Actions for ${node.data.slug}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="right" onClick={(e) => e.stopPropagation()}>
+                <PageMenuItems node={node} Item={DropdownMenuItem} />
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </span>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent onClick={(e) => e.stopPropagation()}>
+        <PageMenuItems node={node} Item={ContextMenuItem} />
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+function CloneDialog({
+  target, spaces, onClose, onCloned,
+}: {
+  target: TreeNode;
+  spaces: SpaceSummary[];
+  onClose: () => void;
+  onCloned: () => void;
+}) {
+  const [space, setSpace] = useState(spaces[0]?.id ?? "");
+  const [busy, setBusy] = useState(false);
+
+  async function clone() {
+    if (!space || busy) return;
+    setBusy(true);
+    try {
+      await api.cloneBranch(target.id, { targetSpaceId: space, targetParentBranchId: null });
+      toast.success(`Cloned “${target.slug}”`);
+      onClose();
+      onCloned();
+    } catch (err) {
+      toast.error((err as any)?.body?.error ?? "Clone failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={() => onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Clone “{target.slug}”</DialogTitle>
+          <DialogDescription>Copy this page (and its subtree) into another space.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-2">
+          <Label>Destination space</Label>
+          <Select value={space} onValueChange={setSpace}>
+            <SelectTrigger><SelectValue placeholder="Select space" /></SelectTrigger>
+            <SelectContent>
+              {spaces.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => void clone()} disabled={!space || busy}>{busy ? "Cloning…" : "Clone"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function Tree({
   onSelectBranch,
   selectedBranchId,
 }: {
-  onSelectBranch: (branchId: string, spaceId: string) => void;
+  onSelectBranch: (branchId: string, spaceId?: string) => void;
   selectedBranchId: string | null;
 }) {
   const [spaces, setSpaces] = useState<SpaceSummary[]>([]);
   const [activeSpace, setActiveSpace] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
   const [newSpaceName, setNewSpaceName] = useState("");
-  const [newPageSlug, setNewPageSlug] = useState("");
-  // Found missing entirely: there was no way to create a page UNDER an
-  // existing one - every "+ page" click always passed parentBranchId: null.
-  // The backend always supported arbitrary nesting via branches.parentBranchId;
-  // the tree UI just never exposed it. This tracks which node (if any) the
-  // next created page should be placed under.
-  const [parentTarget, setParentTarget] = useState<{ id: string; slug: string } | null>(null);
+  // B7: the title-first creation dialog (null parent = top-level).
+  const [createTarget, setCreateTarget] = useState<{ parentBranchId: string | null; parentLabel?: string | null } | null>(null);
+  const [cloneTarget, setCloneTarget] = useState<TreeNode | null>(null);
+  const [containerRef, containerSize] = useContainerSize<HTMLDivElement>();
 
   useEffect(() => {
     api.listSpaces().then((s) => {
       setSpaces(s);
-      if (s.length > 0 && !activeSpace) setActiveSpace(s[0]!.id);
+      setActiveSpace((prev) => prev && s.some((x) => x.id === prev) ? prev : (s[0]?.id ?? null));
     });
   }, []);
 
   useEffect(() => {
-    if (activeSpace) api.getSpaceTree(activeSpace).then(setTree);
-    setParentTarget(null); // switching spaces invalidates any chosen parent from the old space
+    if (activeSpace) api.getSpaceTree(activeSpace).then(setTree).catch(() => setTree([]));
+  }, [activeSpace]);
+
+  // B3: reflect icon changes made in the AttributesPanel without a reload.
+  useEffect(() => {
+    const onIconChange = () => { void refreshTree(); };
+    window.addEventListener("wiki-page-icon-changed", onIconChange);
+    return () => window.removeEventListener("wiki-page-icon-changed", onIconChange);
   }, [activeSpace]);
 
   async function refreshTree() {
     if (activeSpace) {
-      const t = await api.getSpaceTree(activeSpace);
-      setTree(t);
+      try {
+        setTree(await api.getSpaceTree(activeSpace));
+      } catch { /* keep last known tree */ }
     }
   }
 
@@ -66,34 +298,30 @@ export function Tree({
     setNewSpaceName("");
   }
 
-  async function createPage() {
-    if (!activeSpace || !newPageSlug.trim()) return;
-    await api.createPage({ slug: newPageSlug.trim(), spaceId: activeSpace, parentBranchId: parentTarget?.id ?? null });
-    setNewPageSlug("");
-    refreshTree();
-    // Deliberately NOT clearing parentTarget here - adding several children
-    // under the same parent in a row (e.g. "test-scripts" -> multiple pages)
-    // is a normal flow; the explicit "x" below is how you clear it.
+  async function handleMove({ dragIds, parentId }: { dragIds: string[]; parentId: string | null }) {
+    const id = dragIds[0];
+    if (!id) return;
+    try {
+      await api.moveBranch(id, parentId);
+      toast.success("Moved");
+      await refreshTree();
+    } catch (err) {
+      toast.error((err as any)?.body?.error ?? "Move failed");
+      await refreshTree(); // revert the optimistic tree state
+    }
   }
 
+  const actions: TreeActions = {
+    onSelectBranch: (id) => onSelectBranch(id, activeSpace ?? undefined),
+    openCreateDialog: (parentBranchId, parentLabel) => setCreateTarget({ parentBranchId, parentLabel }),
+    openCloneDialog: (node) => setCloneTarget(node),
+    refreshTree,
+  };
+
   return (
-    <div style={{
-      width: "var(--sidebar-width)",
-      borderRight: "1px solid var(--color-border)",
-      padding: "var(--space-3)",
-      fontFamily: "var(--font-sans)",
-      fontSize: 14,
-      color: "var(--color-text)",
-      display: "flex",
-      flexDirection: "column",
-      minHeight: 0,
-      overflowY: "auto",
-    }}>
+    <div className="wiki-tree-column" style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
       <div className="wiki-sidebar-controls">
-        <select
-          value={activeSpace ?? ""}
-          onChange={(e) => setActiveSpace(e.target.value)}
-        >
+        <select value={activeSpace ?? ""} onChange={(e) => setActiveSpace(e.target.value)} aria-label="Active space">
           {spaces.map((s) => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
@@ -103,195 +331,71 @@ export function Tree({
             placeholder="New space"
             value={newSpaceName}
             onChange={(e) => setNewSpaceName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void createSpace(); }}
+            aria-label="New space name"
           />
-          <button onClick={createSpace} title="Create space" className="wiki-icon-btn">+</button>
+          <button onClick={() => void createSpace()} title="Create space" className="wiki-icon-btn">+</button>
         </div>
-      </div>
-
-      <div className="wiki-tree">
-        <FavoritesSection onSelect={onSelectBranch} />
-        {tree.length === 0 && (
-          <div className="tree-empty">No pages yet</div>
-        )}
-        {tree.map((node) => (
-          <TreeItem
-            key={node.id}
-            node={node}
-            depth={0}
-            onSelectBranch={onSelectBranch}
-            activeSpace={activeSpace!}
-            selectedBranchId={selectedBranchId}
-            onAddChild={(id, slug) => setParentTarget({ id, slug })}
-            onChanged={refreshTree}
-            spaces={spaces}
-          />
-        ))}
-      </div>
-
-      <div className="wiki-sidebar-controls" style={{ borderTop: "1px solid var(--color-border-light)", paddingTop: 8 }}>
-        {parentTarget ? (
-          <div className="parent-hint">
-            <span>New page under: <strong>{parentTarget.slug}</strong></span>
-            <button onClick={() => setParentTarget(null)} className="wiki-icon-btn" title="Create as a top-level page instead">x</button>
-          </div>
-        ) : (
-          <div className="parent-hint">New top-level page</div>
-        )}
-        <div className="row">
-          <input
-            placeholder="new-page-slug"
-            value={newPageSlug}
-            onChange={(e) => setNewPageSlug(e.target.value)}
-          />
-          <button onClick={createPage} title="Create page" className="wiki-icon-btn">+ page</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TreeItem({
-  node, depth, onSelectBranch, activeSpace, selectedBranchId, onAddChild, onChanged, spaces,
-}: {
-  node: TreeNode;
-  depth: number;
-  onSelectBranch: (branchId: string, spaceId: string) => void;
-  activeSpace: string;
-  selectedBranchId: string | null;
-  onAddChild: (branchId: string, slug: string) => void;
-  onChanged: () => Promise<void>;
-  spaces: SpaceSummary[];
-}) {
-  const selected = node.id === selectedBranchId;
-  const [cloneOpen, setCloneOpen] = useState(false);
-  const [cloneTarget, setCloneTarget] = useState(spaces[0]?.id ?? "");
-  // Trilium-style collapsible tree: expanded by default, remembered per node
-  // for the session so collapsing a subtree sticks while navigating.
-  const [collapsed, setCollapsed] = useState(false);
-  const hasChildren = (node.children?.length ?? 0) > 0;
-
-  async function handleRename() {
-    const slug = window.prompt("New slug:", node.slug);
-    if (!slug || slug === node.slug) return;
-    try {
-      await api.renamePage(node.pageId, node.id, slug.trim());
-      await onChanged();
-    } catch (err) {
-      window.alert((err as any)?.body?.error ?? "Rename failed");
-    }
-  }
-
-  async function handleMove() {
-    const target = window.prompt(
-      "Move to which parent branch ID? (blank = top level of the current space)",
-      ""
-    );
-    if (target === null) return;
-    try {
-      await api.moveBranch(node.id, target.trim() || null);
-      await onChanged();
-    } catch (err) {
-      window.alert((err as any)?.body?.error ?? "Move failed");
-    }
-  }
-
-  async function handleClone() {
-    // Inline picker (cloneOpen) instead of a raw space-UUID prompt - space
-    // IDs are opaque random strings, useless for choosing a destination.
-    if (!cloneTarget) return;
-    try {
-      await api.cloneBranch(node.id, { targetSpaceId: cloneTarget, targetParentBranchId: null });
-      setCloneOpen(false);
-      await onChanged();
-    } catch (err) {
-      window.alert((err as any)?.body?.error ?? "Clone failed");
-    }
-  }
-
-  async function handleDeletePlacement() {
-    if (!window.confirm(`Remove this placement of "/${node.slug}"? The content persists if it's placed elsewhere.`)) return;
-    try {
-      await api.removePlacement(node.id);
-      await onChanged();
-    } catch (err) {
-      window.alert((err as any)?.body?.error ?? "Remove failed");
-    }
-  }
-
-  async function handleDeleteEverywhere() {
-    if (!window.confirm(`Delete "/${node.slug}" EVERYWHERE? This removes all placements and the page itself. This cannot be undone.`)) return;
-    try {
-      await api.deletePageEverywhere(node.pageId, node.id);
-      await onChanged();
-    } catch (err) {
-      window.alert((err as any)?.body?.error ?? "Delete failed");
-    }
-  }
-
-  return (
-    <div className="tree-branch">
-      <div className={`wiki-tree-item${selected ? " selected" : ""}`} style={{ paddingLeft: depth * 14 }}>
-        {hasChildren ? (
-          <button
-            className={`tree-chevron${collapsed ? " collapsed" : ""}`}
-            onClick={() => setCollapsed((v) => !v)}
-            title={collapsed ? "Expand" : "Collapse"}
-          >
-            ▾
-          </button>
-        ) : (
-          <span className="tree-chevron-spacer" />
-        )}
-        <span
-          onClick={() => onSelectBranch(node.id, activeSpace)}
-          className="tree-label"
-          title={node.slug}
+        <Button
+          size="sm"
+          variant="outline"
+          className="justify-start"
+          onClick={() => setCreateTarget({ parentBranchId: null })}
         >
-          <span className="tree-page-dot" aria-hidden />
-          {node.slug}
-        </span>
-        <span className="tree-actions">
-          <button onClick={handleRename} title="Rename" className="wiki-icon-btn">✎</button>
-          <button onClick={() => setCloneOpen((v) => !v)} title="Clone to another space" className="wiki-icon-btn" style={{ background: cloneOpen ? "var(--color-bg-tertiary)" : "var(--color-surface)" }}>⧉</button>
-          <button onClick={handleMove} title="Move to another parent" className="wiki-icon-btn">⇄</button>
-          <button onClick={handleDeletePlacement} title="Remove this placement" className="wiki-icon-btn">🗑</button>
-          <button onClick={handleDeleteEverywhere} title="Delete everywhere" className="wiki-icon-btn danger">✕</button>
-          <button onClick={() => onAddChild(node.id, node.slug)} title={`Add a page under "${node.slug}"`} className="wiki-icon-btn">+</button>
-        </span>
+          <FilePlus2 aria-hidden />
+          New page
+        </Button>
       </div>
-      {cloneOpen && (
-        <div style={{ display: "flex", gap: 4, alignItems: "center", padding: "4px 0 4px 14px", fontSize: 12 }}>
-          <span style={{ color: "var(--color-text-secondary)", whiteSpace: "nowrap" }}>Clone into:</span>
-          <select
-            value={cloneTarget}
-            onChange={(e) => setCloneTarget(e.target.value)}
-            autoFocus
-            style={{ flex: 1, padding: "3px 4px", border: "1px solid var(--color-border)", borderRadius: "var(--radius-sm)", background: "var(--color-surface)", color: "var(--color-text)" }}
-          >
-            {spaces.map((s) => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
-          </select>
-          <button onClick={handleClone} className="wiki-icon-btn" title="Clone page into the selected space">Clone</button>
-          <button onClick={() => setCloneOpen(false)} className="wiki-icon-btn" title="Cancel">✕</button>
+
+      <FavoritesSection onSelect={(id) => onSelectBranch(id, activeSpace ?? undefined)} />
+
+      <TreeActionsContext.Provider value={actions}>
+        <div className="wiki-tree" ref={containerRef}>
+          {containerSize.width > 0 && containerSize.height > 0 && (
+            <ArboristTree<TreeNode>
+              data={tree}
+              width={containerSize.width}
+              height={containerSize.height}
+              rowHeight={28}
+              indent={18}
+              padding={4}
+              openByDefault
+              disableMultiSelection
+              onMove={handleMove}
+              onActivate={(node) => onSelectBranch(node.data.id, activeSpace ?? undefined)}
+              aria-label="Pages tree"
+            >
+              {WikiTreeNode}
+            </ArboristTree>
+          )}
+          {tree.length === 0 && containerSize.height > 0 && (
+            <div className="tree-empty">No pages yet</div>
+          )}
         </div>
+      </TreeActionsContext.Provider>
+
+      {createTarget !== null && activeSpace && (
+        <PageCreateDialog
+          open
+          onOpenChange={(open) => { if (!open) setCreateTarget(null); }}
+          spaces={spaces}
+          spaceId={activeSpace}
+          parentBranchId={createTarget.parentBranchId}
+          parentLabel={createTarget.parentLabel ?? null}
+          onCreated={(branchId) => {
+            void refreshTree();
+            onSelectBranch(branchId, activeSpace);
+          }}
+        />
       )}
-      {hasChildren && !collapsed && (
-        <div className="tree-children">
-          {node.children.map((child) => (
-            <TreeItem
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              onSelectBranch={onSelectBranch}
-              activeSpace={activeSpace}
-              selectedBranchId={selectedBranchId}
-              onAddChild={onAddChild}
-              onChanged={onChanged}
-              spaces={spaces}
-            />
-          ))}
-        </div>
+
+      {cloneTarget && (
+        <CloneDialog
+          target={cloneTarget}
+          spaces={spaces}
+          onClose={() => setCloneTarget(null)}
+          onCloned={() => void refreshTree()}
+        />
       )}
     </div>
   );
