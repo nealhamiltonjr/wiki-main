@@ -24,3 +24,15 @@ export function initFts() {
     )
   `);
 }
+
+// ---------------------------------------------------------------------------
+// Apply pending schema migrations that drizzle-kit can't handle declaratively.
+// Called from server startup after drizzle push.
+// ---------------------------------------------------------------------------
+export function applyMigrations() {
+  // Add `suspended` column to user table if it doesn't exist yet.
+  const userCols = sqlite.pragma("table_info(user)") as Array<{ name: string }>;
+  if (!userCols.some((c) => c.name === "suspended")) {
+    sqlite.exec(`ALTER TABLE "user" ADD COLUMN "suspended" integer DEFAULT 0`);
+  }
+}

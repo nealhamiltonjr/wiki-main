@@ -112,7 +112,15 @@ export const api = {
     }),
   removeBranchPermission: (branchId: string, groupId: string) =>
     request<void>(`/api/branches/${branchId}/permissions/${groupId}`, { method: "DELETE" }),
-  listAdminUsers: () => request<{ id: string; email: string; name: string; isAdmin: boolean }[]>("/api/admin/users"),
+  listAdminUsers: () => request<{ id: string; email: string; name: string; isAdmin: boolean; suspended: boolean }[]>("/api/admin/users"),
+  createAdminUser: (body: { email: string; name: string; password: string }) =>
+    request<unknown>("/api/admin/users", { method: "POST", body: JSON.stringify(body) }),
+  suspendUser: (id: string) =>
+    request<{ ok: boolean }>(`/api/admin/users/${id}/suspend`, { method: "PATCH" }),
+  unsuspendUser: (id: string) =>
+    request<{ ok: boolean }>(`/api/admin/users/${id}/unsuspend`, { method: "PATCH" }),
+  deleteAdminUser: (id: string, reassignToId?: string) =>
+    request<{ ok: boolean }>(`/api/admin/users/${id}`, { method: "DELETE", body: JSON.stringify({ reassignToId }) }),
   listSpaces: () => request<SpaceSummary[]>("/api/spaces"),
   createSpace: (name: string) => request<SpaceSummary>("/api/spaces", { method: "POST", body: JSON.stringify({ name }) }),
   getSpaceTree: (spaceId: string) => request<TreeNode[]>(`/api/spaces/${spaceId}/tree`),
@@ -150,7 +158,7 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null));
     return res.json();
   },
-  createShareLink: (branchId: string, opts: { permission: "view" | "edit"; expiresAt: string | null; password?: string }) =>
+  createShareLink: (branchId: string, opts: { permission: "view"; expiresAt: string | null; password?: string }) =>
     request<ShareLinkResult>(`/api/branches/${branchId}/share-links`, {
       method: "POST",
       body: JSON.stringify({ scopeType: "branch", scopeId: branchId, ...opts }),

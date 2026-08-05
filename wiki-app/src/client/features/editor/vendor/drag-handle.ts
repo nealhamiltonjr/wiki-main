@@ -5,7 +5,7 @@ import {
   PluginKey,
   TextSelection,
 } from "@tiptap/pm/state";
-import { Fragment, Slice, Node } from "@tiptap/pm/model";
+import { Node } from "@tiptap/pm/model";
 import { EditorView } from "@tiptap/pm/view";
 
 export interface GlobalDragHandleOptions {
@@ -499,7 +499,6 @@ export function DragHandlePlugin(
         drop: (view, event) => {
           view.dom.classList.remove("dragging");
           hideDragHandle();
-          let droppedNode: Node | null = null;
           const dropPos = view.posAtCoords({
             left: event.clientX,
             top: event.clientY,
@@ -507,30 +506,45 @@ export function DragHandlePlugin(
 
           if (!dropPos) return;
 
-          if (view.state.selection instanceof NodeSelection) {
-            droppedNode = view.state.selection.node;
+          const sel = view.state.selection;
+          if (!(sel instanceof NodeSelection)) return;
+
+          const droppedNode = sel.node;
+          const srcFrom = sel.from;
+          const srcTo = sel.to;
+
+          // Delete from source first, then insert at target (adjusted for
+          // the deletion if the target is after the source).
+          let target = dropPos.pos;
+          if (target > srcFrom) {
+            target -= srcTo - srcFrom;
           }
-          if (!droppedNode) return;
 
-          const resolvedPos = view.state.doc.resolve(dropPos.pos);
+          const tr = view.state.tr;
+          tr.delete(srcFrom, srcTo);
 
-          const isDroppedInsideList =
-            resolvedPos.parent.type.name === "listItem";
+          const resolvedTarget = tr.doc.resolve(Math.min(target, tr.doc.content.size));
+          const isInsideList = resolvedTarget.parent.type.name === "listItem";
 
-          // If the selected node is a list item and is not dropped inside a list, we need to wrap it inside <ol> tag otherwise ol list items will be transformed into ul list item when dropped
-          if (
-            view.state.selection instanceof NodeSelection &&
-            view.state.selection.node.type.name === "listItem" &&
-            !isDroppedInsideList &&
-            listType == "OL"
-          ) {
-            const newList = view.state.schema.nodes.orderedList?.createAndFill(
-              null,
-              droppedNode,
-            );
-            const slice = new Slice(Fragment.from(newList), 0, 0);
-            view.dragging = { slice, move: event.ctrlKey };
+          // Wrap OL items dropped outside a list so they don't degrade to UL.
+          if (droppedNode.type.name === "listItem" && !isInsideList && listType === "OL") {
+            const newList = view.state.schema.nodes.orderedList?.createAndFill(null, droppedNode);
+            if (newList) {
+              tr.insert(resolvedTarget.pos, newList);
+            } else {
+              tr.insert(resolvedTarget.pos, droppedNode);
+            }
+          } else {
+            tr.insert(resolvedTarget.pos, droppedNode);
           }
+
+          // Select the moved node so it can be dragged again immediately.
+          const afterInsert = tr.doc.resolve(resolvedTarget.pos + 1);
+          const movedFrom = afterInsert.before(afterInsert.depth);
+          tr.setSelection(NodeSelection.create(tr.doc, movedFrom));
+
+          view.dispatch(tr);
+          view.focus();
         },
         dragend: (view) => {
           view.dom.classList.remove("dragging");

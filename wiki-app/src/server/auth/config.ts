@@ -54,6 +54,7 @@ export const auth = betterAuth({
   user: {
     additionalFields: {
       isAdmin: { type: "boolean", required: false, defaultValue: false, input: false }, // input:false - never settable via the public API, only by direct DB/admin action
+      suspended: { type: "boolean", required: false, defaultValue: false, input: false },
     },
   },
 });

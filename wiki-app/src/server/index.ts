@@ -3,7 +3,7 @@ import { initGitRepo } from "./services/git.service.js";
 import { runWorkerLoop } from "./queue/worker.js";
 import { log } from "./services/log.service.js";
 import { hocuspocus } from "./services/collab.service.js";
-import { initFts } from "./db/index.js";
+import { initFts, applyMigrations } from "./db/index.js";
 import { WebSocketServer } from "ws";
 
 const start = async () => {

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bold, Italic, Link as LinkIcon, MessageSquare, Underline, type LucideIcon } from "lucide-react";
+import { Bold, Italic, Layers, Link as LinkIcon, MessageSquare, Underline, type LucideIcon } from "lucide-react";
 import { useEditor, EditorContent, type Editor as TiptapEditor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { api, ApiError, type PageContent, type HistoryEntry, type CommentThread, type AncestryResult } from "../../api/client.js";
@@ -518,12 +518,12 @@ export function Editor({ branchId }: { branchId: string }) {
                     className="inline-flex items-center gap-1"
                     onClick={() => navigate(`/pages/${ancestry.trail[0]!.id}`)}
                   >
-                    <span aria-hidden className="breadcrumb-space-icon">◈</span>
+                    <Layers aria-hidden className="breadcrumb-space-icon h-3.5 w-3.5" />
                     {ancestry.space.name}
                   </BreadcrumbLink>
                 ) : (
                   <span className="inline-flex items-center gap-1 text-text-muted">
-                    <span aria-hidden className="breadcrumb-space-icon">◈</span>
+                    <Layers aria-hidden className="breadcrumb-space-icon h-3.5 w-3.5" />
                     {ancestry.space.name}
                   </span>
                 )}

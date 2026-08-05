@@ -226,7 +226,6 @@ export function ShareDialog({
   target: TreeNode;
   onClose: () => void;
 }) {
-  const [permission, setPermission] = useState<"view" | "edit">("view");
   const [expiresKey, setExpiresKey] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState<string | null>(null);
@@ -237,7 +236,7 @@ export function ShareDialog({
     try {
       const hours = expiresKey === "" ? null : expiresKey;
       const expiresAt = hours ? new Date(Date.now() + Number(hours) * 3600_000).toISOString() : null;
-      const result = await api.createShareLink(target.id, { permission, expiresAt });
+      const result = await api.createShareLink(target.id, { permission: "view", expiresAt });
       setUrl(`${window.location.origin}/share/${result.token}`);
       toast.success("Share link created");
     } catch (err) {
@@ -258,16 +257,6 @@ export function ShareDialog({
         </DialogHeader>
         {url === null ? (
           <div className="grid gap-3">
-            <div className="grid gap-2">
-              <Label>Permission</Label>
-              <Select value={permission} onValueChange={(v) => setPermission(v as "view" | "edit")}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="view">View only</SelectItem>
-                  <SelectItem value="edit">Can edit</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
             <div className="grid gap-2">
               <Label>Expiration</Label>
               <Select value={expiresKey} onValueChange={setExpiresKey}>

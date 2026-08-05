@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { Editor as TiptapEditor } from "@tiptap/core";
 import type { Node as PMNode } from "@tiptap/pm/model";
+import { Plus, Copy, ArrowUp, ArrowDown, Trash2 } from "lucide-react";
 
 /**
  * Block-action menu shown when clicking the drag handle (Phase 2). The handle
@@ -117,11 +118,6 @@ export function DragHandleMenu({ editor, block, x, y, onClose }: Props) {
     };
   }, [onClose]);
 
-  const itemStyle: React.CSSProperties = {
-    padding: "5px 10px",
-    borderRadius: 4,
-  };
-
   return (
     <div
       data-drag-menu
@@ -135,26 +131,26 @@ export function DragHandleMenu({ editor, block, x, y, onClose }: Props) {
         padding: 4,
       }}
     >
-      <button type="button" className="popup-item" style={itemStyle} onClick={() => { blockActions.addBelow(editor, block); onClose(); }}>
-        <span className="popup-icon">➕</span> Add block below
+      <button type="button" className="popup-item" onClick={() => { blockActions.addBelow(editor, block); onClose(); }}>
+        <Plus className="popup-icon h-4 w-4" aria-hidden /> Add block below
       </button>
-      <button type="button" className="popup-item" style={itemStyle} onClick={() => { blockActions.duplicate(editor, block); onClose(); }}>
-        <span className="popup-icon">⧉</span> Duplicate
+      <button type="button" className="popup-item" onClick={() => { blockActions.duplicate(editor, block); onClose(); }}>
+        <Copy className="popup-icon h-4 w-4" aria-hidden /> Duplicate
       </button>
-      <button type="button" className="popup-item" style={itemStyle} onClick={() => { blockActions.move(editor, block, "up"); onClose(); }}>
-        <span className="popup-icon">↑</span> Move up
+      <button type="button" className="popup-item" onClick={() => { blockActions.move(editor, block, "up"); onClose(); }}>
+        <ArrowUp className="popup-icon h-4 w-4" aria-hidden /> Move up
       </button>
-      <button type="button" className="popup-item" style={itemStyle} onClick={() => { blockActions.move(editor, block, "down"); onClose(); }}>
-        <span className="popup-icon">↓</span> Move down
+      <button type="button" className="popup-item" onClick={() => { blockActions.move(editor, block, "down"); onClose(); }}>
+        <ArrowDown className="popup-icon h-4 w-4" aria-hidden /> Move down
       </button>
-      <div className="popup-sep" style={{ margin: "4px 6px" }} />
+      <div className="popup-sep" />
       <button
         type="button"
         className="popup-item"
-        style={{ ...itemStyle, color: "var(--color-danger)" }}
+        style={{ color: "var(--color-danger)" }}
         onClick={() => { blockActions.delete(editor, block); onClose(); }}
       >
-        <span className="popup-icon">🗑</span> Delete
+        <Trash2 className="popup-icon h-4 w-4" aria-hidden /> Delete
       </button>
     </div>
   );

@@ -14,6 +14,7 @@ import {
   registerToolbarButton,
   registerEditorExtension,
 } from "./pluginEngine.js";
+import { registerPlugin } from "../plugins/pluginRegistry.js";
 import { SlashCommandExtension } from "./slashCommandExtension.js";
 import { WikiLinkExtension } from "./wikiLinkExtension.js";
 import type { Editor as TiptapEditor } from "@tiptap/core";
@@ -414,4 +415,56 @@ registerToolbarButton({
   group: "align",
   isActive: (ed: TiptapEditor) => ed.isActive({ textAlign: "right" }),
   onClick: (ed: TiptapEditor) => ed.chain().focus().setTextAlign("right").run(),
+});
+
+// ---------------------------------------------------------------------------
+// Register built-in plugins for the admin settings UI to discover.
+// ---------------------------------------------------------------------------
+
+registerPlugin({
+  id: "slash-commands",
+  name: "Slash commands",
+  description: "Type / to search and insert formatting blocks, lists, images, and more.",
+  category: "editor",
+  builtIn: true,
+});
+
+registerPlugin({
+  id: "wiki-links",
+  name: "Wiki Links",
+  description: "Type [[ to create internal links between wiki pages.",
+  category: "editor",
+  builtIn: true,
+});
+
+registerPlugin({
+  id: "search-replace",
+  name: "Search & Replace",
+  description: "Inline find and replace within the editor (Ctrl+F).",
+  category: "editor",
+  builtIn: true,
+});
+
+registerPlugin({
+  id: "page-comments",
+  name: "Page Comments",
+  description: "Threaded comments anchored to text ranges in a page.",
+  category: "page",
+  builtIn: true,
+});
+
+registerPlugin({
+  id: "backlinks",
+  name: "Backlinks",
+  description: "See which pages link to the current page.",
+  category: "page",
+  builtIn: true,
+});
+
+registerPlugin({
+  id: "page-history",
+  name: "Page History",
+  description: "View and restore previous versions of a page.",
+  category: "page",
+  builtIn: true,
 });

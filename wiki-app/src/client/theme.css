@@ -877,7 +877,6 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
 }
 .wiki-editor-content .ProseMirror {
   outline: none;
-  min-height: 280px;
   /* Keep editor whitespace (indentation/space runs) intact. This mirrors the
      style Tiptap injects via injectCSS, which is dropped on read-only mounts
      (e.g. shared pages) because the EditorContent element isn't in the DOM
@@ -1067,8 +1066,8 @@ img.ProseMirror-separator {
 }
 
 .wiki-editor-content:focus-within {
-  border-color: var(--color-primary) !important;
-  box-shadow: 0 0 0 3px var(--color-focus-ring);
+  /* The canvas is a seamless writing surface — no box-shadow focus ring.
+     Focus is indicated by the toolbar and the browser's native cursor. */
 }
 
 /* ============================================================
@@ -1282,7 +1281,7 @@ span.wiki-mention {
   background: var(--color-primary);
   color: var(--color-primary-text);
 }
-.wiki-popup .popup-item .popup-icon { font-size: 16px; width: 20px; text-align: center; }
+.wiki-popup .popup-item .popup-icon { width: 16px; height: 16px; flex-shrink: 0; }
 .wiki-popup .popup-item .popup-label { font-weight: 500; }
 .wiki-popup .popup-item .popup-desc { font-size: 11px; color: var(--color-text-muted); }
 .wiki-popup .popup-item.selected .popup-desc { color: inherit; opacity: 0.85; }
@@ -1516,6 +1515,115 @@ span.wiki-mention {
   border-color: var(--color-primary);
   color: var(--color-primary-text);
 }
+
+/* Theme preset cards */
+.settings-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.settings-preset-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+  text-align: left;
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  position: relative;
+}
+.settings-preset-card:hover {
+  border-color: var(--color-border-strong);
+  box-shadow: var(--shadow-md);
+}
+.settings-preset-card.active {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+.settings-preset-preview {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.settings-preset-kind {
+  font-size: var(--font-size-xs);
+  opacity: 0.8;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+.settings-preset-body {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-preset-name {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+}
+.settings-preset-desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  line-height: 1.4;
+}
+.settings-preset-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  color: var(--color-primary);
+  background: var(--color-surface);
+  border-radius: 50%;
+  padding: 2px;
+}
+
+/* Plugin toggle rows */
+.settings-plugin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-md);
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+.settings-plugin-row:hover {
+  border-color: var(--color-border);
+}
+.settings-plugin-row-custom {
+  border-style: dashed;
+}
+.settings-plugin-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.settings-plugin-name {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-plugin-desc {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+.settings-plugin-toggle {
+  width: 36px;
+  height: 20px;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
 .settings-btn {
   padding: 6px 14px;
   border-radius: var(--radius-sm);

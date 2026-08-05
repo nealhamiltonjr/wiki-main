@@ -17,6 +17,7 @@ export const user = sqliteTable("user", {
     .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull(),
   isAdmin: integer("is_admin", { mode: "boolean" }).default(false),
+  suspended: integer("suspended", { mode: "boolean" }).default(false),
 });
 
 export const session = sqliteTable(

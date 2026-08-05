@@ -9,13 +9,14 @@
  */
 import { buildApp } from "../../app.js";
 import { initGitRepo } from "../../services/git.service.js";
-import { initFts } from "../../db/index.js";
+import { initFts, applyMigrations } from "../../db/index.js";
 
 const port = Number(process.env.TARGET_PORT ?? 0);
 
 const app = await buildApp();
 await app.ready();
 initFts();
+applyMigrations();
 await initGitRepo();
 await app.listen({ port, host: "127.0.0.1" });
 

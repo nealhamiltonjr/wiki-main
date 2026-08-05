@@ -185,14 +185,14 @@ function WikiTreeNode({ node, style }: NodeRendererProps<TreeNode>) {
                   <MoreHorizontal className="h-4 w-4" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="right" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuContent align="start" side="right">
                 <PageMenuItems node={node} Item={DropdownMenuItem} />
               </DropdownMenuContent>
             </DropdownMenu>
           </span>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent onClick={(e) => e.stopPropagation()}>
+      <ContextMenuContent>
         <PageMenuItems node={node} Item={ContextMenuItem} />
       </ContextMenuContent>
     </ContextMenu>

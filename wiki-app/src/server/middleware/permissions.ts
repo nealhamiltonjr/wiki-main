@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { branches } from "../db/schema.js";
+import { branches, users } from "../db/schema.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import { getUserContext, getUserContextById } from "../services/auth.service.js";
 import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
@@ -104,6 +104,19 @@ export async function registerPermissionMiddleware(app: FastifyInstance) {
     }
 
     if (access === "public") return;
+
+    // Reject suspended users on every non-public route. The suspension also
+    // prevents new session creation (the auth service checks before building
+    // the user context), but existing sessions need this guard too.
+    if (principal?.kind === "user") {
+      const [userRow] = await db
+        .select({ suspended: users.suspended })
+        .from(users)
+        .where(eq(users.id, principal.user.id));
+      if (userRow?.suspended) {
+        return reply.code(403).send({ error: "Account suspended. Contact an administrator." });
+      }
+    }
 
     // A branch-scoped route may opt in to share-link (token-in-URL) access so an
     // anonymous viewer of a shared page can load its embedded assets (images).

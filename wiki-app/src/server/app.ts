@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ZodError } from "zod";
 import { assertEncryptionKeyConfigured } from "./services/crypto.service.js";
-import { initFts } from "./db/index.js";
+import { initFts, applyMigrations } from "./db/index.js";
 import { pageRoutes } from "./routes/page.routes.js";
 import { branchRoutes } from "./routes/branch.routes.js";
 import { treeRoutes } from "./routes/tree.routes.js";
@@ -50,6 +50,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // Tests and the server entry-point both call buildApp, so this is the single
   // canonical place to ensure it's created after drizzle-kit push has run.
   initFts();
+  applyMigrations();
 
   const app = Fastify({ logger: opts.logger ?? false });
 
