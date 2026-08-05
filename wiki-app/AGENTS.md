@@ -9,9 +9,9 @@ export, real-time collab (Hocuspocus/Yjs), group/space permissions. See
 - `npm run dev:server` — API + WebSocket on :3000 (`tsx watch`)
 - `npm run dev:client` — Vite on :5173 (proxies /api to :3000)
 - `npm run typecheck` — `tsc --noEmit`
-- `npm test` — vitest (21 files, 187 tests)
+- `npm test` — vitest (24 files, 203 tests)
 - `npm run build:client` — vite build
-- `npx playwright test --config=e2e/playwright.config.ts` — E2E tests (11 tests, headless Chromium)
+- `npx playwright test --config=e2e/playwright.config.ts` — E2E tests (13 tests, headless Chromium)
 
 ## Server boot requirements
 

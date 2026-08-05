@@ -3,12 +3,11 @@
 **Status:** Draft for review — supersedes `UI_upgrade.md`
 **Date:** 2026-08-04
 
-## Track B status (2026-08-05) — COMPLETED, commit `39694e0` on `snapshot.3`
+## Track B status (2026-08-05) — COMPLETED, commits `39694e0` + `6adde44` on `snapshot.3`
 
 Track B (frontend overhaul: Tailwind + shadcn + interactive tree) is done and verified. It also
-completed Track C (theming) and the tree parts of Track D (B6/B7 dialog flows); the remaining Track D
-items (tree context-menu rename/move/share, the Cmd+K palette and toolbar restyle that were always
-separate tasks) stay as documented below.
+completed Track C (theming) and the tree parts of Track D (B6/B7 dialog flows). B8-B10 (breadcrumbs,
+empty states, editor chrome polish) plus responsive/focus/motion polish are in commit `6adde44`.
 
 - **B1** Tailwind v4 (`@tailwindcss/vite`, no preflight) + `cn()` + `@/` aliases; React.lazy code-split
   routes (Editor, Settings, PublicView chunks) in `App.tsx`.
@@ -24,13 +23,23 @@ separate tasks) stay as documented below.
   never touches the slug, browser-tab title sync). `save` reads latest page/title from refs so a late
   body autosave can't revert a freshly renamed title.
 - **B6** `Tree.tsx` rebuilt on `react-arborist` (drag-move, expand/collapse, dual-trigger context menu
-  for keyboard/touch, create/clone dialogs); Favorites preserved.
+  for keyboard/touch, create/clone dialogs); Favorites preserved. `PageActionDialogs.tsx` wires
+  Rename/Move/Delete/Clone dialogs into the tree context menu.
 - **B7** `PageCreateDialog.tsx`: title-first creation, auto-slug, per-space dedupe, live validation,
   space/parent selection; `api.createPage` sends the title.
-- **B8** E2E + `manual-verify.mjs` moved to the dialog flow; new tests for title persistence and the
-  icon picker → tree rendering.
-- **Tests** 199 unit/integration (unchanged count), 13 E2E (was 11: +1 title, +1 icon), typecheck
-  clean, client build green.
+- **B8** `GET /api/branches/:branchId/ancestry` server route (skips system root scaffold, returns
+  space name + ancestor trail leaf-first-reversed for breadcrumbs); `Breadcrumb` shadcn component
+  integrated into `Editor.tsx` header with ancestry fetch effect.
+- **B9** Reusable `EmptyState` component (lucide icon + title + description + optional action);
+  applied to Tree empty-space CTA, SearchBox no-results, CommandPalette no-results, NotificationBell
+  empty, and App.tsx home screen.
+- **B10** Editor chrome polish: Toolbar maps registered button names to lucide icons (Bold/Italic/
+  Underline/Code/Link/Headings/Lists/Blockquote/CodeBlock/TaskList/Highlight/Align + Search/Comment/
+  Upload/Undo/Redo); bubble menu icons; drag-handle uses GripVertical SVG data-URI; improved hover +
+  focus-visible + transitions on toolbar/bubble buttons.
+- **B11 (polish)** Responsive token overrides at 1100/900/720px; global `:focus-visible` outline;
+  `wiki-fade-in` animation on popups + page editor; `prefers-reduced-motion`; tree-item transitions.
+- **Tests** 203 unit/integration (+4 ancestry integration), 13 E2E, typecheck clean, client build green.
 
 ## Track A status (2026-08-05) — COMPLETED, commit `81a3db8` on `snapshot.3`
 
