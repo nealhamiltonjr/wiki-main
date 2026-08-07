@@ -31,7 +31,11 @@ export const auth = betterAuth({
     ...(process.env.BETTER_EXTRA_TRUSTED_ORIGINS
       ? process.env.BETTER_EXTRA_TRUSTED_ORIGINS.split(",").map((o) => o.trim())
       : []),
-    "http://localhost:5173", // :5173 = Vite dev server
+    // Wildcard patterns accept any localhost / loopback origin so users in
+    // Docker port-mapped containers don't hit "Invalid origin" CSRF blocks.
+    "http://localhost:*",
+    "http://127.0.0.1:*",
+    "http://0.0.0.0:*",
   ],
   database: drizzleAdapter(db, { provider: "sqlite", schema }),
   emailAndPassword: {
