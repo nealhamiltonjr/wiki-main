@@ -1161,7 +1161,12 @@ span.wiki-mention {
 /* Block drag handle (vendored GlobalDragHandle) */
 .wiki-editor-content .ProseMirror .drag-handle,
 .wiki-editor-content .drag-handle {
-  position: absolute;
+  /* Fixed, not absolute: the vendored handler positions the handle from
+     getBoundingClientRect() (viewport coordinates), so an absolute handle
+     inside the scrolling content wrapper drifts off the block as soon as the
+     page scrolls. Fixed matches those coordinates (and the absoluteRect modal
+     compensation in vendor/drag-handle.ts is built for exactly this). */
+  position: fixed;
   left: -24px;
   top: 0;
   width: 18px;

@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import type { AdminSettingView } from "../../api/client.js";
 import { api } from "../../api/client.js";
+import { useSession } from "../../api/authClient.js";
 import { SettingRow } from "./SettingRow.js";
 import { GitSection } from "./GitSection.js";
 import { ClipperSection } from "./ClipperSection.js";
-import { PluginSection } from "./PluginSection.js";
-import { Users, Settings, Shield, GitBranch, Plug } from "lucide-react";
+import { Users, Settings, Shield, GitBranch } from "lucide-react";
 
 interface Group { id: string; name: string; capabilities?: string[] }
 interface Member { userId: string; email: string; name: string }
@@ -23,11 +23,12 @@ const ALL_CAPABILITIES = [
 const TABS = [
   { id: "users", label: "Users & groups", icon: Users },
   { id: "sys", label: "System", icon: Settings },
-  { id: "git", label: "Git & plugins", icon: Plug },
+  { id: "git", label: "Git", icon: GitBranch },
   { id: "debug", label: "Debug", icon: Shield },
 ] as const;
 
 export function AdminSettings() {
+  const { data: session } = useSession();
   const [activeTab, setActiveTab] = useState<string>("users");
   const [groups, setGroups] = useState<Group[]>([]);
   const [users, setUsers] = useState<UserRow[]>([]);
@@ -230,7 +231,13 @@ export function AdminSettings() {
                         {u.suspended
                           ? <button onClick={() => unsuspendUser(u.id)} className="settings-btn" style={{ padding: "2px 8px", fontSize: "var(--font-size-xs)" }}>Unsuspend</button>
                           : <button onClick={() => suspendUser(u.id)} className="settings-btn" style={{ padding: "2px 8px", fontSize: "var(--font-size-xs)" }}>Suspend</button>}
-                        <button onClick={() => { setDeleteUserId(u.id); setReassignToId(""); }} className="settings-btn danger" style={{ padding: "2px 8px", fontSize: "var(--font-size-xs)" }}>Delete</button>
+                        <button
+                          onClick={() => { setDeleteUserId(u.id); setReassignToId(""); }}
+                          className="settings-btn danger"
+                          style={{ padding: "2px 8px", fontSize: "var(--font-size-xs)" }}
+                          disabled={u.id === session?.user.id}
+                          title={u.id === session?.user.id ? "You cannot delete your own account" : undefined}
+                        >Delete</button>
                       </div>
                     </td>
                   </tr>
@@ -355,8 +362,6 @@ export function AdminSettings() {
       {/* TAB: System Settings */}
       {activeTab === "sys" && (
         <>
-          <ClipperSection />
-          <PluginSection />
           {orderedSections.map(([section, defs]) => (
             <section className="settings-card" key={section}>
               <h3>{section}</h3>
@@ -368,12 +373,11 @@ export function AdminSettings() {
         </>
       )}
 
-      {/* TAB: Git & Plugins */}
+      {/* TAB: Git (plugin toggles live on the per-user Settings page now) */}
       {activeTab === "git" && (
         <>
           <GitSection />
           <ClipperSection />
-          <PluginSection />
         </>
       )}
 

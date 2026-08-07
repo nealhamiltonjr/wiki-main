@@ -165,7 +165,28 @@ async function callTool(name: string, args: Record<string, unknown>, user: UserC
         )
         .groupBy(pages.id)
         .limit(20);
-      return results.map((r) => ({
+
+      // Restricted-ancestor integration (§7.12g): space membership alone is a
+      // coarse filter. A page living under a group-permission boundary inside an
+      // otherwise-accessible space must not leak via MCP search, so run each
+      // candidate through the same resolveAccess() the REST search uses and keep
+      // only pages where the caller can read at least one placement.
+      const visible: typeof results = [];
+      for (const r of results) {
+        // Candidate pages already exclude soft-deleted rows above; branch-level
+        // access is the only additional check needed here.
+        const branchRows = await db
+          .select({ id: branches.id, spaceId: branches.spaceId })
+          .from(branches)
+          .where(eq(branches.pageId, r.id));
+        for (const b of branchRows) {
+          if (RANK[(await resolveBranchAccess(user, b.id))] >= RANK.viewer) {
+            visible.push(r);
+            break;
+          }
+        }
+      }
+      return visible.map((r) => ({
         id: r.id,
         slug: r.slug,
         title: r.title, // real title column (UI overhaul A1/A5)

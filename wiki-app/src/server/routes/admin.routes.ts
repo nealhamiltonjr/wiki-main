@@ -1,11 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { systemLogs, users, pages, comments, sessions, branches } from "../db/schema.js";
-import { createWriteStream } from "node:fs";
-import { resolve } from "node:path";
-import { mkdirSync, rmSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { systemLogs, users, pages, sessions, branches } from "../db/schema.js";
+import { exportMarkdown } from "../services/markdown.service.js";
+import { buildZip } from "../services/zip.service.js";
+import { reassignUserContent, deleteUserContent } from "../services/user-delete.service.js";
+import type { UserContext } from "../../shared/types.js";
 
 export async function adminRoutes(app: FastifyInstance) {
   // Fixed from the reviewed version (brief §3.18): this endpoint was completely
@@ -60,92 +60,77 @@ export async function adminRoutes(app: FastifyInstance) {
   app.delete("/api/admin/users/:id", { config: { access: "admin" } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const { reassignToId } = request.body as { reassignToId?: string };
+    const actor = (request as any).userContext as UserContext;
+
+    if (id === actor.id) return reply.code(400).send({ error: "You cannot delete your own account" });
 
     if (reassignToId) {
-      // Reassign pages and comments to another user before deleting.
-      await db
-        .update(pages)
-        .set({ ownerId: reassignToId })
-        .where(eq(pages.ownerId, id));
-      await db
-        .update(comments)
-        .set({ userId: reassignToId })
-        .where(eq(comments.userId, id));
+      const [target] = await db.select({ id: users.id }).from(users).where(eq(users.id, reassignToId));
+      if (!target) return reply.code(400).send({ error: "Reassignment target user not found" });
+      await reassignUserContent(id, reassignToId);
+    } else {
+      await deleteUserContent(id, actor.id);
     }
 
-    // Delete sessions first (FK constraint in some setups).
+    // Sessions reference the user row (better-auth's own table).
     await db.delete(sessions).where(eq(sessions.userId, id));
     await db.delete(users).where(eq(users.id, id));
     return reply.send({ ok: true });
   });
 
-  // Export all pages owned by a user as a .zip of markdown files.
+  // Export all pages owned by a user as a .zip of markdown files. Uses the
+  // shared markdown + zip writers (same pipeline as the page/space export
+  // routes) - no temp dirs, no external `zip` binary.
   app.get("/api/admin/users/:id/export", { config: { access: "admin" } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const [user] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, id));
     if (!user) return reply.code(404).send({ error: "User not found" });
 
     const pageRows = await db
-      .select({ pageId: pages.id, slug: pages.slug, ownerId: pages.ownerId })
+      .select({ id: pages.id, slug: pages.slug, title: pages.title, content: pages.content, updatedAt: pages.updatedAt })
       .from(pages)
-      .where(eq(pages.ownerId, id));
+      .where(and(eq(pages.ownerId, id), isNull(pages.deletedAt)));
 
-    const tmpDir = resolve(process.cwd(), "data", "export-" + id);
-    const outDir = resolve(tmpDir, user.name || user.email);
-    mkdirSync(outDir, { recursive: true });
+    const entries: { path: string; data: Buffer }[] = [];
+    const usedSlugs = new Map<string, number>();
 
     for (const p of pageRows) {
       const [br] = await db
         .select({ id: branches.id })
         .from(branches)
-        .where(eq(branches.pageId, p.pageId))
+        .where(eq(branches.pageId, p.id))
         .limit(1);
       if (!br) continue;
 
-      const [snap] = await db
-        .select({ content: pages.content })
-        .from(pages)
-        .where(eq(pages.id, p.pageId));
-      const content = (snap?.content as any)?.content;
-      const md = jsonToMarkdown(content);
-      const filename = p.slug || p.pageId;
-      const f = createWriteStream(resolve(outDir, `${filename}.md`));
-      f.write(`# ${filename}\n\n`);
-      f.write(md);
-      f.end(new Promise((r) => f.on("close", r)));
+      const doc = loadDoc(p.content);
+      const { markdown } = exportMarkdown(doc, {
+        imageMode: "raw",
+        internalLinkMode: "strip",
+        frontmatter: { title: p.title, slug: p.slug, date: p.updatedAt?.toISOString() ?? null },
+      });
+
+      let filename = slugify(p.slug || p.id);
+      const count = usedSlugs.get(filename) ?? 0;
+      usedSlugs.set(filename, count + 1);
+      if (count > 0) filename = `${filename}-${count + 1}`;
+
+      entries.push({ path: `pages/${filename}.md`, data: Buffer.from(markdown, "utf8") });
     }
 
-    const zipPath = resolve(tmpDir, "export.zip");
-    execSync(`cd "${tmpDir}" && zip -r "${zipPath}" .`, { stdio: "pipe" });
-
     reply.header("Content-Type", "application/zip");
-    reply.header("Content-Disposition", `attachment; filename="${user.name ?? user.email}-export.zip"`);
-
-    const { readFileSync } = await import("node:fs");
-    const buf = readFileSync(zipPath);
-    await reply.send(buf);
-
-    // Clean up temp dir after response.
-    setTimeout(() => rmSync(tmpDir, { recursive: true, force: true }), 5000);
+    reply.header("Content-Disposition", `attachment; filename="${(user.name ?? user.email).replace(/[^a-z0-9-_]+/gi, "-").toLowerCase()}-export.zip"`);
+    return reply.send(buildZip(entries));
   });
 }
 
-function jsonToMarkdown(node: any): string {
-  if (!node) return "";
-  if (typeof node === "string") return node + "\n";
-  if ("text" in node) return node.text || "";
-  if (node.type === "paragraph") return (node.content || []).map(jsonToMarkdown).join("") + "\n\n";
-  if (node.type === "heading") return "#".repeat(node.attrs?.level ?? 1) + " " + (node.content || []).map(jsonToMarkdown).join("") + "\n\n";
-  if (node.type === "bulletList") return (node.content || []).map((item: any) => "* " + (item.content || []).map(jsonToMarkdown).join("")).join("\n") + "\n\n";
-  if (node.type === "orderedList") return (node.content || []).map((item: any, i: number) => `${i + 1}. ` + (item.content || []).map(jsonToMarkdown).join("")).join("\n") + "\n\n";
-  if (node.type === "codeBlock") return "```\n" + ((node.content || [])[0]?.text || "") + "\n```\n\n";
-  if (node.type === "blockquote") return "> " + (node.content || []).map(jsonToMarkdown).join("") + "\n\n";
-  if (node.type === "horizontalRule") return "---\n\n";
-  if (node.type === "image") return `![${node.attrs?.alt || ""}](${node.attrs?.src || ""})\n\n`;
-  if (node.type === "taskList") return (node.content || []).map((item: any) => {
-    const checked = item.attrs?.checked ? "x" : " ";
-    return `- [${checked}] ` + (item.content || []).map(jsonToMarkdown).join("");
-  }).join("\n") + "\n\n";
-  if (node.content) return (node.content || []).map(jsonToMarkdown).join("");
-  return "";
+/** Parse a `pages.content` column (JSON string or object) into a PM doc. */
+function loadDoc(content: unknown): Parameters<typeof exportMarkdown>[0] {
+  if (typeof content === "string") {
+    try { return JSON.parse(content); } catch { return { type: "doc", content: [] }; }
+  }
+  return (content ?? { type: "doc", content: [] }) as Parameters<typeof exportMarkdown>[0];
+}
+
+function slugify(slug: string): string {
+  return (slug || "page").replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "page";
 }

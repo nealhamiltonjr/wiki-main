@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTheme, ACCENT_OPTIONS, THEME_PRESETS, type Theme } from "../theme/ThemeContext.js";
 import { AdminSettings } from "./AdminSettings.js";
+import { PluginSection } from "./PluginSection.js";
 import { useSession } from "../../api/authClient.js";
 import { api } from "../../api/client.js";
 import { cn } from "../../lib/utils.js";
@@ -112,6 +113,8 @@ export function Settings() {
           </span>
         </div>
       </section>
+
+      <PluginSection />
 
       {canManageSettings && <AdminSettings />}
     </div>

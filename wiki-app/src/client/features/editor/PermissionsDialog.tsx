@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError, type BranchGrant } from "../../api/client.js";
+import { SpacePermissionsPanel } from "./SpacePermissionsPanel.js";
 
 /**
  * Per-branch group permissions (§7.12g). The permission ENGINE already existed;
@@ -11,6 +12,7 @@ import { api, ApiError, type BranchGrant } from "../../api/client.js";
 export function PermissionsDialog({ branchId, onClose }: { branchId: string; onClose: () => void }) {
   const [grants, setGrants] = useState<BranchGrant[] | null>(null);
   const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
+  const [spaceId, setSpaceId] = useState<string | null>(null);
   const [pendingGroup, setPendingGroup] = useState<string>("");
   const [pendingRole, setPendingRole] = useState<"viewer" | "editor">("viewer");
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +22,7 @@ export function PermissionsDialog({ branchId, onClose }: { branchId: string; onC
     api.getBranchPermissions(branchId).then((res) => {
       setGrants(res.grants);
       setGroups(res.groups);
+      setSpaceId(res.spaceId);
     }).catch(() => setError("Failed to load permissions"));
   }, [branchId]);
 
@@ -120,6 +123,8 @@ export function PermissionsDialog({ branchId, onClose }: { branchId: string; onC
         )}
 
         {error && <div className="perm-error">{error}</div>}
+
+        {spaceId && <SpacePermissionsPanel spaceId={spaceId} />}
 
         <div className="perm-dialog-footer">
           <button className="wiki-page-action" onClick={onClose}>Cancel</button>

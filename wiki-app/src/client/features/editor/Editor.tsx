@@ -10,6 +10,7 @@ import { baseEditorExtensions } from "./baseExtensions.js";
 import { editingExtensions } from "./editingExtensions.js";
 import { getEditorExtensions } from "./pluginEngine.js";
 import "./editorPlugins.js";
+import { usePluginState } from "../plugins/pluginRegistry.js";
 import { CommentPanel } from "./CommentPanel.js";
 import { CommentHoverPopup } from "./CommentHoverPopup.js";
 import { PermissionsDialog } from "./PermissionsDialog.js";
@@ -136,7 +137,23 @@ export function Editor({ branchId }: { branchId: string }) {
   // over it directly - editorProps.handlePaste resolves it via this ref instead.
   const editorRef = useRef<TiptapEditor | null>(null);
 
-  const engineExtensions = getEditorExtensions();
+  // Plugin toggles (§ plugin registry) gate editing chrome and UI panels.
+  // Schema-level extensions (baseEditorExtensions) stay registered regardless,
+  // because the read-only ShareView and the collab seed schema must still be
+  // able to parse pages saved with comment marks / mention nodes.
+  const pluginState = usePluginState();
+  const slashCommandsEnabled = pluginState["slash-commands"] ?? true;
+  const wikiLinksEnabled = pluginState["wiki-links"] ?? true;
+  const searchReplaceEnabled = pluginState["search-replace"] ?? true;
+  const commentsEnabled = pluginState["page-comments"] ?? true;
+  const backlinksEnabled = pluginState["backlinks"] ?? true;
+  const historyEnabled = pluginState["page-history"] ?? true;
+
+  const engineExtensions = getEditorExtensions().filter((ext) => {
+    if (ext.name === "slashCommand") return slashCommandsEnabled;
+    if (ext.name === "wikiLink") return wikiLinksEnabled;
+    return true;
+  });
 
   const editor = useEditor({
     extensions: [
@@ -190,13 +207,13 @@ export function Editor({ branchId }: { branchId: string }) {
     // the JSON (e.g. created before the selection-restore fix, or via a
     // collab session) must be re-applied here from its stored range.
     const branchId = pageRef.current?.branchId;
-    if (branchId) {
+    if (branchId && commentsEnabled) {
       api
         .getComments(branchId)
         .then((threads) => applyCommentMarksFromThreads(editor, threads))
         .catch(() => {});
     }
-  }, [editor]);
+  }, [editor, commentsEnabled]);
 
   // Phase 2: keep the editor instance available to editorProps (created inside
   // useEditor) and wire the drag-handle click + Ctrl/Cmd+F shortcut.
@@ -222,6 +239,7 @@ export function Editor({ branchId }: { branchId: string }) {
 
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        if (!searchReplaceEnabled) return;
         e.preventDefault();
         setSearchOpen(true);
       }
@@ -233,7 +251,7 @@ export function Editor({ branchId }: { branchId: string }) {
       el.removeEventListener("click", onHandleClick);
       window.removeEventListener("keydown", onKey);
     };
-  }, [editor]);
+  }, [editor, searchReplaceEnabled]);
 
   // Re-applies a comment mark at each thread's anchor. Phase 1 (§7.12): a
   // thread with a blockId is re-anchored to that block's CURRENT range in the
@@ -402,7 +420,7 @@ export function Editor({ branchId }: { branchId: string }) {
   }
 
   async function toggleHistory() {
-    if (!page) return;
+    if (!page || !historyEnabled) return;
     if (history) {
       setHistory(null);
       return;
@@ -466,7 +484,7 @@ export function Editor({ branchId }: { branchId: string }) {
   }
 
   async function addCommentOnSelection() {
-    if (!page || !editor) return;
+    if (!page || !editor || !commentsEnabled) return;
     const { from, to } = editor.state.selection;
     if (from === to) return;
     const body = window.prompt("Comment:");
@@ -572,7 +590,9 @@ export function Editor({ branchId }: { branchId: string }) {
           <button onClick={createShareLink} className="wiki-page-action">Share</button>
           <button onClick={() => exportMarkdown("raw")} className="wiki-page-action" title="Export as clean Markdown (SSG-ready)">Export .md</button>
           <button onClick={() => exportMarkdown("zip")} className="wiki-page-action" title="Export with images as a ZIP">Export .zip</button>
-        <button onClick={() => setBacklinksOpen((v) => !v)} className={`wiki-page-action${backlinksOpen ? " primary" : ""}`} title="Pages that link to this page">Backlinks</button>
+        {backlinksEnabled && (
+          <button onClick={() => setBacklinksOpen((v) => !v)} className={`wiki-page-action${backlinksOpen ? " primary" : ""}`} title="Pages that link to this page">Backlinks</button>
+        )}
         <button onClick={() => setAttributesOpen((v) => !v)} className={`wiki-page-action${attributesOpen ? " primary" : ""}`} title="Page attributes (labels/tags)">Attributes</button>
           {canEdit && (
             <>
@@ -598,12 +618,14 @@ export function Editor({ branchId }: { branchId: string }) {
               <button onClick={takeSnapshot} className="wiki-page-action">Snapshot</button>
             </>
           )}
-          <button onClick={toggleHistory} className="wiki-page-action">{history ? "Hide history" : "History"}</button>
+          {historyEnabled && (
+            <button onClick={toggleHistory} className="wiki-page-action">{history ? "Hide history" : "History"}</button>
+          )}
         </div>
       </div>
 
       {permissionsOpen && <PermissionsDialog branchId={page.branchId} onClose={() => setPermissionsOpen(false)} />}
-      {backlinksOpen && <BacklinksPanel pageId={page.pageId} onNavigate={(bid) => { window.location.hash = `#/wiki/${bid}`; }} />}
+      {backlinksEnabled && backlinksOpen && <BacklinksPanel pageId={page.pageId} onNavigate={(bid) => navigate(`/pages/${bid}`)} />}
       {attributesOpen && <AttributesPanel branchId={page.branchId} />}
 
       {status === "conflict" && (
@@ -613,7 +635,7 @@ export function Editor({ branchId }: { branchId: string }) {
         </div>
       )}
 
-      {history && (
+      {historyEnabled && history && (
         <div className="history-panel">
           <div className="history-title">History</div>
           {history.length === 0 && <div>No history yet</div>}
@@ -651,8 +673,8 @@ export function Editor({ branchId }: { branchId: string }) {
 
       {canEdit && isEditing && (
         <>
-          <Toolbar editor={editor} onUploadFile={triggerUpload} onAddComment={addCommentOnSelection} onSearch={() => setSearchOpen(true)} />
-          {searchOpen && editor && <SearchReplacePopup editor={editor} onClose={() => setSearchOpen(false)} />}
+          <Toolbar editor={editor} onUploadFile={triggerUpload} onAddComment={commentsEnabled ? addCommentOnSelection : () => {}} onSearch={searchReplaceEnabled ? () => setSearchOpen(true) : () => {}} showSearch={searchReplaceEnabled} showComment={commentsEnabled} />
+          {searchReplaceEnabled && searchOpen && editor && <SearchReplacePopup editor={editor} onClose={() => setSearchOpen(false)} />}
         </>
       )}
 
@@ -669,7 +691,7 @@ export function Editor({ branchId }: { branchId: string }) {
               if (href === "") editor.chain().focus().unsetLink().run();
               else editor.chain().focus().setLink({ href }).run();
             }} />
-            <BubbleBtn active={false} icon={MessageSquare} title="Add comment" onClick={addCommentOnSelection} />
+            {commentsEnabled && <BubbleBtn active={false} icon={MessageSquare} title="Add comment" onClick={addCommentOnSelection} />}
           </div>
         </BubbleMenu>
       )}
@@ -707,7 +729,7 @@ export function Editor({ branchId }: { branchId: string }) {
               }}
             />
           </div>
-          {activeCommentId && (
+          {commentsEnabled && activeCommentId && (
             <CommentPanel threadId={activeCommentId} branchId={page.branchId} onClose={() => setActiveCommentId(null)} />
           )}
         </div>
@@ -715,10 +737,12 @@ export function Editor({ branchId }: { branchId: string }) {
 
       {/* Siyuan-style hover preview: hovering a highlight shows the comment
           inline; clicking the highlight (or the popup) opens the side panel. */}
-      <CommentHoverPopup
-        branchId={page.branchId}
-        onOpen={(id) => setActiveCommentId(id)}
-      />
+      {commentsEnabled && (
+        <CommentHoverPopup
+          branchId={page.branchId}
+          onOpen={(id) => setActiveCommentId(id)}
+        />
+      )}
 
       {dragMenu && editor && (
         <DragHandleMenu

@@ -14,7 +14,7 @@ type Listener = () => void;
 const registry = new Map<string, PluginMeta>();
 const listeners = new Set<Listener>();
 let _state: Record<string, boolean> = {};
-let _loaded = false;
+let _loadedForUser: string | null = null;
 
 function subscribe(l: Listener) {
   listeners.add(l);
@@ -31,7 +31,7 @@ function notify() {
 
 export function registerPlugin(meta: PluginMeta, defaultEnabled = true) {
   registry.set(meta.id, meta);
-  if (!(_loaded && meta.id in _state)) {
+  if (!(meta.id in _state)) {
     _state = { ..._state, [meta.id]: defaultEnabled };
   }
 }
@@ -40,20 +40,27 @@ export function getPlugins(): PluginMeta[] {
   return Array.from(registry.values());
 }
 
-export async function loadPluginState() {
-  if (_loaded) return;
+/**
+ * Loads the caller's plugin prefs from user_settings. Reloads whenever the
+ * authenticated user changes (logged out → different user), so a fresh login
+ * always sees their own toggles instead of a stale snapshot. Callers may pass
+ * the session user id; without one the state is loaded once and cached.
+ */
+export async function loadPluginState(userId?: string | null): Promise<void> {
+  const key = userId ?? "anon";
+  if (_loadedForUser !== null && _loadedForUser === key) return;
   try {
     const s = await api.getUserSettings();
     const next: Record<string, boolean> = {};
     for (const [id] of registry) {
-      const key = `plugin.${id}.enabled`;
-      next[id] = typeof s[key] === "boolean" ? s[key] : (_state[id] ?? true);
+      const pref = `plugin.${id}.enabled`;
+      next[id] = typeof s[pref] === "boolean" ? s[pref] : (_state[id] ?? true);
     }
     _state = next;
   } catch {
-    // Keep defaults
+    // Keep defaults (not authenticated or settings unavailable).
   }
-  _loaded = true;
+  _loadedForUser = key;
   notify();
 }
 

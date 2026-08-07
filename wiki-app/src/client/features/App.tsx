@@ -4,6 +4,7 @@ import { useSession, signOut } from "../api/authClient.js";
 import { Login } from "./auth/Login.js";
 import { Tree } from "./tree/Tree.js";
 import { useTheme, type Theme } from "./theme/ThemeContext.js";
+import { loadPluginState } from "./plugins/pluginRegistry.js";
 import { CommandPalette } from "./search/CommandPalette.js";
 import { SearchBox } from "./search/SearchBox.js";
 import { Toaster } from "../components/ui/sonner.js";
@@ -105,6 +106,12 @@ export default function App() {
       .then((c) => setPublicMode(c.publicMode))
       .catch(() => setPublicMode(false));
   }, []);
+
+  // Load the signed-in user's plugin prefs before any editor mounts, so
+  // disabled plugins are actually gated (not just hidden in the settings UI).
+  useEffect(() => {
+    loadPluginState(session?.user.id ?? null);
+  }, [session?.user.id]);
 
   if (isPending || publicMode === null) return null;
 

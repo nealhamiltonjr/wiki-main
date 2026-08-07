@@ -157,6 +157,11 @@ export function indexPage(pageId: string, title: string, content: unknown, slug?
   );
 }
 
+/** Drop a page from the FTS index (permanent page deletion). */
+export function removePageFromIndex(pageId: string): void {
+  sqlite.prepare("DELETE FROM page_fts WHERE page_id = ?").run(pageId);
+}
+
 /**
  * Extract the first H1 text from Tiptap JSON for use as the FTS title.
  */

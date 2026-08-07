@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { db } from "../db/index.js";
 import * as schema from "../db/auth-schema.js";
+import { sessionEnrichmentPlugin } from "./session-enrichment.js";
 
 /**
  * Reconciliation decision (brief §3.8/§3.18, previously flagged and unresolved):
@@ -57,6 +58,7 @@ export const auth = betterAuth({
       suspended: { type: "boolean", required: false, defaultValue: false, input: false },
     },
   },
+  plugins: [sessionEnrichmentPlugin],
 });
 
 export type Session = typeof auth.$Infer.Session;

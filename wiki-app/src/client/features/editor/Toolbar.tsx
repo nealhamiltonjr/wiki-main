@@ -30,7 +30,15 @@ const BUTTON_ICONS: Record<string, LucideIcon> = {
   alignRight: AlignRight,
 };
 
-export function Toolbar({ editor, onUploadFile, onAddComment, onSearch }: { editor: TiptapEditor | null; onUploadFile: () => void; onAddComment: () => void; onSearch: () => void }) {
+export function Toolbar({ editor, onUploadFile, onAddComment, onSearch, showSearch = true, showComment = true }: {
+  editor: TiptapEditor | null;
+  onUploadFile: () => void;
+  onAddComment: () => void;
+  onSearch: () => void;
+  /** Plugin-gated buttons (Search & Replace / Page Comments toggles). */
+  showSearch?: boolean;
+  showComment?: boolean;
+}) {
   if (!editor) return null;
 
   const buttons = getToolbarButtons();
@@ -77,8 +85,8 @@ export function Toolbar({ editor, onUploadFile, onAddComment, onSearch }: { edit
 
       {separator}
 
-      {toolBtn(false, "Search", "Find & replace (Ctrl+F)", onSearch, "search", Search)}
-      {toolBtn(false, "Comment", "Add comment on selection", onAddComment, "comment", MessageSquarePlus)}
+      {showSearch && toolBtn(false, "Search", "Find & replace (Ctrl+F)", onSearch, "search", Search)}
+      {showComment && toolBtn(false, "Comment", "Add comment on selection", onAddComment, "comment", MessageSquarePlus)}
 
       {separator}
 

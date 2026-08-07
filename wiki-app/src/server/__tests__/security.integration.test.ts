@@ -651,4 +651,62 @@ describe("MCP tools enforce the same permissions as REST routes", () => {
     expect(visible.statusCode).toBe(200);
     expect(resultOf(visible).length).toBeGreaterThan(0);
   });
+
+  it("search_pages does not leak pages behind a group-permission boundary in an accessible space", async () => {
+    // Admin creates a group; alice (in the group) owns a space with a page
+    // that carries a branch-level boundary granting ONLY the group. bob is a
+    // plain member of the same space (so space-level access passes) but not in
+    // the group - the boundary must keep the page out of his MCP search.
+    const admin = await signup("mcps-admin@example.com");
+    const { db } = await import("../db/index.js");
+    const { users, groups } = await import("../db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await db.update(users).set({ isAdmin: true }).where(eq(users.id, admin.userId));
+
+    const groupRes = await app.inject({
+      method: "POST",
+      url: "/api/groups",
+      headers: { cookie: admin.cookie },
+      payload: { name: "Ops", capabilities: ["admin.settings"] },
+    });
+    expect(groupRes.statusCode).toBe(201);
+    const groupId = JSON.parse(groupRes.body).id as string;
+
+    const alice = await signup("mcps-alice@example.com");
+    await app.inject({
+      method: "POST",
+      url: `/api/groups/${groupId}/members`,
+      headers: { cookie: admin.cookie },
+      payload: { userId: alice.userId },
+    });
+    const aliceSpace = await createSpace(alice.cookie, "MCP-Search-Space");
+    const secretPage = await createPage(alice.cookie, aliceSpace, "secret-project");
+
+    // Restrict the page to the Ops group only (space admin can manage).
+    const restrict = await app.inject({
+      method: "PUT",
+      url: `/api/branches/${secretPage.branchId}/permissions`,
+      headers: { cookie: alice.cookie },
+      payload: { grants: [{ groupId, role: "viewer" }] },
+    });
+    expect(restrict.statusCode).toBe(200);
+
+    // bob is a plain member of the space (viewer) - not in the group.
+    const bob = await signup("mcps-bob@example.com");
+    await app.inject({
+      method: "POST",
+      url: `/api/spaces/${aliceSpace}/members`,
+      headers: { cookie: alice.cookie },
+      payload: { userId: bob.userId, role: "viewer" },
+    });
+
+    const bobSearch = await mcpCall(bob.cookie, "search_pages", { query: "secret" });
+    expect(bobSearch.statusCode).toBe(200);
+    const bobResults = resultOf(bobSearch);
+    expect(bobResults.length).toBe(0);
+
+    const aliceSearch = await mcpCall(alice.cookie, "search_pages", { query: "secret" });
+    expect(aliceSearch.statusCode).toBe(200);
+    expect(resultOf(aliceSearch).map((r: { slug: string }) => r.slug)).toContain("secret-project");
+  });
 });

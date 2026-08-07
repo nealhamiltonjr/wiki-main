@@ -77,6 +77,7 @@ export interface BranchGrant { groupId: string; groupName: string; role: "viewer
 export interface BranchPermissions {
   grants: BranchGrant[];
   groups: { id: string; name: string }[];
+  spaceId: string | null;
 }
 
 export const api = {
@@ -122,6 +123,8 @@ export const api = {
     request<{ ok: boolean }>(`/api/admin/users/${id}/unsuspend`, { method: "PATCH" }),
   deleteAdminUser: (id: string, reassignToId?: string) =>
     request<{ ok: boolean }>(`/api/admin/users/${id}`, { method: "DELETE", body: JSON.stringify({ reassignToId }) }),
+  searchUsers: (q: string) =>
+    request<{ users: { id: string; name: string; email: string }[] }>(`/api/users/search?q=${encodeURIComponent(q)}`),
   listSpaces: () => request<SpaceSummary[]>("/api/spaces"),
   createSpace: (name: string) => request<SpaceSummary>("/api/spaces", { method: "POST", body: JSON.stringify({ name }) }),
   getSpaceTree: (spaceId: string) => request<TreeNode[]>(`/api/spaces/${spaceId}/tree`),
@@ -220,7 +223,7 @@ export const api = {
 
   // Space permissions
   getSpacePermissions: (spaceId: string) =>
-    request<{ defaultRole: string; members: { userId: string; role: string; email: string; name: string }[]; groupGrants: { id: string; groupId: string; role: string; groupName: string }[] }>(
+    request<{ defaultRole: string; members: { userId: string; role: string; email: string; name: string }[]; groupGrants: { id: string; groupId: string; role: string; groupName: string }[]; groups: { id: string; name: string }[] }>(
       `/api/spaces/${spaceId}/permissions`
     ),
   addSpaceMember: (spaceId: string, userId: string, role: string) =>

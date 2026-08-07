@@ -538,10 +538,15 @@ export function DragHandlePlugin(
             tr.insert(resolvedTarget.pos, droppedNode);
           }
 
-          // Select the moved node so it can be dragged again immediately.
+          // Place a text selection inside the moved node. A NodeSelection here
+          // would "trap" the caret: the whole block stays selected, arrow-key
+          // navigation hops oddly, and typing replaces the entire block. The
+          // drag handle still appears on hover, so nothing is lost by
+          // deselecting. TextSelection.near also handles atom nodes (image,
+          // embeds) by falling back to the closest valid text position.
           const afterInsert = tr.doc.resolve(resolvedTarget.pos + 1);
           const movedFrom = afterInsert.before(afterInsert.depth);
-          tr.setSelection(NodeSelection.create(tr.doc, movedFrom));
+          tr.setSelection(TextSelection.near(tr.doc.resolve(movedFrom + 1)));
 
           view.dispatch(tr);
           view.focus();

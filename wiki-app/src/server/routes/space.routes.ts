@@ -3,6 +3,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db/index.js";
 import { spaces, spaceMembers, spaceGroupPermissions, branches, pages, users, groups } from "../db/schema.js";
+import { listGroups } from "../services/group.service.js";
 import { buildSpaceTree, resolveSpaceRole } from "../services/branch.service.js";
 import type { UserContext } from "../../shared/types.js";
 
@@ -110,7 +111,11 @@ export async function spaceRoutes(app: FastifyInstance) {
         .innerJoin(groups, eq(groups.id, spaceGroupPermissions.groupId))
         .where(eq(spaceGroupPermissions.spaceId, spaceId));
 
-      return reply.send({ defaultRole: space?.defaultRole ?? "editor", members, groupGrants });
+      // Available groups (name list only, same pattern as the branch dialog -
+      // not sensitive) so space admins can add grants without global admin.
+      const allGroups = await listGroups();
+
+      return reply.send({ defaultRole: space?.defaultRole ?? "editor", members, groupGrants, groups: allGroups });
     }
   );
 

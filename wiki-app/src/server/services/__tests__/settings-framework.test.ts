@@ -49,7 +49,12 @@ describe("settings registry", () => {
     expect(keys).toContain("smtp_pass");
     expect(keys).toContain("git_remote_url");
     expect(keys).toContain("sync_target_url");
-    expect(keys).toContain("general.defaultTheme");
+    expect(keys).toContain("general.allowSignup");
+    // Appearance (theme / editor width) is per-user only - the old
+    // general.defaultTheme / general.defaultEditorWidth admin rows were dead
+    // duplicates of the non-admin Appearance section and were removed.
+    expect(keys).not.toContain("general.defaultTheme");
+    expect(keys).not.toContain("general.defaultEditorWidth");
   });
 
   it("groups defs by section in registration order", () => {
@@ -78,11 +83,11 @@ describe("settings registry", () => {
 
 describe("setting value validation", () => {
   it("accepts valid select values", () => {
-    expect(validateSettingValue("general.defaultTheme", "dark")).toBeNull();
+    expect(validateSettingValue("general.publicMode", "on")).toBeNull();
   });
 
   it("rejects select values outside the option list", () => {
-    expect(validateSettingValue("general.defaultTheme", "neon")).toMatch(/not a valid option/);
+    expect(validateSettingValue("general.publicMode", "neon")).toMatch(/not a valid option/);
   });
 
   it("requires booleans to be actual booleans", () => {

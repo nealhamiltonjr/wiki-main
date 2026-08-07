@@ -212,7 +212,11 @@ export async function branchRoutes(app: FastifyInstance) {
       // Available groups, so editors can grant without needing global admin
       // (the /api/groups CRUD stays admin-only; the name list is not sensitive).
       const groups = await listGroups();
-      return reply.send({ grants, groups });
+      // The branch's space, so the dialog can also surface space-level
+      // permissions (default role, members, group grants) alongside the
+      // per-branch boundary.
+      const [branch] = await db.select({ spaceId: branches.spaceId }).from(branches).where(eq(branches.id, branchId));
+      return reply.send({ grants, groups, spaceId: branch?.spaceId ?? null });
     }
   );
 

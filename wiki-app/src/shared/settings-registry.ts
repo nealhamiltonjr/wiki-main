@@ -27,30 +27,11 @@ registerSetting({
   help: "Whether unauthenticated visitors see the public-facing site.",
 });
 
-registerSetting({
-  key: "general.defaultTheme",
-  section: "General",
-  label: "Default theme",
-  type: "select",
-  default: "light",
-  options: [
-    { value: "light", label: "Light" },
-    { value: "dark", label: "Dark" },
-    { value: "contrast", label: "Contrast" },
-  ],
-});
-
-registerSetting({
-  key: "general.defaultEditorWidth",
-  section: "General",
-  label: "Default editor width",
-  type: "select",
-  default: "full",
-  options: [
-    { value: "full", label: "Full width" },
-    { value: "narrow", label: "Narrow (reading width)" },
-  ],
-});
+// NOTE: "Default theme" / "Default editor width" admin rows were removed.
+// Appearance (theme, accent, presets, editor width) lives in ONE place - the
+// non-admin Settings page (see Settings.tsx). These registry entries were dead
+// duplicates: nothing read them at runtime, yet they rendered a second,
+// non-functional Appearance control set under System > General.
 
 registerSetting({
   key: "general.allowSignup",

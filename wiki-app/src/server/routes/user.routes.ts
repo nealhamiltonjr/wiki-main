@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
-import { like, or, ne } from "drizzle-orm";
+import { like, or } from "drizzle-orm";
 import type { UserContext } from "../../shared/types.js";
 
 export async function userRoutes(app: FastifyInstance) {
