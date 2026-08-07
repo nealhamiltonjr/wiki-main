@@ -261,4 +261,86 @@ test.describe("editor features", () => {
       await anonContext.close();
     }
   });
+
+  test("drag handle reorders paragraphs without leaving a stuck selection", async ({ page }) => {
+    await createSpaceAndPage(page, "DragSpace", "drag-reorder");
+    const editor = await openEditor(page, "drag-reorder");
+
+    await page.keyboard.type("Alpha");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Beta");
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Gamma");
+    // Focusing the editor triggers a one-time layout transition in the page
+    // chrome (~0.5s); wait for it to fully settle so every coordinate read
+    // below stays valid for the whole synthetic drag.
+    await page.waitForTimeout(1200);
+
+    // Move "Beta" below "Gamma" by dragging its block handle. The drag is
+    // driven entirely with synthetic events: a real HTML5 drag would open a
+    // native DnD session in headless Chromium that swallows synthetic drops.
+    const paragraphs = page.locator(".ProseMirror p");
+    const betaBox = await paragraphs.nth(1).boundingBox();
+    const editorBox = await page.locator(".ProseMirror").first().boundingBox();
+    const targetY = editorBox!.y + editorBox!.height - 6;
+
+    const result = await page.evaluate(
+      ({ bx, by, tx, ty }) => {
+        const pm = document.querySelector(".ProseMirror");
+        const h = document.querySelector<HTMLElement>(".drag-handle");
+        if (!pm || !h) return { error: "missing editor or handle" };
+
+        // Position the handle over the target paragraph with a synthetic
+        // mousemove, then read its rect fresh so the dragstart coordinates
+        // match the current layout.
+        pm.dispatchEvent(new MouseEvent("mousemove", { clientX: bx + 100, clientY: by, bubbles: true }));
+        const hr = h.getBoundingClientRect();
+        const hx = hr.x + hr.width / 2;
+        const hy = hr.y + hr.height / 2;
+
+        const start = new Event("dragstart", { bubbles: true, cancelable: true });
+        start.dataTransfer = {
+          clearData() {}, setData() {}, setDragImage() {}, getData() { return ""; },
+          effectAllowed: "move", items: { length: 0 }, types: [],
+        };
+        start.clientX = hx + 50; // handleDragStart offsets by +50+dragHandleWidth
+        start.clientY = hy;
+        h.dispatchEvent(start);
+
+        const drop = new DragEvent("drop", {
+          clientX: tx, clientY: ty, bubbles: true, cancelable: true,
+          dataTransfer: new DataTransfer(),
+        });
+        const dropReturn = pm.dispatchEvent(drop);
+        pm.dispatchEvent(new DragEvent("dragend", {
+          bubbles: true, cancelable: true, dataTransfer: new DataTransfer(),
+        }));
+        return { dropReturn, prevented: drop.defaultPrevented };
+      },
+      { bx: betaBox!.x, by: betaBox!.y + betaBox!.height / 2, tx: betaBox!.x + 400, ty: targetY },
+    );
+    expect(result.error).toBeUndefined();
+    // ProseMirror's native drop handler prevents the default action when it
+    // performs the move; a regressed custom handler leaves it un-prevented
+    // and the paragraph unmoved.
+    expect(result.prevented).toBe(true);
+    await page.waitForTimeout(300);
+
+    const texts = (await paragraphs.allInnerTexts()).map((t) => t.trim());
+    // "Beta" must land at the bottom; a trailing empty paragraph may or may
+    // not be rendered depending on the editor config, so only compare the
+    // first three blocks.
+    expect(texts.slice(0, 3)).toEqual(["Alpha", "Gamma", "Beta"]);
+    // The move must not leave a stuck NodeSelection ("blue box"): a click into
+    // the text places a normal collapsed caret that accepts typing.
+    const alphaBox = await paragraphs.nth(0).boundingBox();
+    await page.mouse.click(alphaBox!.x + 20, alphaBox!.y + alphaBox!.height / 2);
+    // Let the click settle into a collapsed caret before typing; typing
+    // immediately after the synthetic drop can race the selection update.
+    await page.waitForTimeout(150);
+    await page.keyboard.press("End");
+    await page.keyboard.type("!");
+    await page.waitForTimeout(200);
+    expect((await paragraphs.nth(0).innerText()).trim()).toBe("Alpha!");
+  });
 });

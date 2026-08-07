@@ -5,7 +5,7 @@ import {
   PluginKey,
   TextSelection,
 } from "@tiptap/pm/state";
-import { Node } from "@tiptap/pm/model";
+import { Fragment, Slice, Node } from "@tiptap/pm/model";
 import { EditorView } from "@tiptap/pm/view";
 
 export interface GlobalDragHandleOptions {
@@ -499,6 +499,7 @@ export function DragHandlePlugin(
         drop: (view, event) => {
           view.dom.classList.remove("dragging");
           hideDragHandle();
+          let droppedNode: Node | null = null;
           const dropPos = view.posAtCoords({
             left: event.clientX,
             top: event.clientY,
@@ -506,50 +507,39 @@ export function DragHandlePlugin(
 
           if (!dropPos) return;
 
-          const sel = view.state.selection;
-          if (!(sel instanceof NodeSelection)) return;
-
-          const droppedNode = sel.node;
-          const srcFrom = sel.from;
-          const srcTo = sel.to;
-
-          // Delete from source first, then insert at target (adjusted for
-          // the deletion if the target is after the source).
-          let target = dropPos.pos;
-          if (target > srcFrom) {
-            target -= srcTo - srcFrom;
+          if (view.state.selection instanceof NodeSelection) {
+            droppedNode = view.state.selection.node;
           }
+          if (!droppedNode) return;
 
-          const tr = view.state.tr;
-          tr.delete(srcFrom, srcTo);
+          const resolvedPos = view.state.doc.resolve(dropPos.pos);
 
-          const resolvedTarget = tr.doc.resolve(Math.min(target, tr.doc.content.size));
-          const isInsideList = resolvedTarget.parent.type.name === "listItem";
+          const isDroppedInsideList =
+            resolvedPos.parent.type.name === "listItem";
 
-          // Wrap OL items dropped outside a list so they don't degrade to UL.
-          if (droppedNode.type.name === "listItem" && !isInsideList && listType === "OL") {
-            const newList = view.state.schema.nodes.orderedList?.createAndFill(null, droppedNode);
-            if (newList) {
-              tr.insert(resolvedTarget.pos, newList);
-            } else {
-              tr.insert(resolvedTarget.pos, droppedNode);
-            }
-          } else {
-            tr.insert(resolvedTarget.pos, droppedNode);
+          // If the selected node is a list item and is not dropped inside a
+          // list, wrap it in the same <ol> type so ordered-list items don't
+          // degrade to unordered when ProseMirror performs the native move.
+          // For every other case this handler deliberately does nothing: the
+          // move itself is performed by ProseMirror's native drop handling
+          // (which consumes view.dragging and deletes the NodeSelection set
+          // during dragstart). Doing our own delete+insert here AND returning
+          // undefined would double-process the drop (native handleDrop also
+          // runs), which corrupts the document order and leaves a stuck
+          // NodeSelection — the "blue box" regression.
+          if (
+            view.state.selection instanceof NodeSelection &&
+            view.state.selection.node.type.name === "listItem" &&
+            !isDroppedInsideList &&
+            listType == "OL"
+          ) {
+            const newList = view.state.schema.nodes.orderedList?.createAndFill(
+              null,
+              droppedNode,
+            );
+            const slice = new Slice(Fragment.from(newList), 0, 0);
+            view.dragging = { slice, move: event.ctrlKey };
           }
-
-          // Place a text selection inside the moved node. A NodeSelection here
-          // would "trap" the caret: the whole block stays selected, arrow-key
-          // navigation hops oddly, and typing replaces the entire block. The
-          // drag handle still appears on hover, so nothing is lost by
-          // deselecting. TextSelection.near also handles atom nodes (image,
-          // embeds) by falling back to the closest valid text position.
-          const afterInsert = tr.doc.resolve(resolvedTarget.pos + 1);
-          const movedFrom = afterInsert.before(afterInsert.depth);
-          tr.setSelection(TextSelection.near(tr.doc.resolve(movedFrom + 1)));
-
-          view.dispatch(tr);
-          view.focus();
         },
         dragend: (view) => {
           view.dom.classList.remove("dragging");
