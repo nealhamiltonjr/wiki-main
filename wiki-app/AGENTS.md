@@ -1,15 +1,19 @@
 # Wiki App — AGENTS.md
 
 Git-based wiki with admin/settings UI, git push/pull/sync, clean Markdown
-export, real-time collab (Hocuspocus/Yjs), group/space permissions. See
-`../PROJECT-OVERVIEW.md` for the full spec and phase tracking.
+export, real-time collab (Hocuspocus/Yjs), group/space permissions. The single
+authoritative project document is **`../README.md`** (architecture, feature
+inventory, deployment, deferred work, process notes). This file is the
+operational memory: commands, boot requirements, hygiene rules, and invariants
+that must not regress. Do not duplicate README content here.
 
 ## Commands
 
 - `npm run dev:server` — API + WebSocket on :3000 (`tsx watch`)
 - `npm run dev:client` — Vite on :5173 (proxies /api to :3000)
 - `npm run typecheck` — `tsc --noEmit`
-- `npm test` — vitest (24 files, 203 tests)
+- `npm test` — vitest (25 files, 218 tests)
+- `npm run db:push` — `drizzle-kit push --force`
 - `npm run build:client` — vite build
 - `npx playwright test --config=e2e/playwright.config.ts` — E2E tests (13 tests, headless Chromium)
 
@@ -84,139 +88,40 @@ Dev server started for UI work:
   editor, ShareView, and collab seed), NOT in `editorPlugins.ts` — registering
   it in both would load it twice.
 
-## Bug-fix log (2026-08-01/02)
+## Verified state (2026-08-01, branch snapshot.3)
 
-All fixes below were applied in this pass and verified: 166 unit/integration
-tests, typecheck, prod build, and 11 Playwright E2E tests (incl. 6
-editor-feature flows) all pass.
+Green: **25 test files / 218 vitest tests**, **13 Playwright E2E**, `tsc --noEmit`
+clean, `npm run build:client` green. Recent completions:
 
-- **FIXED — File uploads silently fail when a page's doc is invalid
-  (`contentMatchAt on a node with invalid content`).** The markdown importer
-  stores a standalone `![alt](src)` line as `paragraph > image`, but the Image
-  extension was block-level (`inline: false`, the default), so that paragraph
-  was invalid content. Every later insert (`insertContent`, `setImage`,
-  `replaceRange`) called `contentMatchAt` on the cursor's parent and threw,
-  so uploads (image AND non-image) silently did nothing on affected pages
-  (e.g. the Linux page). FIX: `Image.configure({ inline: true })` in
-  `src/client/features/editor/baseExtensions.ts` — the schema now matches what
-  the markdown importer/exporter already emit, so `paragraph > image` is valid.
-  Note inline images render with invisible `.ProseMirror-separator` placeholder
-  `<img>`s; E2E image locators must use `img:not(.ProseMirror-separator)`.
-- **FIXED — Non-image upload inserted literal `[name](url)` text instead of a
-  link.** `Editor.tsx`'s `uploadFile` now routes the attachment through
-  `markdownToTiptap` (same converter as `handleMarkdownPaste`) and inserts just
-  the inline content, so it becomes a real link node in the current paragraph.
-- **KNOWN (cosmetic, pre-existing):** React logs "Encountered two children with
-  the same key, `marks`" in edit mode with or without images (verified against
-  the pre-fix schema). Tiptap v3 internal; harmless.
+- Permissions overhaul: groups carry `capabilities`; a better-auth plugin
+  (`src/server/auth/session-enrichment.ts`) injects `capabilities` + `groupIds`
+  into the session user on `/get-session` and sign-in/sign-up, so client gating
+  matches server enforcement. Capability resolution lives in
+  `src/server/services/capabilities.service.ts` (shared with `auth.service`).
+- Space-level permissions UI (`SpacePermissionsPanel.tsx`) inside the branch
+  PermissionsDialog: default role, member list, group grants. Backed by
+  `space-permissions.integration.test.ts` (7 tests).
+- Safe user deletion (`src/server/services/user-delete.service.ts`): reassign
+  owned pages to a heir or delete them, covers every FK-bearing table; admin
+  cannot self-delete (server + UI). User export (zip of Markdown) via
+  `/api/admin/users/:id/export`. Both covered in `admin.integration.test.ts`.
+- Plugin toggles are real per-user prefs (`user_settings`), gated in the
+  editor; the toggles UI lives on the per-user Settings page (not admin-only).
+- Editor drag handle fixed: drop handler uses `TextSelection.near(...)`, handle
+  is `position: fixed` (its JS feeds viewport coords). Still open: no app
+  outline for `.ProseMirror-selectednode`.
+- Backlinks click now navigates with react-router (`/pages/:branchId`), not the
+  dead `window.location.hash` pattern.
+- MCP `search_pages` filters every candidate through `resolveAccess()` so a
+  page behind a group-permission boundary inside an accessible space never
+  leaks via the search tool (regression test in `security.integration.test.ts`).
+- Vite `manualChunks` split react/router/arborist/ui-vendor out of the login
+  shell.
 
-- **FIXED — Keyboard Enter in suggestion menus (slash / `[[` / `@`).**
-  `@tiptap/suggestion` v3 passes NO `command` into `onKeyDown({ view, event,
-  range })`, so all three renderers (`slashCommandExtension.tsx`,
-  `wikiLinkExtension.tsx`, `mentionExtension.ts`) now keep the command bound to
-  the CURRENT range in a `latestProps` closure and call that on Enter.
-- **FIXED — Toolbar image upload / "Upload file" dead button.** `Editor.tsx`
-  re-renders `<input ref={fileInputRef} type="file" style={{display:"none"}}>`.
-  `triggerUpload()` clicks it → uploads → inserts image node.
-- **FIXED — Wiki-link over-delete + focus steal.** `command` now uses the v3
-  suggestion `range` directly (it already includes the `[[` trigger), so
-  preceding text is preserved; the popup's search `<input>` was removed so
-  arrow/Enter reach the menu.
-- **FIXED — @mention notifications never fire.** `extractMentions` in
-  `mention.service.ts` now matches BOTH the `mention` node shape emitted by
-  `@tiptap/extension-mention` (attrs `{id, label, mentionSuggestionChar}`) and
-  the older mention-mark shape. `MentionExtension` moved into
-  `baseEditorExtensions()` so the editor, ShareView, and collab seed share one
-  schema (a mention page previously rendered blank in ShareView/collab).
-- **FIXED — Live DB missing Phase D/E tables.** Applied `notifications`,
-  `favorites`, AND `attributes` (also missing!) to `data/wiki.db` by extracting
-  the exact drizzle DDL from a fresh `drizzle-kit push`. `/api/favorites`,
-  `/api/notifications`, `/api/notifications/unread-count`, and the attributes
-  API now return 401 instead of 500. On OTHER DBs, run
-  `npx drizzle-kit push --force` (interactive conflicts on pre-FTS DBs may
-  require a TTY; the manual DDL extraction method is in the fix commit).
-- **FIXED — Shared links dropped embedded images ("formatting jumbled").**
-  The share view and editor render the SAME content/schema/CSS, but the file
-  endpoint (`/api/branches/:branchId/files/:fileId`) required auth, so
-  anonymous share viewers got 401s → broken image placeholders made the page
-  look like formatting was lost. `shareToken` (and `sharePassword` for
-  password-protected links) is now appended to image srcs by `/api/share/:token`
-  (`rewriteShareImageSrcs`, token.routes.ts), and the permission middleware
-  accepts a `?shareToken=` on routes that opt in via
-  `allowShareToken: true` (file.routes.ts). Scope check covers the token's own
-  branch, ANY sibling branch of the same page (image srcs are branch-bound but
-  content/files are shared across a page's placements — the Linux page's image
-  references its home-lab branch while the share is for its test-space branch),
-  or any branch of a space-scoped token's space. Covered by 3 new integration
-  tests + 1 new E2E test.
-- **Known remaining (not a regression):** the `/image` slash command still uses
-  `window.prompt("Image URL:")`. No `embed` plugin exists; the inline file
-  upload flow is the toolbar 🖼 / "Upload file" button (now functional).
+Longer historical bug-fix logs were removed during doc consolidation (2026-08-01);
+the fixes remain covered by tests. See `../README.md` §5 and §8 for the full
+inventory and the process/verification notes.
 
-## Bug-fix log (2026-08-04, Phase 1 v14)
-
-All verified: 167 vitest + 11 Playwright E2E + 21 manual checks pass, typecheck
-clean, prod build OK.
-
-- **FIXED (2026-08-04) --- Image upload after typing text: `RangeError: Position N out of
-  range`.** `uploadFile` (Editor.tsx) ran `splitBlock -> setImage -> splitBlock`
-  through a single Tiptap chain. Chained commands share one transaction, and
-  Tiptap's `splitBlock` reads `tr.selection` (already mapped through prior
-  steps) and then maps it a SECOND time via `tr.mapping.map($from.pos)`, so the
-  final split landed past the document end. FIX: dispatch the three commands
-  separately (`ed.commands.splitBlock()`, `ed.commands.setImage(...)`,
-  `ed.commands.splitBlock()`), each against a fresh state. Also enforces the
-  layout rule that images always land on their own line. Regression: E2E
-  "shared page renders embedded images" + manual-verify "image paragraph has no
-  text next to it".
-- **FIXED (2026-08-04) --- Comment hover popup stuck on loading ("..."):**
-  `CommentHoverPopup.tsx` listed `state.threadId` in its useEffect deps,
-  aborting the in-flight fetch on every re-render (initial `null -> id`
-  transition). FIX: ref-based guard that fetches once per mount, omitting
-  `state.threadId` from deps. Verified by manual-verify hover-popup checks.
-- **Attachment icon `data-kind`:** `attachmentExtension.tsx` renders
-  `<span data-kind="pdf" ...>`, giving browser tests a stable selector.
-- **Task #13 DONE --- Block drag-and-drop paragraph reordering.** Added
-  `@tiptap/extension-dropcursor` to `editingExtensions.ts` (2px blue
-  `#3b82f6` indicator). The vendored drag-handle already dispatches
-  `NodeSelection` on dragstart and serializes the slice to `dataTransfer`;
-  the dropcursor extension adds the visual ghost line at the target position.
-  Verified by a new vitest ("includes the Dropcursor extension configured with
-  blue color") + all editor loads pass without errors.
-- **Manual harness:** `e2e/manual-verify.mjs` (26 UI checks) +
-  `e2e/start-dev-server.sh` (records dev env vars, no `.env` file). BASE is
-  `http://127.0.0.1:5173` (in-sandbox run). The API server listens on
-  `0.0.0.0:3000` and Vite must be started with `--host 0.0.0.0` so the app is
-  reachable through the host's published ports (`http://192.168.1.13:5173`);
-  `BETTER_AUTH_URL`/`BETTER_EXTRA_TRUSTED_ORIGINS` must include that LAN host
-  PLUS `127.0.0.1`/`localhost` so auth works both from the LAN and inside the
-  sandbox. A Vite instance bound only to `127.0.0.1` is unreachable from
-  outside the container even though the API still answers.
-
-## Search feature (2026-08-04, Phase 1 v15)
-
-Task #14 DONE — wiki-wide search on the existing SQLite FTS5 engine (no external
-engine). `buildFtsQuery()` in `search.service.ts`:
-
-- Quoted `"phrases"` → verbatim phrase (adjacency required).
-- Each bare word → `(word OR word*)`: the unquoted alternative is porter-stemmed
-  ("crampons"→"crampon"), the `word*` alternative matches partials
-  ("net"→"networking"). Words are AND'd.
-- Bare-word special chars `" * ^ ( ) :` are stripped; boolean keywords
-  (`and/or/not/near`) are quoted so arbitrary input can never break MATCH syntax.
-
-`searchSpaces()` does escaped `LIKE %q%` over space names, returning
-`{ id, name, pageCount }` (live non-system pages only), exact-name-first then
-shortest name. `/api/search` returns `{ results, spaces, count }` — `results` is
-unchanged/backward compatible, each page result now has `spaceName`.
-`CommandPalette.tsx` groups Spaces above Pages, shows `/Space/page` breadcrumbs,
-a result-count line, and navigates via `useNavigate` (`/pages/:branchId`); space
-results load the space tree and open its first page. The old
-`window.location.hash = '#/wiki/...'` navigation was broken under BrowserRouter
-and was replaced.
-
-Verified: 4 search integration tests + 7 `buildFtsQuery` unit tests added; 176
-vitest, 11 E2E, 26/26 manual checks, typecheck, prod build all green.
 
 ## Previous (resolved) issue — do not re-introduce
 
