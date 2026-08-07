@@ -1181,6 +1181,7 @@ span.wiki-mention {
   opacity: 0;
   transition: opacity 0.12s ease;
   user-select: none;
+  pointer-events: none;
   z-index: 5;
 }
 .wiki-editor-content .ProseMirror .drag-handle:hover,
@@ -1189,7 +1190,7 @@ span.wiki-mention {
   color: var(--color-text);
 }
 .wiki-editor-content .ProseMirror:hover .drag-handle,
-.wiki-editor-content:hover .drag-handle { opacity: 1; }
+.wiki-editor-content:hover .drag-handle { opacity: 1; pointer-events: auto; }
 /* B10: lucide GripVertical rendered as an inline SVG data URI (the handle is a
    plain div created by the vendor extension, so no JSX to put an <svg> in). */
 .drag-handle::before {
@@ -1198,6 +1199,7 @@ span.wiki-mention {
   height: 16px;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 3v18M15 3v18'/%3E%3C/svg%3E") center / 16px no-repeat;
 }
+.drag-handle.hide { pointer-events: none; opacity: 0; }
 
 /* Search & replace result decorations */
 .wiki-editor-content .search-result {
