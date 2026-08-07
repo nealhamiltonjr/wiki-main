@@ -36,6 +36,7 @@ export const auth = betterAuth({
     "http://localhost:*",
     "http://127.0.0.1:*",
     "http://0.0.0.0:*",
+    "http://192.168.*:*",
   ],
   database: drizzleAdapter(db, { provider: "sqlite", schema }),
   emailAndPassword: {
