@@ -4,7 +4,9 @@ import { ZodError } from "zod";
 
 import { authRoutes } from "./auth/routes.js";
 import { registerSecurityHeaders } from "./security.js";
-import { registerAccessDeclarationCheck } from "./middleware/access.js";
+import { registerPermissionMiddleware } from "./middleware/access.js";
+import { spaceRoutes } from "./routes/space.routes.js";
+import { treeRoutes } from "./routes/tree.routes.js";
 
 /**
  * Builds a fully-configured Fastify instance WITHOUT calling .listen() — split
@@ -18,9 +20,13 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // Day-one security headers (§3.2): CSP, nosniff, frame-options, referrer.
   registerSecurityHeaders(app);
 
-  // Every /api/ route (except /api/auth/*) must declare config.access or the
-  // server refuses to boot (§3.2).
-  registerAccessDeclarationCheck(app);
+  // Full permission middleware (§3.8): the declaration invariant (every /api/
+  // route except /api/auth/* must declare config.access or the server refuses
+  // to boot) PLUS the preHandler enforcement — resolveAccess against branch
+  // chains / space roles, bearer-token principals, suspended-user guard,
+  // share-link tokens. Registered before any routes so every one after this
+  // point is subject to it.
+  await registerPermissionMiddleware(app);
 
   // Found as a real bug in the old app: an unhandled ZodError fell through to
   // Fastify's default handler, returning a bare 500 with the validation error
@@ -45,6 +51,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
 
   await app.register(cookie);
   await app.register(authRoutes);
+  await app.register(spaceRoutes);
+  await app.register(treeRoutes);
 
   app.get("/api/health", { config: { access: "public" } }, async () => ({
     status: "ok",

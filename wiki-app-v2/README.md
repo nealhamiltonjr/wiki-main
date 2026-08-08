@@ -63,3 +63,17 @@ npm start            # production server (NODE_ENV=production)
   Gate: the ported permission test suite passes unchanged (11 tests,
   assertions identical to the old app's `algorithm.test.ts`); 20 tests total,
   typecheck clean, e2e gate green.
+- Slice 4 (client integration): done. Auth client (`src/api/authClient.ts`,
+  better-auth React) + typed API client (`src/api/client.ts`), Login component
+  with sign-in/sign-up, react-arborist tree sidebar wired to the real
+  `/api/spaces/:id/tree` endpoint, and a session-gated authenticated layout
+  (`src/routes/_authenticated.tsx`, public `/login`). Server side:
+  `auth.service.ts`, `group.service.ts`, `branch.service.ts`, `token.service.ts`
+  under `src/server/services/`, permission middleware (`middleware/access.ts`)
+  enforced with a declarative route config, and `space.routes.ts` /
+  `tree.routes.ts` registered in `app.ts`.
+  E2E: `scripts/seed-e2e.ts` seeds a real better-auth credential user + demo
+  space tree; Playwright boots BOTH servers (Vite :5173 + API :3000) and
+  verifies login → space → tree render (`npm run e2e`, 2 specs). Integration
+  tests cover 401 unauthenticated, space create/list, tree pruning of deleted
+  pages, and 403 for non-members (24 tests total).

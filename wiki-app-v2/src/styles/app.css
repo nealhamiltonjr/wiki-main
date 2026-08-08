@@ -5,6 +5,95 @@
 @import "./tokens.css";
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+ * Space tree sidebar (slice 4). react-arborist needs an explicit pixel box
+ * (width/height props) which the container measures via ResizeObserver — so
+ * the container must be a flex-stretched, min-height:0 box inside the h-screen
+ * sidebar, or the virtualizer renders only a sliver.
+ * ------------------------------------------------------------------------- */
+.wiki-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.wiki-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.wiki-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.wiki-tree-item:hover {
+  background: var(--color-surface-hover);
+}
+
+.wiki-tree-item.selected {
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+
+.tree-chevron,
+.tree-chevron-spacer {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tree-chevron {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--color-text-secondary);
+  transition: transform 120ms ease;
+}
+
+.tree-chevron.collapsed svg {
+  transform: rotate(90deg);
+}
+
+.tree-chevron-spacer {
+  width: 16px;
+}
+
+.tree-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-page-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.tree-page-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-text-secondary);
+  opacity: 0.6;
+  flex: none;
+}
+
 /* Expose every canonical token to Tailwind's utility namespace. Utilities like
  * bg-background / text-foreground / border-border / bg-primary / bg-surface
  * resolve directly to the token vars (inline = reference, not copy).

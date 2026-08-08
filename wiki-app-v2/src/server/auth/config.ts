@@ -50,6 +50,17 @@ export const auth = betterAuth({
     enabled: true,
     window: Number(process.env.BETTER_AUTH_RATE_LIMIT_WINDOW ?? 60),
     max: Number(process.env.BETTER_AUTH_RATE_LIMIT_MAX ?? 20),
+    // better-auth applies stricter defaults (3 req/10s) to sign-in/sign-up
+    // paths that override `max` above. Integration tests need to burst past
+    // that, so allow env-driven per-path overrides (`false` = unlimited).
+    ...(process.env.BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES
+      ? {
+          customRules: JSON.parse(process.env.BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES) as Record<
+            string,
+            { window: number; max: number } | false
+          >,
+        }
+      : {}),
   },
   socialProviders: {
     // Populated from system_settings at runtime once the settings UI exists

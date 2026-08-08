@@ -1,23 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 
-import { Button } from "@/components/ui/button";
+import { Login } from "@/features/auth/Login";
 
-// Placeholder login surface for slice 1. Slice 2 replaces the button with the
-// real better-auth sign-in flow.
+// Real better-auth sign-in surface (slice 2 backend, slice 4 UI): sign in or
+// sign up, then the authenticated layout's session gate takes over.
 export const Route = createFileRoute("/_public/login")({
   component: LoginPage,
 });
 
 function LoginPage() {
-  return (
-    <div className="w-full max-w-sm space-y-4 rounded-lg border p-6">
-      <h1 className="text-xl font-semibold">Sign in</h1>
-      <p className="text-sm text-muted-foreground">
-        Authentication is wired in slice 2 (better-auth).
-      </p>
-      <Button disabled className="w-full">
-        Continue
-      </Button>
-    </div>
-  );
+  const navigate = useNavigate();
+  return <Login onAuthed={() => void navigate({ to: "/" })} />;
 }
