@@ -51,3 +51,15 @@ npm start            # production server (NODE_ENV=production)
   Committed migrations in `drizzle/`, applied automatically at boot.
   Gate: `npm run test` — integration test boots the real app via `.inject()`,
   signs up, logs in, and retrieves the session (9 tests pass).
+- Slice 3 (schema + permission algorithm): done. Ported `resolveAccess` and the
+  full pages/branches/spaces/groups schema verbatim from the old app
+  (`src/shared/permissions/algorithm.ts`, `src/shared/types.ts`,
+  `src/server/db/schema.ts`) plus the schema's 22 wiki tables as committed
+  migration `drizzle/0001_long_prima.sql`. Shared types now under
+  `src/shared/` — the single source of truth between DB, API, and frontend.
+  The `RouteAccess` union in `middleware/access.ts` now types its
+  `minRole` from `AccessResult`/`SpaceRole`. Full preHandler enforcement lands
+  in slice 4 with the tree services.
+  Gate: the ported permission test suite passes unchanged (11 tests,
+  assertions identical to the old app's `algorithm.test.ts`); 20 tests total,
+  typecheck clean, e2e gate green.

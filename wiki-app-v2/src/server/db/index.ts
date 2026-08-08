@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 
 import * as authSchema from "./auth-schema.js";
+import * as wikiSchema from "./schema.js";
 
 // ---------------------------------------------------------------------------
 // THE single SQLite connection (brief §3.2). Every service — collab included —
@@ -34,7 +35,10 @@ export function getDb() {
   // in braces: Vite SSR gives namespace imports a null prototype, which trips
   // drizzle's `is()` table detection (instanceof short-circuits for the
   // individual tables inside a flat object, so spreading avoids it).
-  const db = drizzle(sqlite, { schema: { ...authSchema } });
+  // Combines the better-auth identity tables with the wiki tables; both are
+  // spread so every table (user, users, session, groups, spaces, pages, ...)
+  // is reachable on the single drizzle instance.
+  const db = drizzle(sqlite, { schema: { ...authSchema, ...wikiSchema } });
 
   // Apply committed schema migrations in order (drizzle/). Idempotent — the
   // migrator tracks applied versions in __drizzle_migrations.
@@ -44,4 +48,4 @@ export function getDb() {
   return state;
 }
 
-export type Db = ReturnType<typeof drizzle<typeof authSchema>>;
+export type Db = ReturnType<typeof drizzle<typeof authSchema & typeof wikiSchema>>;

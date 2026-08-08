@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { AccessResult, SpaceRole } from "../../shared/types.js";
 
 /**
  * Every /api/ route MUST declare its access requirement via `config.access`
@@ -9,16 +10,16 @@ import type { FastifyInstance } from "fastify";
  * hook-driven means a forgotten check fails at startup, not silently at
  * request time.
  *
- * The full preHandler enforcement (resolveAccess port, token/share-link
- * handling) lands in slice 3 alongside the permission algorithm. Slice 2
- * installs the declaration invariant and the boot refusal.
+ * Slice 2 installs the declaration invariant and the boot refusal; the full
+ * preHandler enforcement (resolveAccess against branch chains / space roles,
+ * token + share-link handling) lands in slice 4 with the tree services.
  */
 export type RouteAccess =
   | "public" // no auth required at all
   | "authenticated" // any logged-in user, no specific branch/role check
   | "admin" // global admin only
-  | { branchParam: string; minRole: "viewer" | "editor" | "admin"; source?: "params" | "query" | "body"; allowShareToken?: true }
-  | { spaceParam: string; minRole: "viewer" | "editor" | "admin"; source?: "params" | "query" | "body" };
+  | { branchParam: string; minRole: Exclude<AccessResult, "none">; source?: "params" | "query" | "body"; allowShareToken?: true }
+  | { spaceParam: string; minRole: SpaceRole; source?: "params" | "query" | "body" };
 
 declare module "fastify" {
   interface FastifyContextConfig {
