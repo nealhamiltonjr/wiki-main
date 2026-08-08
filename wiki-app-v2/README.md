@@ -17,14 +17,37 @@ rebuild, slice by slice.
 
 ```sh
 npm install
-npm run dev        # Vite dev server on :5173
-npm run build      # typecheck + production build
-npm run typecheck  # tsc --noEmit
-npm run e2e        # Playwright
+npm run dev          # Vite dev server on :5173
+npm run dev:server   # API server (tsx watch) on :3000
+npm run build        # typecheck + production build
+npm run typecheck    # tsc --noEmit
+npm run test         # vitest (server unit + integration)
+npm run e2e          # Playwright
+npm run db:generate  # drizzle-kit generate (new migration from schema)
+npm start            # production server (NODE_ENV=production)
 ```
+
+## Environment
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `PORT` / `HOST` | `3000` / `0.0.0.0` | API server listen address (Docker host-network aware) |
+| `DB_PATH` | `data/wiki.db` | SQLite file (relative to repo root) |
+| `BETTER_AUTH_SECRET` | dev placeholder | Must be set in production |
+| `BETTER_AUTH_URL` | `http://localhost:3000` | Explicit base URL (not header-derived) |
+| `BETTER_EXTRA_TRUSTED_ORIGINS` | — | Comma-separated extra trusted origins |
+| `BETTER_AUTH_RATE_LIMIT_WINDOW` / `MAX` | `60` / `20` | Auth rate limit (explicitly enabled, §3.2) |
 
 ## Status
 
 - Slice 1 (skeleton): done. Vite + React 19 + TanStack Router shell, token
   architecture, shadcn base, authenticated/public layout split, health route.
   Gate: `npm run e2e` passes with zero console errors.
+- Slice 2 (server foundation): done. Fastify skeleton, single Drizzle/SQLite
+  connection module (`src/server/db/index.ts`), better-auth wired with explicit
+  `rateLimit` + `trustedOrigins` (incl. `192.168.*:*`), security headers from
+  §3.2 registered globally from day one (CSP, nosniff, frame-options,
+  referrer-policy), and the every-route-declares-`config.access` boot refusal.
+  Committed migrations in `drizzle/`, applied automatically at boot.
+  Gate: `npm run test` — integration test boots the real app via `.inject()`,
+  signs up, logs in, and retrieves the session (9 tests pass).
