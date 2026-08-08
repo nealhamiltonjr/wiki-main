@@ -120,8 +120,12 @@ test.describe("wiki app", () => {
     await page.goto(`/pages/${branchId}`, { waitUntil: "networkidle" });
     await expect(page.locator(".wiki-editor-content")).toBeVisible({ timeout: 5000 });
 
-    // Click Edit to enter editing mode
-    await page.click('button:has-text("Edit")');
+    // Editing is the default continuous surface; enter it explicitly only if
+    // the page happens to be in read-only mode.
+    const editBtn = page.getByRole("button", { name: "Edit", exact: true });
+    if (await editBtn.isVisible().catch(() => false)) {
+      await editBtn.click();
+    }
     await page.waitForTimeout(300);
 
     // Type in the editor

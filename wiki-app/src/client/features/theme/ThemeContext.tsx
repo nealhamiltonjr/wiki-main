@@ -60,7 +60,7 @@ export const THEME_PRESETS: ThemePreset[] = [
       "color-inline-code-text": "#1f2328",
       "color-blockquote-bg": "#f6f8fa",
       "color-blockquote-border": "#d0d7de",
-      "table-header-bg": "#f6f8fa",
+      "color-table-header-bg": "#f6f8fa",
       "radius-sm": "0.25rem",
       "radius-md": "0.375rem",
       "radius-lg": "0.5rem",

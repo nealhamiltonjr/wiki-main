@@ -871,17 +871,35 @@ button:disabled { opacity: 0.55; cursor: not-allowed; }
    Editor content (ProseMirror) — typography
    ============================================================ */
 .wiki-editor-content {
+  position: relative; /* anchor for the absolutely-positioned drag handle */
   font-size: var(--font-size-base);
   line-height: var(--line-height);
   color: var(--color-text);
 }
+.wiki-editor-content,
+.wiki-editor-content:focus,
+.wiki-editor-content:focus-within {
+  outline: none;
+  border: none;
+  box-shadow: none;
+}
 .wiki-editor-content .ProseMirror {
   outline: none;
+  border: none;
+  box-shadow: none;
   /* Keep editor whitespace (indentation/space runs) intact. This mirrors the
      style Tiptap injects via injectCSS, which is dropped on read-only mounts
      (e.g. shared pages) because the EditorContent element isn't in the DOM
      when the StrictMode double-mount destroys the first editor instance. */
   white-space: break-spaces;
+}
+/* Full-bleed writing surface: no focus ring, no frame around the canvas.
+   A selected block gets a subtle left accent instead of a blue outline. */
+.wiki-editor-content .ProseMirror-selectednode {
+  outline: none !important;
+  border-radius: 2px;
+  background: var(--color-selection-bg, rgba(31, 111, 235, 0.14));
+  box-shadow: inset 3px 0 0 var(--color-primary, #1f6feb);
 }
 .wiki-editor-content .ProseMirror p {
   margin: 0 0 0.7em;
@@ -1161,12 +1179,11 @@ span.wiki-mention {
 /* Block drag handle (vendored GlobalDragHandle) */
 .wiki-editor-content .ProseMirror .drag-handle,
 .wiki-editor-content .drag-handle {
-  /* Fixed, not absolute: the vendored handler positions the handle from
-     getBoundingClientRect() (viewport coordinates), so an absolute handle
-     inside the scrolling content wrapper drifts off the block as soon as the
-     page scrolls. Fixed matches those coordinates (and the absoluteRect modal
-     compensation in vendor/drag-handle.ts is built for exactly this). */
-  position: fixed;
+  /* Absolute within .wiki-editor-content (position: relative), not fixed:
+     the handle is a child of the same scroll container as the blocks, so it
+     travels with the content on scroll instead of drifting off the block.
+     vendor/drag-handle.ts computes wrapper-relative coordinates directly. */
+  position: absolute;
   left: -24px;
   top: 0;
   width: 18px;

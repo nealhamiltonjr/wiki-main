@@ -96,6 +96,50 @@ function LoadingFallback() {
   return <div className="loading-page">Loading…</div>;
 }
 
+// Single authenticated layout: persistent chrome (sidebar + search) wraps a
+// flat <Routes> at one level. No nested <Routes> anywhere in the app.
+function AuthenticatedLayout() {
+  const { branchId } = useParams();
+
+  return (
+    <div style={{ display: "flex", height: "100vh" }}>
+      <Sidebar />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+        <SearchBox />
+        <div style={{ flex: 1, overflow: "auto" }}>
+          <Suspense fallback={<LoadingFallback />}>
+            <Routes>
+              <Route path="/pages/:branchId" element={<EditorRoute />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/" element={
+                <EmptyState
+                  icon={BookMarked}
+                  title="Select or create a page"
+                  description="Pick a page from the sidebar or create a new one to get started."
+                />
+              } />
+            </Routes>
+          </Suspense>
+        </div>
+      </div>
+      <CommandPalette />
+    </div>
+  );
+}
+
+// Single public layout: unauthenticated visitors see the public-facing site.
+function PublicLayout({ onAuthed }: { onAuthed: () => void }) {
+  return (
+    <>
+      <Routes>
+        <Route path="/login" element={<Login onAuthed={onAuthed} />} />
+        <Route path="*" element={<Suspense fallback={<LoadingFallback />}><PublicView /></Suspense>} />
+      </Routes>
+      <Toaster />
+    </>
+  );
+}
+
 export default function App() {
   const { data: session, isPending, refetch } = useSession();
   const [publicMode, setPublicMode] = useState<boolean | null>(null);
@@ -115,18 +159,9 @@ export default function App() {
 
   if (isPending || publicMode === null) return null;
 
-  // Public mode: unauthenticated visitors see the public-facing site
   if (!session) {
     if (publicMode) {
-      return (
-        <>
-          <Routes>
-            <Route path="/login" element={<Login onAuthed={() => refetch()} />} />
-            <Route path="*" element={<Suspense fallback={<LoadingFallback />}><PublicView /></Suspense>} />
-          </Routes>
-          <Toaster />
-        </>
-      );
+      return <PublicLayout onAuthed={() => refetch()} />;
     }
     return (
       <>
@@ -138,28 +173,7 @@ export default function App() {
 
   return (
     <>
-      <div style={{ display: "flex", height: "100vh" }}>
-        <Sidebar />
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-          <SearchBox />
-          <div style={{ flex: 1, overflow: "auto" }}>
-            <Suspense fallback={<LoadingFallback />}>
-              <Routes>
-                <Route path="/pages/:branchId" element={<EditorRoute />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/" element={
-                  <EmptyState
-                    icon={BookMarked}
-                    title="Select or create a page"
-                    description="Pick a page from the sidebar or create a new one to get started."
-                  />
-                } />
-              </Routes>
-            </Suspense>
-          </div>
-        </div>
-        <CommandPalette />
-      </div>
+      <AuthenticatedLayout />
       <Toaster />
     </>
   );

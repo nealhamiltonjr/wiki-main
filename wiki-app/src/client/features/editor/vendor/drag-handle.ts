@@ -37,22 +37,17 @@ export interface GlobalDragHandleOptions {
 
   atomNodes: string[];
 }
-function absoluteRect(node: Element) {
+// Coordinates relative to the handle's positioned container
+// (.wiki-editor-content, which has position: relative). The handle is a child
+// of that container, so `position: absolute` with these values stays glued to
+// the block across scroll and modal transforms — no getBoundingClientRect
+// drift and no modal-specific compensation needed.
+function relativeRect(node: Element, container: HTMLElement) {
   const data = node.getBoundingClientRect();
-  const modal = node.closest('[role="dialog"]');
-
-  if (modal && window.getComputedStyle(modal).transform !== "none") {
-    const modalRect = modal.getBoundingClientRect();
-
-    return {
-      top: data.top - modalRect.top,
-      left: data.left - modalRect.left,
-      width: data.width,
-    };
-  }
+  const containerRect = container.getBoundingClientRect();
   return {
-    top: data.top,
-    left: data.left,
+    top: data.top - containerRect.top,
+    left: data.left - containerRect.left,
     width: data.width,
   };
 }
@@ -322,8 +317,16 @@ export function DragHandlePlugin(
   }
 
   let dragHandleElement: HTMLElement | null = null;
+  // The positioned ancestor the handle is appended to and positioned against
+  // (.wiki-editor-content). Set once the plugin view mounts.
+  let handleContainer: HTMLElement | null = null;
+  // Last block the handle was anchored to; ResizeObserver re-anchors it there
+  // when layout shifts (image loads, dropcursor, font swap) while the mouse is
+  // stationary.
+  let lastBlock: Element | null = null;
 
   function hideDragHandle() {
+    lastBlock = null;
     if (dragHandleElement) {
       dragHandleElement.classList.add("hide");
     }
@@ -333,6 +336,50 @@ export function DragHandlePlugin(
     if (dragHandleElement) {
       dragHandleElement.classList.remove("hide");
     }
+  }
+
+  function positionHandleFor(node: Element) {
+    const container = handleContainer;
+    const handle = dragHandleElement;
+    if (!container || !handle || !(node instanceof Element)) return;
+    const rect = relativeRect(node, container);
+
+    if (isCustomNodeDOM(node, options)) {
+      // Custom nodes pin the handle to the inner NodeViewWrapper's top-left:
+      // the natural anchor sits in transient/empty space outside the visible
+      // block.
+      const rendererOuter =
+        (node.closest(".react-renderer") as HTMLElement | null) ?? node;
+      const inner =
+        (rendererOuter.firstElementChild as HTMLElement | null) ?? rendererOuter;
+      const innerRect = relativeRect(inner, container);
+      handle.style.left = `${innerRect.left + 4}px`;
+      handle.style.top = `${innerRect.top + 4}px`;
+    } else {
+      const compStyle = window.getComputedStyle(node);
+      const parsedLineHeight = parseInt(compStyle.lineHeight, 10);
+      const lineHeight = isNaN(parsedLineHeight)
+        ? parseInt(compStyle.fontSize) * 1.2
+        : parsedLineHeight;
+      const paddingTop = parseInt(compStyle.paddingTop, 10);
+
+      const blockRect = { ...rect };
+      blockRect.top += (lineHeight - 24) / 2;
+      blockRect.top += paddingTop;
+      // Li markers
+      if (node.matches("ul:not([data-type=taskList]) li, ol li")) {
+        blockRect.left -= options.dragHandleWidth;
+      }
+      // Tables: clear the table's own row-drag handle so the two grips don't
+      // stack on each other.
+      if (node.closest(".tableWrapper")) {
+        blockRect.left -= options.dragHandleWidth;
+      }
+      handle.style.left = `${blockRect.left - options.dragHandleWidth}px`;
+      handle.style.top = `${blockRect.top}px`;
+    }
+    lastBlock = node;
+    showDragHandle();
   }
 
   function hideHandleOnEditorOut(event: MouseEvent) {
@@ -382,6 +429,21 @@ export function DragHandlePlugin(
       if (!handleBySelector) {
         view?.dom?.parentElement?.appendChild(dragHandleElement);
       }
+      handleContainer = view?.dom?.parentElement ?? null;
+
+      // Reposition a visible handle after layout shifts that happen without a
+      // mousemove (image load, dropcursor, font swap). The handle is a child of
+      // the scroll container, so scroll alone never requires repositioning.
+      const resizeObserver =
+        typeof ResizeObserver !== "undefined"
+          ? new ResizeObserver(() => {
+              if (lastBlock) positionHandleFor(lastBlock);
+            })
+          : null;
+      if (resizeObserver && handleContainer) {
+        resizeObserver.observe(handleContainer);
+      }
+
       view?.dom?.parentElement?.addEventListener(
         "mouseout",
         hideHandleOnEditorOut,
@@ -389,6 +451,7 @@ export function DragHandlePlugin(
 
       return {
         destroy: () => {
+          resizeObserver?.disconnect();
           if (!handleBySelector) {
             dragHandleElement?.remove?.();
           }
@@ -398,6 +461,8 @@ export function DragHandlePlugin(
             onDragHandleDragStart,
           );
           dragHandleElement = null;
+          handleContainer = null;
+          lastBlock = null;
           view?.dom?.parentElement?.removeEventListener(
             "mouseout",
             hideHandleOnEditorOut,
@@ -435,56 +500,7 @@ export function DragHandlePlugin(
             return;
           }
 
-          const isCustomNode = isCustomNodeDOM(node, options);
-
-          // Custom nodes pin the handle to the inner NodeViewWrapper's top-left:
-          // the natural anchor sits in transient/empty space outside the visible block.
-          if (isCustomNode) {
-            // tiptap React node-views emit an outer `.react-renderer` whose first
-            // child is the visible NodeViewWrapper; walk to that outer first since
-            // `node` may be either the outer or an inner element with data-type.
-            const rendererOuter =
-              (node.closest(".react-renderer") as HTMLElement | null) ?? node;
-            const inner =
-              (rendererOuter.firstElementChild as HTMLElement | null) ??
-              rendererOuter;
-            const innerRect = absoluteRect(inner);
-            if (!dragHandleElement) return;
-            dragHandleElement.style.left = `${innerRect.left + 4}px`;
-            dragHandleElement.style.top = `${innerRect.top + 4}px`;
-            showDragHandle();
-            return;
-          }
-
-          const compStyle = window.getComputedStyle(node);
-          const parsedLineHeight = parseInt(compStyle.lineHeight, 10);
-          const lineHeight = isNaN(parsedLineHeight)
-            ? parseInt(compStyle.fontSize) * 1.2
-            : parsedLineHeight;
-          const paddingTop = parseInt(compStyle.paddingTop, 10);
-
-          const rect = absoluteRect(node);
-
-          rect.top += (lineHeight - 24) / 2;
-          rect.top += paddingTop;
-          // Li markers
-          if (node.matches("ul:not([data-type=taskList]) li, ol li")) {
-            rect.left -= options.dragHandleWidth;
-          }
-          // Tables: clear the table's own row-drag handle so the two
-          // grips don't stack on each other. `nodeDOMAtCoords` returns
-          // the wrapper for top-level hovers (wrapper is direct child of
-          // .ProseMirror) and a descendant for deeper hovers — cover both.
-          if (node.closest(".tableWrapper")) {
-            rect.left -= options.dragHandleWidth;
-          }
-          rect.width = options.dragHandleWidth;
-
-          if (!dragHandleElement) return;
-
-          dragHandleElement.style.left = `${rect.left - rect.width}px`;
-          dragHandleElement.style.top = `${rect.top}px`;
-          showDragHandle();
+          positionHandleFor(node);
         },
         keydown: () => {
           hideDragHandle();

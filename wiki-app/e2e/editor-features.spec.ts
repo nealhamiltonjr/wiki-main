@@ -61,7 +61,12 @@ async function openEditor(page: import("@playwright/test").Page, slug: string): 
   const branchId = await getBranchIdBySlug(page, slug);
   await page.goto(`/pages/${branchId}`, { waitUntil: "networkidle", timeout: 15000 });
   await expect(page.locator(".wiki-page-slug")).toBeVisible({ timeout: 5000 });
-  await page.click('button:has-text("Edit")');
+  // Editing is the default continuous surface; the Edit button only exists
+  // when the page was toggled read-only, so enter editing only if needed.
+  const editBtn = page.getByRole("button", { name: "Edit", exact: true });
+  if (await editBtn.isVisible().catch(() => false)) {
+    await editBtn.click();
+  }
   await page.waitForTimeout(300);
   const editor = page.locator(".ProseMirror");
   await editor.click();

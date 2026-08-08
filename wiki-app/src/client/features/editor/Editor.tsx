@@ -69,7 +69,10 @@ export function Editor({ branchId }: { branchId: string }) {
     api.setUserSetting("editor.width", next);
   }
 
-  const [isEditing, setIsEditing] = useState(false);
+  // Continuous writing surface: editing is the default state for users with
+  // access. "Done editing" still toggles to a read-only view, but the surface
+  // does not start in a chrome-changing "view mode".
+  const [isEditing, setIsEditing] = useState(true);
 
   // Collaboration state
   const [useCollabMode, setUseCollabMode] = useState(false);
@@ -304,13 +307,15 @@ export function Editor({ branchId }: { branchId: string }) {
     setPage(null);
     setStatus("idle");
     setHistory(null);
-    setIsEditing(false);
     setUseCollabMode(false);
     setTitle("");
     api.getPage(branchId).then((p) => {
       setPage(p);
       setTitle(p.title ?? "");
-      editor?.setEditable(false);
+      // Continuous surface: start editable whenever the user has access.
+      const canEditPage = p.access === "editor" || p.access === "admin";
+      setIsEditing(canEditPage);
+      editor?.setEditable(canEditPage);
     });
     api.getAncestry(branchId).then(setAncestry).catch(() => setAncestry(null));
   }, [branchId]);
@@ -721,11 +726,8 @@ export function Editor({ branchId }: { branchId: string }) {
               editor={editor}
               className="wiki-editor-content"
               style={{
-                border: "1px solid var(--color-border)",
-                borderRadius: 6,
+                // Full-bleed writing surface: no card frame around the canvas.
                 minHeight: 300,
-                padding: "12px 16px",
-                background: isEditing ? "var(--color-surface)" : "var(--color-bg-secondary)",
               }}
             />
           </div>
