@@ -7,7 +7,7 @@ import {
   List, ListOrdered, Quote, Code, Undo2, Redo2,
 } from "lucide-react";
 
-import { baseExtensions } from "./editorExtensions.js";
+import { baseExtensions, stripWordHTML } from "./editorExtensions.js";
 import { cn } from "@/lib/utils";
 
 export interface PageEditorHandle {
@@ -41,6 +41,7 @@ export const PageEditor = forwardRef<PageEditorHandle, {
       attributes: {
         class: "editor-content wiki-prose",
       },
+      transformPastedHTML: stripWordHTML,
     },
     onUpdate: () => onUpdate?.(),
   });

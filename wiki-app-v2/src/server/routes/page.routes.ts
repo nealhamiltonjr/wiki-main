@@ -85,6 +85,13 @@ export async function pageRoutes(app: FastifyInstance) {
       });
 
       if (!result.ok) {
+        if ("validationErrors" in result) {
+          return reply.code(422).send({
+            error: "Invalid content",
+            message: "The page content contains unrecognized elements and could not be saved. Try pasting as plain text.",
+            details: result.validationErrors,
+          });
+        }
         return reply.code(409).send({
           error: "Conflict",
           message: "This page was updated elsewhere. Reload to see the latest version before saving again.",

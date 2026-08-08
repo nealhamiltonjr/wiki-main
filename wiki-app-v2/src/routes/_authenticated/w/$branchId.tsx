@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Pencil, Eye, Loader2 } from "lucide-react";
@@ -7,6 +7,8 @@ import { api, type PageData } from "@/api/client";
 import { PageEditor, type PageEditorHandle } from "@/features/editor/Editor";
 import { useAutosave, saveStateLabel } from "@/features/editor/useAutosave";
 import { useQuery } from "@/lib/useQuery";
+import { cn } from "@/lib/utils";
+import { MermaidRenderer } from "@/features/editor/extensions/MermaidRenderer.js";
 
 export const Route = createFileRoute("/_authenticated/w/$branchId")({
   component: PageView,
@@ -45,12 +47,15 @@ function PageView() {
       {editMode ? (
         <EditableCanvas page={page} key={page.id} onConflict={() => reload()} />
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
-          <div className="editor-canvas">
-            <div className="wiki-prose">
-              <ReadOnlyContent page={page} />
+        <div className="flex min-h-0 flex-1">
+          <div className="min-h-0 flex-1 overflow-auto">
+            <div className="editor-canvas">
+              <div className="wiki-prose">
+                <ReadOnlyContent page={page} />
+              </div>
             </div>
           </div>
+          <PageTOC content={page.content} />
         </div>
       )}
     </div>
@@ -167,10 +172,17 @@ function BlockNode({ node }: { node: PMNode }) {
       return <li>{children}</li>;
     case "blockquote":
       return <blockquote>{node.content?.map((n, i) => <BlockNode key={i} node={n} />)}</blockquote>;
-    case "codeBlock":
-      return <pre><code>{node.content?.map((n) => n.text).join("\n")}</code></pre>;
+    case "codeBlock": {
+      const lang = (node.attrs as Record<string, unknown> | null)?.language as string | undefined;
+      const code = (node.content as Array<{ text?: string }> | undefined)?.map((n) => n.text ?? "").join("\n") ?? "";
+      return <CodeBlock code={code} language={lang} />;
+    }
     case "horizontalRule":
       return <hr />;
+    case "mermaidDiagram": {
+      const source = (node.content as Array<{ text?: string }> | undefined)?.map((n) => n.text ?? "").join("\n") ?? "";
+      return <MermaidRenderer source={source} />;
+    }
     default:
       return children ? <div>{children}</div> : null;
   }
@@ -222,6 +234,108 @@ function EditableCanvas({ page, onConflict }: { page: PageData; onConflict: () =
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// In-page table of contents (§12.6) — auto-generated from heading nodes in the
+// page JSON, sticky sidebar in read mode. Extracts headings from the Tiptap
+// doc tree (same source as ReadOnlyContent), anchors them via heading id attrs.
+// ---------------------------------------------------------------------------
+
+interface TocEntry { id: string; level: number; text: string }
+
+function PageTOC({ content }: { content: unknown }) {
+  const entries = useMemo(() => extractTocEntries(content), [content]);
+  if (entries.length < 2) return null; // Not enough headings to justify a TOC
+
+  return (
+    <nav className="sticky top-0 hidden w-52 shrink-0 overflow-auto border-l border-border px-3 py-6 lg:block" aria-label="In-page table of contents">
+      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-text-muted">On this page</h4>
+      <ul className="space-y-0.5">
+        {entries.map((e) => (
+          <li key={e.id}>
+            <a
+              href={`#${e.id}`}
+              className={cn(
+                "block rounded-sm py-0.5 text-xs text-text-secondary transition-colors hover:text-foreground",
+                e.level === 1 && "font-medium text-foreground",
+                e.level >= 3 && "pl-3"
+              )}
+            >
+              {e.text}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
+function extractTocEntries(content: unknown): TocEntry[] {
+  const entries: TocEntry[] = [];
+  const doc = content as { type: string; content?: Array<Record<string, unknown>> } | null;
+  if (!doc || doc.type !== "doc" || !Array.isArray(doc.content)) return entries;
+  for (const node of doc.content) {
+    if (node.type === "heading") {
+      const id = (node.attrs as Record<string, unknown> | undefined)?.id as string | undefined;
+      const level = (node.attrs as Record<string, unknown> | undefined)?.level as number ?? 2;
+      const text = extractText(node);
+      if (id && text) entries.push({ id, level, text });
+    }
+  }
+  return entries;
+}
+
+function extractText(node: Record<string, unknown>): string {
+  const children = node.content as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(children)) return "";
+  return children.map((c) => (c.type === "text" ? (c.text as string) ?? "" : "")).join("");
+}
+
+// ---------------------------------------------------------------------------
+// Syntax-highlighted code block (§13.6). Uses Prism for lightweight
+// highlighting. In read mode, shows a language tag and highlighted code.
+// ---------------------------------------------------------------------------
+
+function CodeBlock({ code, language }: { code: string; language?: string }) {
+  const highlighted = useMemo(() => {
+    if (!language) return null;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const Prism = require("prismjs");
+      // Load common languages on demand
+      const langMap: Record<string, string> = {
+        ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
+        py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
+        css: "css", html: "html", xml: "html", json: "json",
+        yaml: "yaml", yml: "yaml", toml: "toml", md: "markdown",
+        sql: "sql", sh: "bash", bash: "bash", zsh: "bash",
+        dockerfile: "docker", graphql: "graphql",
+      };
+      const resolved = langMap[language] ?? language;
+      try { require(`prismjs/components/prism-${resolved}`); } catch { /* ignore */ }
+      return Prism.highlight(code, Prism.languages[resolved] ?? Prism.languages.plaintext, resolved);
+    } catch {
+      return null;
+    }
+  }, [code, language]);
+
+  return (
+    <div className="my-3 overflow-hidden rounded-md border border-border">
+      {language ? (
+        <div className="flex items-center justify-between border-b border-border bg-surface-hover px-3 py-1">
+          <span className="text-xs font-medium text-text-muted uppercase">{language}</span>
+        </div>
+      ) : null}
+      <pre className="overflow-x-auto p-3 text-sm leading-relaxed">
+        {highlighted ? (
+          <code dangerouslySetInnerHTML={{ __html: highlighted }} />
+        ) : (
+          <code>{code}</code>
+        )}
+      </pre>
     </div>
   );
 }

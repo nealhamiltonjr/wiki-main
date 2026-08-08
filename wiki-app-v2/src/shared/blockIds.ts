@@ -40,6 +40,114 @@ export function defaultGenerateId(): string {
   return id;
 }
 
+// ---------------------------------------------------------------------------
+// Content integrity validation (§11.4). Every write path calls these to
+// ensure the ProseMirror JSON document is structurally sound, every block node
+// has an id, and the document matches a known-good shape before persisting.
+// ---------------------------------------------------------------------------
+
+/** Result of content validation. Errors are user-visible — they indicate the
+ *  client sent something structurally invalid (corrupted edit, bad paste). */
+export interface ContentValidation {
+  ok: boolean;
+  errors: string[];
+}
+
+// Known safe block types (Tiptap StarterKit + our extensions). Unknown block
+// types are rejected — a stray HTML node from a paste is not persisted.
+const KNOWN_BLOCK_TYPES = new Set([
+  "paragraph", "heading", "bulletList", "orderedList", "listItem",
+  "blockquote", "codeBlock", "horizontalRule", "image", "table",
+  "tableRow", "tableCell", "taskList", "taskItem", "details",
+  "detailsContent", "detailsSummary", "mermaidDiagram",
+]);
+
+const KNOWN_INLINE_TYPES = new Set([
+  "text", "hardBreak", "mention",
+]);
+
+const KNOWN_MARK_TYPES = new Set([
+  "bold", "italic", "underline", "strike", "code", "link",
+]);
+
+/**
+ * Validates a Tiptap JSON document tree before persisting. Catches the three
+ * most common failure modes from past bugs:
+ *  1. Pasting from Word leaves inline style attributes / stray spans that
+ *     aren't valid ProseMirror node types — reject.
+ *  2. A node is missing its "id" attribute (the unique-id extension didn't
+ *     fire, or the content came from a non-editor source) — auto-repair.
+ *  3. The document is empty or not a "doc" node — auto-repair.
+ *
+ * Returns the (possibly repaired) document and any validation errors.
+ */
+export function validateContent(input: unknown): { doc: JSONBlock; errors: string[] } {
+  const errors: string[] = [];
+
+  if (!input || typeof input !== "object") {
+    return { doc: { type: "doc", content: [{ type: "paragraph" }] }, errors: ["Content is empty or not an object"] };
+  }
+
+  let doc = input as JSONBlock;
+
+  // Auto-repair: if this is a typed block that's not a 'doc', wrap it.
+  if (doc.type !== "doc") {
+    const content = typeof doc.type === "string" ? [doc] : [{ type: "paragraph" }];
+    doc = { type: "doc", content };
+    errors.push("Content root is not a 'doc' node — auto-wrapped");
+  }
+
+  if (!Array.isArray(doc.content) || doc.content.length === 0) {
+    doc = { ...doc, content: [{ type: "paragraph" }] };
+    errors.push("Document has no content — auto-filled with empty paragraph");
+  }
+
+  // Validate recursively.
+  const walk = (node: JSONBlock, path: string): void => {
+    if (!node || typeof node !== "object" || typeof node.type !== "string") {
+      errors.push(`${path}: node has no type`);
+      return;
+    }
+
+    const type = node.type;
+    const isInline = KNOWN_INLINE_TYPES.has(type);
+    const isKnown = KNOWN_BLOCK_TYPES.has(type) || isInline || type === "doc";
+
+    if (!isKnown) {
+      errors.push(`${path}: unknown node type "${type}" — rejected`);
+      return;
+    }
+
+    if (isBlockType(type)) {
+      if (!node.attrs?.id) {
+        node.attrs = { ...(node.attrs ?? {}), id: defaultGenerateId() };
+        errors.push(`${path}: block "${type}" missing id — auto-assigned`);
+      }
+    }
+
+    if (Array.isArray(node.content)) {
+      node.content.forEach((child, i) => walk(child, `${path}/content[${i}]`));
+    }
+
+    // Validate marks on inline nodes.
+    if (isInline && Array.isArray(node.marks)) {
+      for (const mark of node.marks) {
+        if (typeof mark.type !== "string" || !KNOWN_MARK_TYPES.has(mark.type)) {
+          errors.push(`${path}: unknown mark type "${String(mark.type)}"`);
+        }
+      }
+    }
+  };
+
+  const children = (doc as JSONBlock).content ?? [];
+  let i = 0;
+  for (const child of children) {
+    walk(child, `content[${i++}]`);
+  }
+
+  return { doc, errors };
+}
+
 /** ProseMirror-style size of a node in the JSON tree. */
 function nodeSize(node: JSONBlock): number {
   if (node.type === "text") return node.text?.length ?? 0;

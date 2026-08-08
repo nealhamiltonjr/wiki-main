@@ -2,7 +2,7 @@ import { eq, and, isNull, count } from "drizzle-orm";
 import { isDeepStrictEqual } from "node:util";
 import { getDb } from "../db/index.js";
 import { pages, branches } from "../db/schema.js";
-import { ensureBlockIds, type JSONBlock } from "../../shared/blockIds.js";
+import { ensureBlockIds, validateContent, type JSONBlock } from "../../shared/blockIds.js";
 import { refreshBacklinks } from "./backlink.service.js";
 import { indexPageForSearch, unindexPageForSearch } from "./search.service.js";
 
@@ -54,7 +54,18 @@ export async function getPageByBranchId(branchId: string) {
     .from(branches)
     .innerJoin(pages, eq(branches.pageId, pages.id))
     .where(eq(branches.id, branchId));
-  return row ?? null;
+  if (!row) return null;
+
+  // §11.4 data safety: validate content on every read. If the stored JSON
+  // has been corrupted (e.g. by a bug in a previous version, or a manual DB
+  // edit), repair it in-memory so the client always gets a valid doc tree.
+  const stored = row.page.content as unknown;
+  const { doc, errors } = validateContent(stored);
+  if (errors.length > 0) {
+    // eslint-disable-next-line no-console
+    console.warn("[content-repair-read]", { branchId, pageId: row.page.id, errors });
+  }
+  return { ...row, page: { ...row.page, content: ensureBlockIds(doc) } };
 }
 
 /**
@@ -73,9 +84,19 @@ export async function savePageOCC(opts: {
   titleProvided?: boolean;
   content: unknown;
   expectedUpdatedAt: Date;
-}): Promise<{ ok: true } | { ok: false; conflict: true }> {
+}): Promise<{ ok: true } | { ok: false; conflict: true } | { ok: false; validationErrors: string[] }> {
   const { db } = getDb();
-  const content = ensureBlockIds(opts.content as JSONBlock);
+  const { doc, errors } = validateContent(opts.content);
+  const content = ensureBlockIds(doc);
+
+  if (errors.some((e) => e.includes("unknown node type"))) {
+    return { ok: false, validationErrors: errors };
+  }
+  // Auto-repairs are logged but not fatal — the repaired doc is saved.
+  if (errors.length > 0) {
+    // eslint-disable-next-line no-console
+    console.warn("[content-repair]", { pageId: opts.pageId, errors });
+  }
 
   if (opts.title !== undefined) {
     await db.update(pages).set({ title: opts.title }).where(eq(pages.id, opts.pageId));

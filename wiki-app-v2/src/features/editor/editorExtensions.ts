@@ -3,7 +3,35 @@ import Link from "@tiptap/extension-link";
 import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import UniqueID from "@tiptap/extension-unique-id";
+import { MermaidNode } from "./extensions/mermaid.js";
 import type { Extensions } from "@tiptap/react";
+
+/**
+ * Strips MS Word HTML on paste — keeps only semantic elements, discards
+ * inline styles, mso-* classes, <span>/<font>/<div> wrappers, and Word
+ * XML markup before Tiptap's parser sees the HTML. Without this, pasting
+ * from Word produces "unknown node type" errors because <span
+ * style="font-size:72pt"> has no Tiptap analogue.
+ */
+export function stripWordHTML(html: string): string {
+  const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+  if (bodyMatch?.[1]) html = bodyMatch[1];
+
+  html = html.replace(/\s*style="[^"]*"/gi, "");
+  html = html.replace(/\s*class="[^"]*"/gi, "");
+  html = html.replace(/<\/?(span|font|div)[^>]*>/gi, "");
+  html = html.replace(/<!--[\s\S]*?-->/g, "");
+  html = html.replace(/<o:p><\/o:p>/gi, "");
+  html = html.replace(/\n{3,}/g, "\n\n");
+
+  return html;
+}
+
+/**
+ * Characters that indicate the pasted text might be markdown rather than
+ * plain prose — # heading, bullet, code fence, strikethrough, link, table.
+ */
+export const MD_HINTS = /^[#>\-*`]|~~|\[.+]\(.+\)|^\|.+\|/m;
 
 /**
  * Base editor extensions — every page's editor is built from this list. The
@@ -27,5 +55,6 @@ export function baseExtensions(): Extensions {
     Placeholder.configure({
       placeholder: "Write something…",
     }),
+    MermaidNode,
   ];
 }

@@ -322,3 +322,48 @@
   border-radius: 2px;
   padding: 0 2px;
 }
+
+/* ---------------------------------------------------------------------------
+ * Prism syntax highlighting (slice-5, §13.6) — One Dark color palette,
+ * clamped to token vars so they read against the existing code-block bg.
+ * ------------------------------------------------------------------------- */
+.wiki-prose .token.comment,
+.wiki-prose .token.prolog,
+.wiki-prose .token.doctype,
+.wiki-prose .token.cdata { color: var(--text-muted); }
+
+.wiki-prose .token.punctuation { color: var(--text-secondary); }
+
+.wiki-prose .token.property,
+.wiki-prose .token.tag,
+.wiki-prose .token.boolean,
+.wiki-prose .token.number,
+.wiki-prose .token.constant,
+.wiki-prose .token.symbol,
+.wiki-prose .token.deleted { color: #e06c75; }
+
+.wiki-prose .token.selector,
+.wiki-prose .token.attr-name,
+.wiki-prose .token.string,
+.wiki-prose .token.char,
+.wiki-prose .token.builtin,
+.wiki-prose .token.inserted { color: #98c379; }
+
+.wiki-prose .token.operator,
+.wiki-prose .token.entity,
+.wiki-prose .token.url { color: #56b6c2; }
+
+.wiki-prose .token.atrule,
+.wiki-prose .token.attr-value,
+.wiki-prose .token.keyword { color: #c678dd; }
+
+.wiki-prose .token.function,
+.wiki-prose .token.class-name { color: #61afef; }
+
+.wiki-prose .token.regex,
+.wiki-prose .token.important,
+.wiki-prose .token.variable { color: #d19a66; }
+
+.wiki-prose .token.important,
+.wiki-prose .token.bold { font-weight: 700; }
+.wiki-prose .token.italic { font-style: italic; }
