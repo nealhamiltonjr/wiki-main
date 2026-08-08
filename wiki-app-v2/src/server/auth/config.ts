@@ -4,7 +4,10 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { getDb } from "../db/index.js";
 import * as schema from "../db/auth-schema.js";
 
-const { db } = getDb();
+function getAuthDb() {
+  const { db } = getDb();
+  return { db, adapter: drizzleAdapter(db, { provider: "sqlite", schema }) };
+}
 
 /**
  * better-auth wiring, ported from the old app (brief §2 / §3.8) with the two
@@ -23,71 +26,79 @@ const { db } = getDb();
 const defaultSecret =
   "dev-only-better-auth-secret-change-me-0123456789abcdef0123456789abcdef";
 
-export const auth = betterAuth({
-  baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
-  secret: process.env.BETTER_AUTH_SECRET ?? defaultSecret,
-  trustedOrigins: [
-    process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
-    ...(process.env.BETTER_EXTRA_TRUSTED_ORIGINS
-      ? process.env.BETTER_EXTRA_TRUSTED_ORIGINS.split(",").map((o) => o.trim())
-      : []),
-    // Wildcard patterns accept any localhost/loopback/LAN origin so users in
-    // Docker port-mapped containers don't hit "Invalid origin" CSRF blocks.
-    "http://localhost:*",
-    "http://127.0.0.1:*",
-    "http://0.0.0.0:*",
-    "http://192.168.*:*",
-  ],
-  database: drizzleAdapter(db, { provider: "sqlite", schema }),
-  emailAndPassword: {
-    enabled: true,
-  },
-  // Explicit, per §3.2 — never rely on the framework default (which is
-  // "disabled outside production"). 20 requests / 60s per client keeps
-  // brute-force sign-in attempts impractical while staying generous for a
-  // LAN-hosted wiki used by a handful of people.
-  rateLimit: {
-    enabled: true,
-    window: Number(process.env.BETTER_AUTH_RATE_LIMIT_WINDOW ?? 60),
-    max: Number(process.env.BETTER_AUTH_RATE_LIMIT_MAX ?? 20),
-    // better-auth applies stricter defaults (3 req/10s) to sign-in/sign-up
-    // paths that override `max` above. Integration tests need to burst past
-    // that, so allow env-driven per-path overrides (`false` = unlimited).
-    ...(process.env.BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES
-      ? {
-          customRules: JSON.parse(process.env.BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES) as Record<
-            string,
-            { window: number; max: number } | false
-          >,
-        }
-      : {}),
-  },
-  socialProviders: {
-    // Populated from system_settings at runtime once the settings UI exists
-    // (brief §3.9) — client id/secret are never hardcoded here.
-    ...(process.env.GOOGLE_CLIENT_ID
-      ? { google: { clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET! } }
-      : {}),
-    ...(process.env.GITHUB_CLIENT_ID
-      ? { github: { clientId: process.env.GITHUB_CLIENT_ID, clientSecret: process.env.GITHUB_CLIENT_SECRET! } }
-      : {}),
-  },
-  user: {
-    additionalFields: {
-      isAdmin: {
-        type: "boolean",
-        required: false,
-        defaultValue: false,
-        input: false, // never settable via the public API, only by direct DB/admin action
-      },
-      suspended: {
-        type: "boolean",
-        required: false,
-        defaultValue: false,
-        input: false,
+export function createAuth() {
+  const { adapter } = getAuthDb();
+  return betterAuth({
+    baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    secret: process.env.BETTER_AUTH_SECRET ?? defaultSecret,
+    trustedOrigins: [
+      process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+      ...(process.env.BETTER_EXTRA_TRUSTED_ORIGINS
+        ? process.env.BETTER_EXTRA_TRUSTED_ORIGINS.split(",").map((o) => o.trim())
+        : []),
+      "http://localhost:*",
+      "http://127.0.0.1:*",
+      "http://0.0.0.0:*",
+      "http://192.168.*:*",
+    ],
+    database: adapter,
+    emailAndPassword: {
+      enabled: true,
+    },
+    rateLimit: {
+      enabled: true,
+      window: Number(process.env.BETTER_AUTH_RATE_LIMIT_WINDOW ?? 60),
+      max: Number(process.env.BETTER_AUTH_RATE_LIMIT_MAX ?? 20),
+      ...(process.env.BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES
+        ? {
+            customRules: JSON.parse(process.env.BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES) as Record<
+              string,
+              { window: number; max: number } | false
+            >,
+          }
+        : {}),
+    },
+    socialProviders: {
+      ...(process.env.GOOGLE_CLIENT_ID
+        ? { google: { clientId: process.env.GOOGLE_CLIENT_ID, clientSecret: process.env.GOOGLE_CLIENT_SECRET! } }
+        : {}),
+      ...(process.env.GITHUB_CLIENT_ID
+        ? { github: { clientId: process.env.GITHUB_CLIENT_ID, clientSecret: process.env.GITHUB_CLIENT_SECRET! } }
+        : {}),
+    },
+    user: {
+      additionalFields: {
+        isAdmin: {
+          type: "boolean",
+          required: false,
+          defaultValue: false,
+          input: false,
+        },
+        suspended: {
+          type: "boolean",
+          required: false,
+          defaultValue: false,
+          input: false,
+        },
       },
     },
-  },
-});
+  });
+}
 
-export type Session = typeof auth.$Infer.Session;
+/** Singleton auth instance — constructed lazily via getAuth() because the DB
+ *  may not be initialised yet at module-load time (e.g. in tests that call
+ *  closeDb() between test files). */
+let _auth: ReturnType<typeof createAuth> | undefined;
+
+export function getAuth() {
+  if (!_auth) _auth = createAuth();
+  return _auth;
+}
+
+/** Reset the singleton — only for test teardown. */
+export function resetAuth() {
+  _auth = undefined;
+}
+
+type _Auth = ReturnType<typeof createAuth>;
+export type Session = _Auth extends { $Infer: infer S } ? S : never;

@@ -7,6 +7,7 @@ import { registerSecurityHeaders } from "./security.js";
 import { registerPermissionMiddleware } from "./middleware/access.js";
 import { spaceRoutes } from "./routes/space.routes.js";
 import { treeRoutes } from "./routes/tree.routes.js";
+import { pageRoutes } from "./routes/page.routes.js";
 
 /**
  * Builds a fully-configured Fastify instance WITHOUT calling .listen() — split
@@ -53,6 +54,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(authRoutes);
   await app.register(spaceRoutes);
   await app.register(treeRoutes);
+  await app.register(pageRoutes);
 
   app.get("/api/health", { config: { access: "public" } }, async () => ({
     status: "ok",

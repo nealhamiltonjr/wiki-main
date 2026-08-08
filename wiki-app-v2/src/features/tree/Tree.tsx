@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Tree as ArboristTree, type NodeRendererProps } from "react-arborist";
 import { ChevronRight } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 
 import { api, type SpaceSummary, type TreeNode } from "../../api/client.js";
 import { cn } from "@/lib/utils";
@@ -54,11 +55,8 @@ function WikiTreeNode({ node, style }: NodeRendererProps<TreeNode>) {
   );
 }
 
-export function Tree({
-  onSelectBranch,
-}: {
-  onSelectBranch: (branchId: string, spaceId?: string) => void;
-}) {
+export function Tree() {
+  const navigate = useNavigate();
   const [spaces, setSpaces] = useState<SpaceSummary[]>([]);
   const [activeSpace, setActiveSpace] = useState<string | null>(null);
   const [tree, setTree] = useState<TreeNode[]>([]);
@@ -101,7 +99,7 @@ export function Tree({
             padding={4}
             openByDefault
             disableMultiSelection
-            onActivate={(node) => onSelectBranch(node.data.id, activeSpace ?? undefined)}
+            onActivate={(node) => navigate({ to: "/w/$branchId", params: { branchId: node.data.id } })}
             aria-label="Pages tree"
           >
             {WikiTreeNode}

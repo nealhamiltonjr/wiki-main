@@ -44,8 +44,29 @@ export function getDb() {
   // migrator tracks applied versions in __drizzle_migrations.
   migrate(db, { migrationsFolder: resolve(projectRoot, "drizzle") });
 
+  // FTS5 search index (§7.12d.2). External-content FTS keeps the text in the
+  // pages table and mirrors it here on every save via search.service.ts.
+  sqlite.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS page_fts USING fts5(
+      page_id UNINDEXED,
+      title,
+      body,
+      tokenize='porter unicode61'
+    )
+  `);
+
   state = { db, sqlite };
   return state;
 }
 
 export type Db = ReturnType<typeof drizzle<typeof authSchema & typeof wikiSchema>>;
+
+/** Reset the singleton — only for tests that need a fresh DB after another test
+ *  file has already initialized one. Vitest runs sequentially so the module
+ *  state leaks across files. */
+export function closeDb() {
+  if (state) {
+    state.sqlite.close();
+    state = undefined;
+  }
+}

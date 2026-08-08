@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { users } from "../db/schema.js";
-import { auth } from "../auth/config.js";
+import { getAuth } from "../auth/config.js";
 import { resolveUserCapabilities, resolveUserGroupIds } from "./capabilities.service.js";
 import type { UserContext } from "../../shared/types.js";
 
@@ -13,7 +13,7 @@ import type { UserContext } from "../../shared/types.js";
  * of subtle auth bug this project has been careful to avoid elsewhere.
  */
 export async function getUserContext(headers: Headers): Promise<UserContext | null> {
-  const result = await auth.api.getSession({ headers });
+  const result = await getAuth().api.getSession({ headers });
   if (!result) return null;
 
   const groupIds = await resolveUserGroupIds(result.user.id);

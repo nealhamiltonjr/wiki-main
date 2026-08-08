@@ -33,6 +33,10 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+  const { closeDb } = await import("../db/index.js");
+  const { resetAuth } = await import("../auth/config.js");
+  closeDb();
+  resetAuth();
   for (const p of [TEST_DB_PATH, `${TEST_DB_PATH}-wal`, `${TEST_DB_PATH}-shm`]) {
     if (existsSync(p)) rmSync(p, { force: true });
   }

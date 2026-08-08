@@ -14,6 +14,7 @@ import { Route as PublicRouteImport } from './routes/_public'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedHealthRouteImport } from './routes/_authenticated/health'
 import { Route as PublicLoginRouteImport } from './routes/_public/login'
+import { Route as AuthenticatedWBranchIdRouteImport } from './routes/_authenticated/w/$branchId'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
@@ -38,16 +39,23 @@ const PublicLoginRoute = PublicLoginRouteImport.update({
   path: '/login',
   getParentRoute: () => PublicRoute,
 } as any)
+const AuthenticatedWBranchIdRoute = AuthenticatedWBranchIdRouteImport.update({
+  id: '/w/$branchId',
+  path: '/w/$branchId',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/health': typeof AuthenticatedHealthRoute
   '/login': typeof PublicLoginRoute
+  '/w/$branchId': typeof AuthenticatedWBranchIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof AuthenticatedIndexRoute
   '/health': typeof AuthenticatedHealthRoute
   '/login': typeof PublicLoginRoute
+  '/w/$branchId': typeof AuthenticatedWBranchIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -56,12 +64,13 @@ export interface FileRoutesById {
   '/_authenticated/health': typeof AuthenticatedHealthRoute
   '/_public/login': typeof PublicLoginRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/w/$branchId': typeof AuthenticatedWBranchIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/health' | '/login'
+  fullPaths: '/' | '/health' | '/login' | '/w/$branchId'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/health' | '/login'
+  to: '/' | '/health' | '/login' | '/w/$branchId'
   id:
     | '__root__'
     | '/_authenticated'
@@ -69,6 +78,7 @@ export interface FileRouteTypes {
     | '/_authenticated/health'
     | '/_public/login'
     | '/_authenticated/'
+    | '/_authenticated/w/$branchId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -113,17 +123,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PublicLoginRouteImport
       parentRoute: typeof PublicRoute
     }
+    '/_authenticated/w/$branchId': {
+      id: '/_authenticated/w/$branchId'
+      path: '/w/$branchId'
+      fullPath: '/w/$branchId'
+      preLoaderRoute: typeof AuthenticatedWBranchIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
 interface AuthenticatedRouteChildren {
   AuthenticatedHealthRoute: typeof AuthenticatedHealthRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedWBranchIdRoute: typeof AuthenticatedWBranchIdRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedHealthRoute: AuthenticatedHealthRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedWBranchIdRoute: AuthenticatedWBranchIdRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

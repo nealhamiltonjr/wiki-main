@@ -1,6 +1,6 @@
 import { createAuthClient } from "better-auth/react";
 import { inferAdditionalFields } from "better-auth/client/plugins";
-import type { auth } from "../server/auth/config.js";
+import type { createAuth } from "../server/auth/config.js";
 
 /**
  * Found as a real bug deploying to a LAN IP: better-auth's client requires a
@@ -12,7 +12,7 @@ import type { auth } from "../server/auth/config.js";
  */
 export const authClient = createAuthClient({
   baseURL: `${window.location.origin}/api/auth`,
-  plugins: [inferAdditionalFields<typeof auth>()],
+  plugins: [inferAdditionalFields<ReturnType<typeof createAuth>>()],
 });
 
 export const { useSession, signIn, signUp, signOut } = authClient;

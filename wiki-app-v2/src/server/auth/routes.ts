@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 
-import { auth } from "./config.js";
+import { getAuth } from "./config.js";
 
 /**
  * better-auth speaks the Web-standard Request/Response API, not Fastify's
@@ -29,7 +29,7 @@ export async function authRoutes(app: FastifyInstance) {
         body: ["GET", "HEAD"].includes(request.method) ? undefined : JSON.stringify(request.body),
       });
 
-      const webResponse = await auth.handler(webRequest);
+      const webResponse = await getAuth().handler(webRequest);
 
       reply.status(webResponse.status);
       webResponse.headers.forEach((value, key) => reply.header(key, value));
