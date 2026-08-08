@@ -78,5 +78,15 @@ From `wiki-app-v2/`:
    sidebar, session-gated layout, space/tree routes + permission middleware +
    services, seed script, dual-webServer Playwright (2 specs). 24 unit +
    integration tests, typecheck, client build, and e2e all green.
-5. Next — single-pane editor canvas (Tiptap), plugin engine, token theming
-   UI, data safety/self-healing, typed relations + old-data migration.
+5. Editor + content safety — done (commit 83bd3d6): Content integrity
+   validation on save+read (validateContent with known-block whitelist,
+   auto-repair missing ids/wrapper/content), wired into savePageOCC (422 on
+   unknown types), createPage, and getPageByBranchId. In-page sticky TOC
+   from headings (§12.6). Paste safety: stripWordHTML() Word-to-semantic-HTML
+   transform. Mermaid diagram node extension + renderer. Prism syntax
+   highlighting for code blocks (+ One Dark theme CSS). Playwright gate
+   (§6.3): 3 e2e tests (one container, persist, structure). 39 unit/integration
+   tests pass, typecheck clean.
+   Dependencies added: mermaid, prismjs, @types/prismjs.
+6. Next — plugin engine, token-based theming, collab infrastructure,
+   typed relations, data migration from old app.
