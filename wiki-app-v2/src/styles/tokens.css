@@ -1,0 +1,171 @@
+/* ============================================================================
+ * DESIGN TOKENS — THE single source of truth for every look-and-feel value.
+ *
+ * RULE (brief §5): changing color, radius, font, or spacing anywhere in the
+ * app — chrome, editor prose, shadcn components — must require editing a value
+ * in THIS file and nothing else. No component code and no other stylesheet may
+ * contain literal colors/radii/fonts; everything reads a var() from here.
+ *
+ * Naming: colors use the shadcn-style unprefixed names (`--background`,
+ * `--surface`, `--primary`, …). Tailwind v4 exposes them to utility classes via
+ * the `@theme inline` block in app.css (one alias per token, zero values), and
+ * shadcn components consume the names they already expect. `@theme` here is
+ * Tailwind's own block — its variables are emitted as real CSS custom props on
+ * :root, so `var(--radius-md)` works in hand-written CSS too.
+ *
+ * Dark mode is a token swap: `[data-theme="dark"]` overrides color roles only.
+ * Components never branch on theme.
+ * ========================================================================== */
+
+@theme {
+  /* --- Radius scale ------------------------------------------------------ */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  /* --- Font stacks ------------------------------------------------------- */
+  --font-sans:
+    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "Cascadia Code", "Fira Code", Menlo, monospace;
+
+  /* --- Type scale -------------------------------------------------------- */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+  --text-4xl: 2.25rem;
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+
+  /* --- Spacing base ------------------------------------------------------ */
+  /* Tailwind v4 computes p-4/m-4/… as calc(var(--spacing) * n). */
+  --spacing: 0.25rem;
+}
+
+/* ----------------------------------------------------------------------------
+ * Color roles — light (default)
+ * -------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --background: #ffffff;
+  --surface: #f8fafc;
+  --surface-hover: #f1f5f9;
+  --surface-elevated: #ffffff;
+
+  /* Text */
+  --foreground: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+
+  /* Borders */
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  /* Accent */
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-foreground: #ffffff;
+  --link: #2563eb;
+  --focus-ring: rgba(37, 99, 235, 0.35);
+  --selection: rgba(37, 99, 235, 0.15);
+
+  /* Status */
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+  --success: #16a34a;
+  --warning: #d97706;
+
+  /* Editor prose (same tokens as the rest of the app — no separate editor theme) */
+  --code-bg: #f1f5f9;
+  --code-text: #0f172a;
+  --inline-code-bg: #f1f5f9;
+  --inline-code-text: #be123c;
+  --blockquote-bg: #f8fafc;
+  --blockquote-border: #cbd5e1;
+  --table-header-bg: #f1f5f9;
+  --highlight-bg: #fef9c3;
+  --highlight-text: #1e293b;
+
+  /* Spacing scale for hand-written CSS (Tailwind utilities use --spacing) */
+  --space-1: calc(var(--spacing) * 1);
+  --space-2: calc(var(--spacing) * 2);
+  --space-3: calc(var(--spacing) * 3);
+  --space-4: calc(var(--spacing) * 4);
+  --space-6: calc(var(--spacing) * 6);
+  --space-8: calc(var(--spacing) * 8);
+  --space-12: calc(var(--spacing) * 12);
+  --space-16: calc(var(--spacing) * 16);
+}
+
+/* ----------------------------------------------------------------------------
+ * Color roles — dark. Only values change; structure is identical.
+ * -------------------------------------------------------------------------- */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #0b1220;
+  --surface: #111827;
+  --surface-hover: #1f2937;
+  --surface-elevated: #1e293b;
+
+  --foreground: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  --border: #1e293b;
+  --border-strong: #334155;
+
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-foreground: #ffffff;
+  --link: #60a5fa;
+  --focus-ring: rgba(59, 130, 246, 0.4);
+  --selection: rgba(59, 130, 246, 0.3);
+
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --success: #22c55e;
+  --warning: #f59e0b;
+
+  --code-bg: #0f172a;
+  --code-text: #e2e8f0;
+  --inline-code-bg: #1e293b;
+  --inline-code-text: #f472b6;
+  --blockquote-bg: #111827;
+  --blockquote-border: #334155;
+  --table-header-bg: #1e293b;
+  --highlight-bg: #422006;
+  --highlight-text: #fef9c3;
+}
+
+/* ----------------------------------------------------------------------------
+ * High-contrast overrides for the contrast theme (accessibility).
+ * -------------------------------------------------------------------------- */
+[data-theme="contrast"] {
+  --background: #000000;
+  --surface: #0a0a0a;
+  --surface-hover: #1a1a1a;
+  --surface-elevated: #111111;
+  --foreground: #ffffff;
+  --text-secondary: #d4d4d4;
+  --text-muted: #a3a3a3;
+  --border: #525252;
+  --border-strong: #737373;
+  --primary: #4c8dff;
+  --primary-hover: #3b82f6;
+  --link: #6ea8ff;
+  --focus-ring: rgba(76, 141, 255, 0.6);
+  --selection: rgba(76, 141, 255, 0.45);
+  --danger: #ff6b6b;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --inline-code-text: #fda4af;
+  color-scheme: dark;
+}

@@ -1,0 +1,28 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Build tool: Vite (kept from the old app — fast HMR, clean prod builds).
+// The TanStack Router Vite plugin generates routeTree.gen.ts from src/routes/
+// so the router tree is type-checked at compile time — the whole point of
+// switching off hand-assembled React Router.
+export default defineConfig({
+  plugins: [TanStackRouterVite({ target: "react" }), react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@": path.resolve(__dirname, "src"),
+    },
+  },
+  server: {
+    proxy: {
+      // API + WebSocket proxied to the Fastify server (built in slice 2).
+      "/api": { target: "http://localhost:3000", changeOrigin: true },
+      "/ws": { target: "ws://localhost:3000", ws: true },
+    },
+  },
+});

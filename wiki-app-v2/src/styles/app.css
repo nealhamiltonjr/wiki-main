@@ -1,0 +1,81 @@
+/* App stylesheet. This file contains NO literal design values — every color,
+ * radius, font, and spacing value lives in tokens.css and is referenced here
+ * as var(). Tailwind utilities and shadcn components both read the same source.
+ */
+@import "./tokens.css";
+@import "tailwindcss";
+
+/* Expose every canonical token to Tailwind's utility namespace. Utilities like
+ * bg-background / text-foreground / border-border / bg-primary / bg-surface
+ * resolve directly to the token vars (inline = reference, not copy).
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-foreground: var(--foreground);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-link: var(--link);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-focus-ring: var(--focus-ring);
+  --color-selection: var(--selection);
+  --color-code-bg: var(--code-bg);
+  --color-code-text: var(--code-text);
+  --color-inline-code-bg: var(--inline-code-bg);
+  --color-inline-code-text: var(--inline-code-text);
+  --color-blockquote-bg: var(--blockquote-bg);
+  --color-blockquote-border: var(--blockquote-border);
+  --color-table-header-bg: var(--table-header-bg);
+  --color-highlight-bg: var(--highlight-bg);
+  --color-highlight-text: var(--highlight-text);
+}
+
+@layer base {
+  /* shadcn/ui maps its own variable names onto the same tokens — no second
+   * theme configuration to maintain. All of these are var() aliases, so they
+   * follow [data-theme="dark"] automatically (nothing to re-declare).
+   */
+  :root {
+    --card: var(--surface);
+    --card-foreground: var(--foreground);
+    --popover: var(--surface-elevated);
+    --popover-foreground: var(--foreground);
+    --secondary: var(--surface);
+    --secondary-foreground: var(--foreground);
+    --muted: var(--surface);
+    --muted-foreground: var(--text-secondary);
+    --accent: var(--primary);
+    --accent-foreground: var(--primary-foreground);
+    --destructive: var(--danger);
+    --destructive-foreground: var(--primary-foreground);
+    --input: var(--border);
+    --ring: var(--focus-ring);
+    --radius: var(--radius-md);
+  }
+
+  * {
+    border-color: var(--border);
+    outline-color: color-mix(in oklab, var(--focus-ring) 50%, transparent);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: var(--selection);
+  }
+}
