@@ -19,6 +19,10 @@ import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
 import { getPageBacklinks } from "../services/backlink.service.js";
 import { processMentions } from "../services/mention.service.js";
+import { getPageHistory, getFileContentAtCommit } from "../services/git.service.js";
+import { enqueueJob } from "../services/queue.service.js";
+import { markdownToTiptap, stripFrontmatter } from "../services/markdown.service.js";
+import { ensureBlockIds } from "../../shared/blockIds.js";
 
 export async function pageRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
@@ -125,6 +129,7 @@ export async function pageRoutes(app: FastifyInstance) {
 
       const result = await savePageOCC({
         pageId: row.page.id,
+        branchId,
         title: body.title,
         titleProvided: body.titleProvided,
         content: body.content,
@@ -296,6 +301,102 @@ export async function pageRoutes(app: FastifyInstance) {
 
       await renamePage(pageId, body.slug);
       return reply.send({ ok: true, slug: body.slug });
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  // Git history (§8 step 10 — git flush pipeline). History is read-only and
+  // gated on the requesting placement (viewer); restore writes content through
+  // the same OCC save as a live edit (editor), and is a NEW forward-moving
+  // version, not a git-history rewrite. Snapshots are manual checkpoints with
+  // a user-provided message, queued like autosave commits.
+  // -------------------------------------------------------------------------
+
+  app.get(
+    "/api/pages/:pageId/branches/:branchId/history",
+    { config: { access: { branchParam: "branchId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const { pageId, branchId } = request.params as { pageId: string; branchId: string };
+      const row = await getPageByBranchId(branchId);
+      if (!row || row.page.id !== pageId || row.page.deletedAt) {
+        return reply.code(404).send({ error: "Page not found" });
+      }
+      try {
+        return reply.send(await getPageHistory(pageId));
+      } catch (err) {
+        request.log.warn({ err, pageId }, "Git history unavailable (repo not initialized?)");
+        return reply.send([]);
+      }
+    }
+  );
+
+  const snapshotBody = z.object({ message: z.string().min(1).max(200) });
+
+  app.post(
+    "/api/pages/:pageId/branches/:branchId/snapshot",
+    { config: { access: { branchParam: "branchId", minRole: "editor" } } },
+    async (request, reply) => {
+      const { pageId, branchId } = request.params as { pageId: string; branchId: string };
+      const body = snapshotBody.parse(request.body);
+      const row = await getPageByBranchId(branchId);
+      if (!row || row.page.id !== pageId || row.page.deletedAt) {
+        return reply.code(404).send({ error: "Page not found" });
+      }
+      const user = (request as any).userContext as UserContext;
+      await enqueueJob("git_commit", {
+        pageId,
+        branchId,
+        kind: "manual_snapshot",
+        message: body.message,
+        userId: user.id,
+      });
+      return reply.code(202).send({ queued: true });
+    }
+  );
+
+  const restoreBody = z.object({ commitHash: z.string().min(1) });
+
+  app.post(
+    "/api/pages/:pageId/branches/:branchId/restore",
+    { config: { access: { branchParam: "branchId", minRole: "editor" } } },
+    async (request, reply) => {
+      const { pageId, branchId } = request.params as { pageId: string; branchId: string };
+      const { commitHash } = restoreBody.parse(request.body);
+
+      const row = await getPageByBranchId(branchId);
+      if (!row || row.page.id !== pageId || row.page.deletedAt) {
+        return reply.code(404).send({ error: "Page not found" });
+      }
+
+      let markdown: string | null;
+      try {
+        markdown = await getFileContentAtCommit(pageId, commitHash);
+      } catch (err) {
+        request.log.warn({ err, pageId, commitHash }, "Failed to retrieve content at commit");
+        markdown = null;
+      }
+      if (markdown === null) {
+        return reply.code(404).send({ error: "Content not found at that commit" });
+      }
+
+      // Markdown→Tiptap, then save as a new forward-moving version through the
+      // normal OCC path so a concurrent edit still conflicts correctly.
+      const content = ensureBlockIds(markdownToTiptap(stripFrontmatter(markdown)) as never);
+
+      const { db } = getDb();
+      const [currentPage] = await db.select({ updatedAt: pages.updatedAt }).from(pages).where(eq(pages.id, pageId));
+      if (!currentPage) return reply.code(404).send({ error: "Page not found" });
+
+      const result = await savePageOCC({
+        pageId,
+        branchId,
+        content,
+        expectedUpdatedAt: currentPage.updatedAt,
+      });
+      if (!result.ok) {
+        return reply.code(500).send({ error: "Failed to save restored content" });
+      }
+      return reply.send({ ok: true });
     }
   );
 

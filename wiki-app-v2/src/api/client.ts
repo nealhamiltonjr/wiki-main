@@ -72,6 +72,7 @@ export interface CommentItem {
 }
 
 export interface FavoriteEntry { id: string; branchId: string; slug: string; title: string }
+export interface PageHistoryEntry { hash: string; message: string; date: string }
 
 export interface NotificationEntry {
   id: string;
@@ -126,6 +127,18 @@ export const api = {
     request<{ resolved: boolean }>(`/api/comment-threads/${threadId}/resolve`, { method: "PUT" }),
   listFavorites: () => request<FavoriteEntry[]>("/api/favorites"),
   toggleFavorite: (branchId: string) => request<{ favorited: boolean }>(`/api/favorites/${branchId}`, { method: "POST" }),
+  getPageHistory: (pageId: string, branchId: string) =>
+    request<PageHistoryEntry[]>(`/api/pages/${pageId}/branches/${branchId}/history`),
+  createSnapshot: (pageId: string, branchId: string, message: string) =>
+    request<{ queued: true }>(`/api/pages/${pageId}/branches/${branchId}/snapshot`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
+  restorePageVersion: (pageId: string, branchId: string, commitHash: string) =>
+    request<{ ok: true }>(`/api/pages/${pageId}/branches/${branchId}/restore`, {
+      method: "POST",
+      body: JSON.stringify({ commitHash }),
+    }),
   listNotifications: () => request<{ items: NotificationEntry[]; unread: number }>("/api/notifications"),
   unreadCount: () => request<{ unread: number }>("/api/notifications/unread-count"),
   markNotificationRead: (id: string) => request<{ ok: true }>(`/api/notifications/${id}/read`, { method: "PUT" }),

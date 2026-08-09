@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Pencil, Eye, Loader2, MessageSquare } from "lucide-react";
+import { Pencil, Eye, Loader2, MessageSquare, History } from "lucide-react";
 
 import { api, type PageData } from "@/api/client";
 import { PageEditor, type PageEditorHandle } from "@/features/editor/Editor";
 import { useAutosave, saveStateLabel } from "@/features/editor/useAutosave";
 import { CommentsPanel } from "@/features/comments/CommentsPanel";
+import { HistoryPanel } from "@/features/history/HistoryPanel";
 import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import { useQuery } from "@/lib/useQuery";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,7 @@ function PageView() {
   const { branchId } = Route.useParams();
   const [editMode, setEditMode] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   // Content/updatedAt the editor has autosaved this session. The read view and
   // any re-entry into edit mode use this instead of the fetch-time snapshot so
   // "View" never shows stale content and re-editing never saves on a stale OCC
@@ -39,6 +41,7 @@ function PageView() {
   useEffect(() => {
     setLivePage(null);
     setShowComments(false);
+    setShowHistory(false);
     setEditMode(false);
   }, [branchId]);
 
@@ -80,6 +83,8 @@ function PageView() {
         onToggleEdit={() => setEditMode((m) => !m)}
         showComments={showComments}
         onToggleComments={() => setShowComments((s) => !s)}
+        showHistory={showHistory}
+        onToggleHistory={() => setShowHistory((s) => !s)}
         initiallyFavorited={favoriteBranchIds?.has(page.branchId) ?? false}
       />
       <div className="flex min-h-0 flex-1">
@@ -116,6 +121,14 @@ function PageView() {
             canEdit={page.access === "editor" || page.access === "admin"}
           />
         )}
+        {showHistory && (
+          <HistoryPanel
+            pageId={page.id}
+            branchId={page.branchId}
+            canEdit={page.access === "editor" || page.access === "admin"}
+            onRestored={() => reload()}
+          />
+        )}
       </div>
     </div>
   );
@@ -128,6 +141,8 @@ function PageHeader({
   onToggleEdit,
   showComments,
   onToggleComments,
+  showHistory,
+  onToggleHistory,
   initiallyFavorited,
 }: {
   page: PageData;
@@ -136,6 +151,8 @@ function PageHeader({
   onToggleEdit: () => void;
   showComments: boolean;
   onToggleComments: () => void;
+  showHistory: boolean;
+  onToggleHistory: () => void;
   initiallyFavorited: boolean;
 }) {
   return (
@@ -152,6 +169,19 @@ function PageHeader({
       </div>
       <div className="flex items-center gap-1">
         <FavoriteButton branchId={page.branchId} initiallyFavorited={initiallyFavorited} />
+        <button
+          type="button"
+          onClick={onToggleHistory}
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-md border border-border transition-colors",
+            showHistory ? "bg-accent text-primary" : "text-text-secondary hover:bg-surface-hover"
+          )}
+          aria-label={showHistory ? "Hide version history" : "Show version history"}
+          aria-pressed={showHistory}
+          data-testid="history-toggle"
+        >
+          <History className="h-4 w-4" />
+        </button>
         <button
           type="button"
           onClick={onToggleComments}

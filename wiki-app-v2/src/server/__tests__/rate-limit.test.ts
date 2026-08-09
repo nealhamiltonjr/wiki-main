@@ -20,22 +20,25 @@ describe("InMemoryRateLimiter", () => {
   });
 
   it("resets the window after it elapses", () => {
-    const limiter = new InMemoryRateLimiter({ windowMs: 1, max: 1 });
+    // A wide window keeps the test deterministic: with a 1ms window, the
+    // matcher's own overhead between the two synchronous calls can exceed the
+    // window and spuriously pass the second check (flaky under load).
+    const limiter = new InMemoryRateLimiter({ windowMs: 100, max: 1 });
 
     expect(limiter.check("key")).toBe(true);
     expect(limiter.check("key")).toBe(false);
 
-    // The window is 1ms; by the next tick it has expired.
+    // The window is 100ms; after a 250ms wait it has definitely expired.
     return new Promise<void>((resolve) => {
       setTimeout(() => {
         expect(limiter.check("key")).toBe(true);
         resolve();
-      }, 5);
+      }, 250);
     });
   });
 
   it("sweep removes expired entries", () => {
-    const limiter = new InMemoryRateLimiter({ windowMs: 1, max: 5 });
+    const limiter = new InMemoryRateLimiter({ windowMs: 100, max: 5 });
     limiter.check("expired-key");
 
     return new Promise<void>((resolve) => {
@@ -43,7 +46,7 @@ describe("InMemoryRateLimiter", () => {
         limiter.sweep();
         expect((limiter as unknown as { buckets: Map<string, unknown> }).buckets.size).toBe(0);
         resolve();
-      }, 5);
+      }, 250);
     });
   });
 });

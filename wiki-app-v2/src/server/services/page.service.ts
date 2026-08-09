@@ -5,6 +5,7 @@ import { pages, branches } from "../db/schema.js";
 import { ensureBlockIds, validateContent, type JSONBlock } from "../../shared/blockIds.js";
 import { refreshBacklinks } from "./backlink.service.js";
 import { indexPageForSearch, unindexPageForSearch } from "./search.service.js";
+import { enqueueJob } from "./queue.service.js";
 
 /** Fresh page content with every block id'd (§7.12d-1). */
 export function newPageContent(initial?: unknown): JSONBlock {
@@ -43,6 +44,11 @@ export async function createPage(opts: {
     }).run();
   });
 
+  // Git flush pipeline (brief §8 step 10): the initial state of a new page is
+  // history-worthy too. Fire-and-forget so page creation is never slowed by a
+  // git commit.
+  await enqueueJob("git_commit", { pageId, branchId, kind: "autosave" });
+
   return { pageId, branchId };
 }
 
@@ -80,6 +86,8 @@ export async function getPageByBranchId(branchId: string) {
  */
 export async function savePageOCC(opts: {
   pageId: string;
+  /** Branch placement used to trace the page's space for the git flush path. */
+  branchId: string;
   title?: string;
   titleProvided?: boolean;
   content: unknown;
@@ -105,7 +113,12 @@ export async function savePageOCC(opts: {
   if (opts.titleProvided) {
     const [current] = await db.select({ content: pages.content }).from(pages).where(eq(pages.id, opts.pageId));
     const contentUnchanged = current && isDeepStrictEqual(current.content, content);
-    if (contentUnchanged) return { ok: true };
+    if (contentUnchanged) {
+      // Title-only save: the title change is still part of git history (it
+      // lives in the exported frontmatter), so it still enqueues a commit.
+      await enqueueJob("git_commit", { pageId: opts.pageId, branchId: opts.branchId, kind: "autosave" });
+      return { ok: true };
+    }
   }
 
   const result = await db
@@ -123,6 +136,10 @@ export async function savePageOCC(opts: {
     indexPageForSearch(opts.pageId, saved.title, saved.content);
     await refreshBacklinks(opts.pageId, saved.content);
   }
+
+  // Git flush pipeline: every successful content save is history-worthy.
+  // Fire-and-forget so the save response is never delayed by a git commit.
+  await enqueueJob("git_commit", { pageId: opts.pageId, branchId: opts.branchId, kind: "autosave" });
 
   return { ok: true };
 }
