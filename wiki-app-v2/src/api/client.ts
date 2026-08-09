@@ -5,10 +5,13 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const hasBody = init?.body !== undefined && init.body !== null;
   const res = await fetch(path, {
     ...init,
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    // Only declare a JSON body when one exists — Fastify 400s on
+    // Content-Type: application/json with an empty body (e.g. POST toggles).
+    headers: { ...(hasBody ? { "Content-Type": "application/json" } : {}), ...init?.headers },
   });
   if (!res.ok) {
     let body: unknown = null;
@@ -40,6 +43,44 @@ export interface PageData {
 }
 
 export interface TrashEntry { branchId: string; pageId: string; slug: string; title: string; deletedAt: string }
+
+export interface CommentThread {
+  id: string;
+  pageId: string;
+  blockId: string | null;
+  rangeFrom: number;
+  rangeTo: number;
+  selection: string | null;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  createdBy: string;
+  authorName?: string | null;
+  resolvedByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  comments: CommentItem[];
+}
+
+export interface CommentItem {
+  id: string;
+  threadId: string;
+  body: string;
+  userId: string;
+  authorName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FavoriteEntry { id: string; branchId: string; slug: string; title: string }
+
+export interface NotificationEntry {
+  id: string;
+  userId: string;
+  kind: "mention" | "system" | "share_warning";
+  payload: Record<string, unknown>;
+  readAt: string | null;
+  createdAt: string;
+}
 
 export const api = {
   listSpaces: () => request<SpaceSummary[]>("/api/spaces"),
@@ -76,4 +117,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ pageId }),
     }),
+  listComments: (branchId: string) => request<CommentThread[]>(`/api/branches/${branchId}/comments`),
+  createCommentThread: (branchId: string, body: { rangeFrom: number; rangeTo: number; blockId?: string; selection?: string; body: string }) =>
+    request<{ threadId: string }>(`/api/branches/${branchId}/comments`, { method: "POST", body: JSON.stringify(body) }),
+  replyToThread: (branchId: string, threadId: string, body: string) =>
+    request<CommentItem>(`/api/branches/${branchId}/comments/${threadId}`, { method: "POST", body: JSON.stringify({ body }) }),
+  resolveThread: (threadId: string) =>
+    request<{ resolved: boolean }>(`/api/comment-threads/${threadId}/resolve`, { method: "PUT" }),
+  listFavorites: () => request<FavoriteEntry[]>("/api/favorites"),
+  toggleFavorite: (branchId: string) => request<{ favorited: boolean }>(`/api/favorites/${branchId}`, { method: "POST" }),
+  listNotifications: () => request<{ items: NotificationEntry[]; unread: number }>("/api/notifications"),
+  unreadCount: () => request<{ unread: number }>("/api/notifications/unread-count"),
+  markNotificationRead: (id: string) => request<{ ok: true }>(`/api/notifications/${id}/read`, { method: "PUT" }),
+  markAllNotificationsRead: () => request<{ ok: true }>("/api/notifications/read-all", { method: "PUT" }),
 };

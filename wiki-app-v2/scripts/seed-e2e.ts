@@ -11,7 +11,7 @@
 import { eq } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { getDb } from "../src/server/db/index.js";
-import { users, identities, spaces, spaceMembers, pages, branches, attributes } from "../src/server/db/schema.js";
+import { users, identities, spaces, spaceMembers, pages, branches, attributes, notifications } from "../src/server/db/schema.js";
 
 export const E2E_USER = { email: "e2e@test.local", password: "E2ePass-1234", name: "E2E Tester" };
 
@@ -60,6 +60,15 @@ export async function seedE2E(): Promise<void> {
   const rootBranchB = await makeBranch(db, spaceId, userId, rootB, null, 1);
   const childBranch = await makeBranch(db, spaceId, userId, child, rootBranchA, 0);
   await makeBranch(db, spaceId, userId, grandchild, childBranch, 0);
+
+  // Slice-9: seed one unread mention notification so the notification bell has
+  // something to show without needing a second user + editor mention flow.
+  await db.insert(notifications).values({
+    id: crypto.randomUUID(),
+    userId,
+    kind: "mention",
+    payload: { slug: "welcome", body: "in welcome" },
+  });
 
   console.log(`[seed] user=${E2E_USER.email} space=${spaceId} root branches=${rootBranchA},${rootBranchB}`);
 }

@@ -1,11 +1,13 @@
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Pencil, Eye, Loader2 } from "lucide-react";
+import { Pencil, Eye, Loader2, MessageSquare } from "lucide-react";
 
 import { api, type PageData } from "@/api/client";
 import { PageEditor, type PageEditorHandle } from "@/features/editor/Editor";
 import { useAutosave, saveStateLabel } from "@/features/editor/useAutosave";
+import { CommentsPanel } from "@/features/comments/CommentsPanel";
+import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import { useQuery } from "@/lib/useQuery";
 import { cn } from "@/lib/utils";
 import { MermaidRenderer } from "@/features/editor/extensions/MermaidRenderer.js";
@@ -17,11 +19,20 @@ export const Route = createFileRoute("/_authenticated/w/$branchId")({
 function PageView() {
   const { branchId } = Route.useParams();
   const [editMode, setEditMode] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  // Content/updatedAt the editor has autosaved this session. The read view and
+  // any re-entry into edit mode use this instead of the fetch-time snapshot so
+  // "View" never shows stale content and re-editing never saves on a stale OCC
+  // timestamp.
+  const [livePage, setLivePage] = useState<{ content: unknown; updatedAt: string } | null>(null);
 
   const { data: page, loading, error, reload } = useQuery(
     () => api.getPage(branchId),
     [branchId]
   );
+
+  // Reset the live overlay whenever we navigate to a different page.
+  useEffect(() => { setLivePage(null); }, [branchId]);
 
   if (loading) {
     return (
@@ -40,24 +51,50 @@ function PageView() {
   }
 
   const iconAttr = page.attributes.find((a) => a.name === "icon");
+  const content = livePage?.content ?? page.content;
+  const updatedAt = livePage?.updatedAt ?? page.updatedAt;
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader page={page} icon={iconAttr?.value} editMode={editMode} onToggleEdit={() => setEditMode((m) => !m)} />
-      {editMode ? (
-        <EditableCanvas page={page} key={page.id} onConflict={() => reload()} />
-      ) : (
-        <div className="flex min-h-0 flex-1">
-          <div className="min-h-0 flex-1 overflow-auto">
-            <div className="editor-canvas">
-              <div className="wiki-prose">
-                <ReadOnlyContent page={page} />
+      <PageHeader
+        page={page}
+        icon={iconAttr?.value}
+        editMode={editMode}
+        onToggleEdit={() => setEditMode((m) => !m)}
+        showComments={showComments}
+        onToggleComments={() => setShowComments((s) => !s)}
+      />
+      <div className="flex min-h-0 flex-1">
+        <div className="min-h-0 flex-1">
+          {editMode ? (
+            <EditableCanvas
+              branchId={page.branchId}
+              slug={page.slug}
+              content={content}
+              updatedAt={updatedAt}
+              key={page.id}
+              onConflict={() => reload()}
+              onContentChange={(nextContent, nextUpdatedAt) =>
+                setLivePage({ content: nextContent, updatedAt: nextUpdatedAt })
+              }
+            />
+          ) : (
+            <div className="flex h-full min-h-0">
+              <div className="min-h-0 flex-1 overflow-auto">
+                <div className="editor-canvas">
+                  <div className="wiki-prose">
+                    <ReadOnlyContent content={content} />
+                  </div>
+                </div>
               </div>
+              {!showComments && <PageTOC content={content} />}
             </div>
-          </div>
-          <PageTOC content={page.content} />
+          )}
         </div>
-      )}
+        {showComments && (
+          <CommentsPanel branchId={branchId} canEdit={page.access === "editor" || page.access === "admin"} />
+        )}
+      </div>
     </div>
   );
 }
@@ -67,11 +104,15 @@ function PageHeader({
   icon,
   editMode,
   onToggleEdit,
+  showComments,
+  onToggleComments,
 }: {
   page: PageData;
   icon?: string;
   editMode: boolean;
   onToggleEdit: () => void;
+  showComments: boolean;
+  onToggleComments: () => void;
 }) {
   return (
     <div className="flex items-center justify-between border-b border-border px-4 py-1.5">
@@ -86,6 +127,20 @@ function PageHeader({
         )}
       </div>
       <div className="flex items-center gap-1">
+        <FavoriteButton branchId={page.branchId} />
+        <button
+          type="button"
+          onClick={onToggleComments}
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-md border border-border transition-colors",
+            showComments ? "bg-accent text-primary" : "text-text-secondary hover:bg-surface-hover"
+          )}
+          aria-label={showComments ? "Hide comments" : "Show comments"}
+          aria-pressed={showComments}
+          data-testid="comments-toggle"
+        >
+          <MessageSquare className="h-4 w-4" />
+        </button>
         {page.access === "editor" || page.access === "admin" ? (
           <button
             type="button"
@@ -103,8 +158,8 @@ function PageHeader({
   );
 }
 
-function ReadOnlyContent({ page }: { page: PageData }) {
-  return <PageContentRenderer content={page.content} />;
+function ReadOnlyContent({ content }: { content: unknown }) {
+  return <PageContentRenderer content={content} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -192,18 +247,25 @@ function BlockNode({ node }: { node: PMNode }) {
 // Editable canvas — Tiptap editor with OCC autosave.
 // ---------------------------------------------------------------------------
 
-function EditableCanvas({ page, onConflict }: { page: PageData; onConflict: () => void }) {
+function EditableCanvas({ branchId, slug, content, updatedAt, onConflict, onContentChange }: {
+  branchId: string;
+  slug: string;
+  content: unknown;
+  updatedAt: string;
+  onConflict: () => void;
+  onContentChange: (content: unknown, updatedAt: string) => void;
+}) {
   const editorRef = useRef<PageEditorHandle>(null);
 
-  const getContent = useCallback(() => editorRef.current?.getJSON() ?? page.content, [page.content]);
+  const getContent = useCallback(() => editorRef.current?.getJSON() ?? content, [content]);
   const getTitle = useCallback(() => undefined, []);
 
   const { state: saveState, scheduleSave, saveNow } = useAutosave({
-    branchId: page.branchId,
-    initialUpdatedAt: new Date(page.updatedAt),
+    branchId,
+    initialUpdatedAt: new Date(updatedAt),
     getContent,
     getTitle,
-    onSaved: (_next: Date) => {},
+    onSaved: (next) => onContentChange(getContent(), next.toISOString()),
     onConflict: () => {
       toast.error("This page was updated elsewhere. Reload to see the latest version.", {
         action: { label: "Reload", onClick: onConflict },
@@ -219,14 +281,14 @@ function EditableCanvas({ page, onConflict }: { page: PageData; onConflict: () =
     <div className="flex min-h-0 flex-1 flex-col">
       <PageEditor
         ref={editorRef}
-        content={page.content}
+        content={content}
         editable
         onUpdate={handleUpdate}
       />
       <div className="flex items-center justify-between border-t border-border px-4 py-1 text-xs text-text-muted">
         <span>{saveStateLabel(saveState)}</span>
         <div className="flex items-center gap-3">
-          <span>{page.slug}</span>
+          <span>{slug}</span>
           {saveState === "dirty" && (
             <button type="button" onClick={saveNow} className="underline text-link">
               Save now

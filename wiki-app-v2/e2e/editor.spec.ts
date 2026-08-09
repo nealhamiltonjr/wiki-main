@@ -1,5 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 
+// The three editor tests all edit the same seeded "welcome" page. Running them
+// in parallel against one shared API server trips OCC conflicts (each save
+// carries expectedUpdatedAt), so the file is forced to run serially.
+test.describe.configure({ mode: "serial" });
+
 // Slice-5 gate (§6.3 + §11.5): the editor canvas must render exactly one
 // bordered ProseMirror container, content typed into it must survive a page
 // reload (autosave), and the DOM structure must stay stable across edits.
@@ -31,11 +36,14 @@ test("editor canvas renders exactly one bordered ProseMirror container", async (
   await openPage(page, "welcome");
   await enterEditMode(page);
 
-  // §6.3 gate: exactly one .ProseMirror, and it has a visible border.
+  // §6.3 gate: exactly one .ProseMirror, and the single writing-surface border
+  // lives on the .editor-canvas wrapper (the structural rule — never on focus,
+  // selection, or any plugin UI).
   await expect(page.locator(".ProseMirror")).toHaveCount(1);
   await expect(page.locator(".ProseMirror")).toBeVisible();
+  await expect(page.locator(".editor-canvas")).toHaveCount(1);
 
-  const border = await page.locator(".tiptap").evaluate((el) => {
+  const border = await page.locator(".editor-canvas").evaluate((el) => {
     const style = window.getComputedStyle(el);
     return style.borderWidth;
   });
@@ -55,8 +63,10 @@ test("typing content survives page reload", async ({ page }) => {
   await editor.press("Backspace");
   await page.keyboard.type("Quick brown fox jumps over the lazy dog.", { delay: 5 });
 
-  // Wait for autosave to fire (debounced 800ms + network).
-  await page.waitForTimeout(1500);
+  // Wait for autosave to land — the footer flips to "Saved" only after the
+  // server acknowledged the payload (debounce + network). A fixed sleep is
+  // flaky under parallel worker load.
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 10_000 });
 
   // Reload without navigating away from the page.
   await page.reload({ waitUntil: "networkidle" });
@@ -81,8 +91,10 @@ test("editing existing content preserves DOM structure", async ({ page }) => {
   await page.keyboard.press("Enter");
   await page.keyboard.type("This is a paragraph with **bold** text.", { delay: 5 });
 
-  // Wait for autosave.
-  await page.waitForTimeout(1500);
+  // Wait for the autosave to land — the footer shows "Saved" only after the
+  // server acknowledged the payload (debounce + network). A fixed sleep is
+  // flaky under parallel worker load.
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 10_000 });
 
   // Switch to read mode.
   await page.getByRole("button", { name: "View" }).click();

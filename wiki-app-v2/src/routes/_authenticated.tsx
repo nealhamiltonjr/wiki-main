@@ -2,6 +2,7 @@ import { createFileRoute, Outlet, useNavigate, Link } from "@tanstack/react-rout
 
 import { useSession } from "@/api/authClient";
 import { Tree } from "@/features/tree/Tree";
+import { NotificationBell } from "@/features/notifications/NotificationBell";
 
 // Pathless authenticated layout: the single chrome shell (sidebar + topbar)
 // that wraps every page a signed-in user can reach. The session gate redirects
@@ -32,8 +33,9 @@ function AuthenticatedLayout() {
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center border-b px-4" aria-label="Topbar">
+        <header className="flex h-12 shrink-0 items-center justify-between border-b px-4" aria-label="Topbar">
           <Link to="/" className="text-sm font-medium hover:text-primary transition-colors">Knowledge Base</Link>
+          <NotificationBell />
         </header>
         <main className="min-h-0 flex-1 overflow-auto">
           <Outlet />
