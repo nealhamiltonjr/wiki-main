@@ -17,9 +17,12 @@ export function NotificationBell() {
 
   const refresh = async () => {
     try {
-      const res = await api.listNotifications();
+      // listNotifications caps at the 50 most recent, so its inline unread
+      // count undercounts when older unread items exist — the badge must use
+      // the dedicated count endpoint.
+      const [res, countRes] = await Promise.all([api.listNotifications(), api.unreadCount()]);
       setItems(res.items);
-      setUnread(res.unread);
+      setUnread(countRes.unread);
     } catch {
       // bell is non-critical chrome; keep last known state
     }

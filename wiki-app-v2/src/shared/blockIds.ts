@@ -71,6 +71,24 @@ const KNOWN_MARK_TYPES = new Set([
 ]);
 
 /**
+ * Only schemes that can never execute script are allowed through to an <a href>
+ * in any renderer. `javascript:` (and data:/vbscript:) hrefs are a stored-XSS
+ * vector: they can be pasted into the editor (the Link extension's isAllowedUri
+ * is deliberately permissive) but must be neutralized before the content is
+ * persisted or rendered. Relative (internal wiki links) and fragment hrefs are
+ * fine.
+ */
+export function safeLinkHref(href: string): string {
+  const trimmed = href.trim();
+  if (trimmed.startsWith("#") || trimmed.startsWith("/")) return trimmed;
+  const schemeMatch = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(trimmed);
+  if (!schemeMatch) return trimmed; // no scheme — e.g. "example.com/path"
+  const scheme = schemeMatch[1]!.toLowerCase();
+  if (scheme === "http" || scheme === "https" || scheme === "mailto" || scheme === "tel") return trimmed;
+  return "#";
+}
+
+/**
  * Validates a Tiptap JSON document tree before persisting. Catches the three
  * most common failure modes from past bugs:
  *  1. Pasting from Word leaves inline style attributes / stray spans that
@@ -134,6 +152,14 @@ export function validateContent(input: unknown): { doc: JSONBlock; errors: strin
       for (const mark of node.marks) {
         if (typeof mark.type !== "string" || !KNOWN_MARK_TYPES.has(mark.type)) {
           errors.push(`${path}: unknown mark type "${String(mark.type)}"`);
+        }
+        // Neutralize script-capable link schemes before persisting.
+        if (mark.type === "link" && typeof mark.attrs?.href === "string") {
+          const safe = safeLinkHref(mark.attrs.href as string);
+          if (safe !== mark.attrs.href) {
+            mark.attrs = { ...mark.attrs, href: safe };
+            errors.push(`${path}: unsafe link scheme — neutralized`);
+          }
         }
       }
     }

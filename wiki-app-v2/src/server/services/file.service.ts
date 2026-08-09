@@ -1,12 +1,19 @@
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { files, branches } from "../db/schema.js";
 
 // Resolve relative to the project root, mirroring db/index.ts (services/ ->
-// server/ -> src/ -> root is 3 hops).
-const projectRoot = path.resolve(path.dirname(new URL(".", import.meta.url).pathname), "../../..");
+// server/ -> src/ -> root is 3 hops). Must use fileURLToPath (URL-unescapes
+// the path) and the directory itself — dirname() of the URL pathname would
+// strip one level too many and point FILES_ROOT outside the project.
+const projectRoot = resolveProjectRoot();
+function resolveProjectRoot(): string {
+  const here = fileURLToPath(new URL(".", import.meta.url));
+  return path.resolve(here, "../../..");
+}
 export const FILES_ROOT = process.env.FILES_ROOT
   ? path.resolve(projectRoot, process.env.FILES_ROOT)
   : path.resolve(projectRoot, "data/files");

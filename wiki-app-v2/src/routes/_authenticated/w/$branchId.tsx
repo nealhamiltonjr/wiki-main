@@ -11,6 +11,7 @@ import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import { useQuery } from "@/lib/useQuery";
 import { cn } from "@/lib/utils";
 import { MermaidRenderer } from "@/features/editor/extensions/MermaidRenderer.js";
+import { safeLinkHref } from "@/shared/blockIds";
 
 export const Route = createFileRoute("/_authenticated/w/$branchId")({
   component: PageView,
@@ -31,8 +32,23 @@ function PageView() {
     [branchId]
   );
 
-  // Reset the live overlay whenever we navigate to a different page.
-  useEffect(() => { setLivePage(null); }, [branchId]);
+  // Reset transient view state whenever we navigate to a different page. The
+  // route component instance is reused across branch params (same route match),
+  // so without this the comments panel would keep showing the previous page's
+  // threads and edit mode would leak onto the next page.
+  useEffect(() => {
+    setLivePage(null);
+    setShowComments(false);
+    setEditMode(false);
+  }, [branchId]);
+
+  // Derive the star's initial state from the user's favorites list (refetched
+  // per branch so navigation always reflects reality). FavoriteButton keys off
+  // branchId so it remounts with the correct initial value.
+  const { data: favoriteBranchIds } = useQuery(
+    () => api.listFavorites().then((list) => new Set(list.map((f) => f.branchId))),
+    [branchId]
+  );
 
   if (loading) {
     return (
@@ -57,12 +73,14 @@ function PageView() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader
+        key={page.branchId}
         page={page}
         icon={iconAttr?.value}
         editMode={editMode}
         onToggleEdit={() => setEditMode((m) => !m)}
         showComments={showComments}
         onToggleComments={() => setShowComments((s) => !s)}
+        initiallyFavorited={favoriteBranchIds?.has(page.branchId) ?? false}
       />
       <div className="flex min-h-0 flex-1">
         <div className="min-h-0 flex-1">
@@ -92,7 +110,11 @@ function PageView() {
           )}
         </div>
         {showComments && (
-          <CommentsPanel branchId={branchId} canEdit={page.access === "editor" || page.access === "admin"} />
+          <CommentsPanel
+            key={page.branchId}
+            branchId={branchId}
+            canEdit={page.access === "editor" || page.access === "admin"}
+          />
         )}
       </div>
     </div>
@@ -106,6 +128,7 @@ function PageHeader({
   onToggleEdit,
   showComments,
   onToggleComments,
+  initiallyFavorited,
 }: {
   page: PageData;
   icon?: string;
@@ -113,6 +136,7 @@ function PageHeader({
   onToggleEdit: () => void;
   showComments: boolean;
   onToggleComments: () => void;
+  initiallyFavorited: boolean;
 }) {
   return (
     <div className="flex items-center justify-between border-b border-border px-4 py-1.5">
@@ -127,7 +151,7 @@ function PageHeader({
         )}
       </div>
       <div className="flex items-center gap-1">
-        <FavoriteButton branchId={page.branchId} />
+        <FavoriteButton branchId={page.branchId} initiallyFavorited={initiallyFavorited} />
         <button
           type="button"
           onClick={onToggleComments}
@@ -193,7 +217,10 @@ function InlineNode({ node }: { node: PMNode }) {
         if (m.type === "strike") text = <s>{text}</s>;
         if (m.type === "code") text = <code>{text}</code>;
         if (m.type === "link") {
-          const href = (m.attrs?.href as string) ?? "#";
+          // Defense-in-depth on top of the save-time sanitizer (validateContent
+          // neutralizes javascript:/data: schemes) — a legacy or hand-edited
+          // doc must never render a script-capable href.
+          const href = safeLinkHref((m.attrs?.href as string) ?? "#");
           text = <a href={href} target={href.startsWith("http") ? "_blank" : undefined} rel="noopener noreferrer">{text}</a>;
         }
       }

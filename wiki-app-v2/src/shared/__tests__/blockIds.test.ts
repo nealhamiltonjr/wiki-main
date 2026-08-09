@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateContent, ensureBlockIds, collectBlockIds } from "../blockIds.js";
+import { validateContent, ensureBlockIds, collectBlockIds, safeLinkHref } from "../blockIds.js";
 
 describe("validateContent", () => {
   it("accepts a valid doc", () => {
@@ -75,5 +75,44 @@ describe("ensureBlockIds + collectBlockIds", () => {
     const ids = collectBlockIds(out);
     expect(ids).toHaveLength(2);
     expect(ids.every((id) => typeof id === "string" && id.length === 12)).toBe(true);
+  });
+});
+
+describe("safeLinkHref + link sanitization", () => {
+  it("keeps safe schemes and relative/fragment hrefs", () => {
+    expect(safeLinkHref("https://example.com/x")).toBe("https://example.com/x");
+    expect(safeLinkHref("http://example.com/x")).toBe("http://example.com/x");
+    expect(safeLinkHref("mailto:a@b.co")).toBe("mailto:a@b.co");
+    expect(safeLinkHref("/api/branches/abc/page")).toBe("/api/branches/abc/page");
+    expect(safeLinkHref("#section")).toBe("#section");
+    expect(safeLinkHref("example.com/path")).toBe("example.com/path"); // no scheme = fine
+  });
+
+  it("neutralizes script-capable schemes", () => {
+    expect(safeLinkHref("javascript:alert(1)")).toBe("#");
+    expect(safeLinkHref("  JAVASCRIPT:alert(1)  ")).toBe("#");
+    expect(safeLinkHref("data:text/html,<script>")).toBe("#");
+    expect(safeLinkHref("vbscript:msgbox(1)")).toBe("#");
+  });
+
+  it("auto-repairs unsafe link hrefs during validation", () => {
+    const input = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          attrs: { id: "p1" },
+          content: [
+            { type: "text", text: "click", marks: [{ type: "link", attrs: { href: "javascript:alert(1)" } }] },
+          ],
+        },
+      ],
+    };
+    const { doc, errors } = validateContent(input);
+    const docBlock = (doc.content as unknown[])[0] as { content?: unknown[] };
+    const paragraph = (docBlock.content as unknown[])[0] as { marks?: unknown[] };
+    const mark = (paragraph.marks as unknown[])[0] as { attrs?: { href?: string } };
+    expect(mark.attrs?.href).toBe("#");
+    expect(errors.some((e) => e.includes("unsafe link scheme"))).toBe(true);
   });
 });

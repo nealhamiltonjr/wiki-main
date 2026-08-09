@@ -24,10 +24,11 @@ export async function spaceRoutes(app: FastifyInstance) {
     return reply.code(201).send({ id: spaceId, name: body.name });
   });
 
-  // Lists every space the user has some role in (direct membership or via a
-  // group), plus all spaces if they're admin. Not branch-scoped, so this uses
-  // "authenticated" and filters inside the handler rather than the declarative
-  // per-route check - there's no single branch to key a check off here.
+  // Lists every space the user has some role in: direct membership, a group
+  // grant, or a non-"none" defaultRole (which is an implicit grant to every
+  // authenticated user — resolveSpaceRole falls back to it). Plus all spaces
+  // if they're admin. Not branch-scoped, so this uses "authenticated" and
+  // filters inside the handler rather than the declarative per-route check.
   app.get("/api/spaces", { config: { access: "authenticated" } }, async (request, reply) => {
     const { db } = getDb();
     const user = (request as any).userContext;
@@ -47,7 +48,13 @@ export async function spaceRoutes(app: FastifyInstance) {
         .where(sql`${spaceGroupPermissions.groupId} IN ${user.groupIds}`);
     }
 
-    const byId = new Map([...direct, ...viaGroups].map((r) => [r.space.id, r.space]));
+    // Spaces whose default role grants read/write to every authenticated user.
+    const openSpaces = await db
+      .select()
+      .from(spaces)
+      .where(sql`${spaces.defaultRole} IN ('editor', 'viewer')`);
+
+    const byId = new Map([...direct, ...viaGroups, ...openSpaces.map((s) => ({ space: s }))].map((r) => [r.space.id, r.space]));
     return reply.send([...byId.values()]);
   });
 
@@ -132,6 +139,11 @@ export async function spaceRoutes(app: FastifyInstance) {
       const body = z.object({ userId: z.string().min(1), role: z.enum(["viewer", "editor", "admin"]) }).parse(request.body);
 
       const { db } = getDb();
+      // Validate the user exists up front — a bogus id would otherwise surface
+      // as a raw SQLite FK error (500) instead of a clean 4xx.
+      const [targetUser] = await db.select({ id: users.id }).from(users).where(eq(users.id, body.userId));
+      if (!targetUser) return reply.code(404).send({ error: "User not found" });
+
       await db.insert(spaceMembers).values({ spaceId, userId: body.userId, role: body.role }).onConflictDoUpdate({
         target: [spaceMembers.spaceId, spaceMembers.userId],
         set: { role: body.role },
@@ -166,6 +178,11 @@ export async function spaceRoutes(app: FastifyInstance) {
       const body = z.object({ groupId: z.string().min(1), role: z.enum(["viewer", "editor", "admin"]) }).parse(request.body);
 
       const { db } = getDb();
+      // Validate the group exists up front — a bogus id would otherwise surface
+      // as a raw SQLite FK error (500) instead of a clean 4xx.
+      const [targetGroup] = await db.select({ id: groups.id }).from(groups).where(eq(groups.id, body.groupId));
+      if (!targetGroup) return reply.code(404).send({ error: "Group not found" });
+
       await db.insert(spaceGroupPermissions).values({
         id: crypto.randomUUID(),
         spaceId,

@@ -14,7 +14,7 @@ import {
   deletePageEverywhere,
   renamePage,
 } from "../services/page.service.js";
-import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
+import { getBranchChain, resolveSpaceRole, canViewPage } from "../services/branch.service.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
 import { getPageBacklinks } from "../services/backlink.service.js";
@@ -40,12 +40,30 @@ export async function pageRoutes(app: FastifyInstance) {
 
       const { db } = getDb();
       const attrs = await db.select().from(attributes).where(eq(attributes.pageId, row.page.id));
-      const backlinks = await getPageBacklinks(row.page.id);
-      const placements = await db
+      const backlinks = await getPageBacklinks(row.page.id, (request as any).userContext as UserContext | null);
+      // Only list placements the caller can actually open — a page cloned into
+      // a restricted space must not leak that placement's slug via the readable
+      // one (§13.1). Anonymous (share-token) callers see only the placement
+      // they're viewing.
+      const user = (request as any).userContext as UserContext | null;
+      const allPlacements = await db
         .select({ id: branches.id, slug: pages.slug })
         .from(branches)
         .innerJoin(pages, eq(branches.pageId, pages.id))
         .where(eq(branches.pageId, row.page.id));
+      const placements: { id: string; slug: string }[] = [];
+      for (const p of allPlacements) {
+        if (!user) {
+          if (p.id === branchId) placements.push(p);
+          continue;
+        }
+        const chain = await getBranchChain(p.id).catch(() => null);
+        if (!chain) continue;
+        const spaceRole = user.isAdmin
+          ? "admin" as const
+          : await resolveSpaceRole(user.id, chain[0]!.spaceId, user.groupIds);
+        if (resolveAccess(user, chain, spaceRole) !== "none") placements.push(p);
+      }
 
       const access = (request as any).resolvedAccess as string | undefined;
       return reply.send({
@@ -65,14 +83,20 @@ export async function pageRoutes(app: FastifyInstance) {
 
   // §7.12 block-refs + backlinks: every page that links into this page. The
   // page's own GET already embeds backlinks for the editor panel; this route is
-  // the API-parity endpoint the regression suite targets.
+  // the API-parity endpoint the regression suite targets. Callers must be able
+  // to read the target page (else the endpoint would leak its existence) and
+  // source pages they can't access are filtered out of the result (§13.1).
   app.get(
     "/api/pages/:pageId/backlinks",
     { config: { access: "authenticated" } },
     async (request, reply) => {
       const { pageId } = request.params as { pageId: string };
+      const user = (request as any).userContext as UserContext;
+      if (!(await canViewPage(user, pageId))) {
+        return reply.code(404).send({ error: "Page not found" });
+      }
       try {
-        const backlinks = await getPageBacklinks(pageId);
+        const backlinks = await getPageBacklinks(pageId, user);
         return reply.send({ backlinks });
       } catch {
         return reply.send({ backlinks: [] });

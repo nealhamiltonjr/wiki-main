@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
-import { branches, pages } from "../db/schema.js";
+import { branches, pages, spaces } from "../db/schema.js";
 import {
   getBranchChain,
   resolveSpaceRole,
@@ -62,6 +62,11 @@ export async function branchRoutes(app: FastifyInstance) {
       if (sourceBranch.isSystem) return reply.code(403).send({ error: "System branches cannot be cloned" });
       const [sourcePage] = await db.select().from(pages).where(eq(pages.id, sourceBranch.pageId));
       if (!sourcePage || sourcePage.deletedAt) return reply.code(404).send({ error: "Page not found" });
+
+      // The target space must exist before any permission or insert logic runs
+      // (a nonexistent space id would otherwise fall through to a raw FK error).
+      const [targetSpace] = await db.select({ id: spaces.id }).from(spaces).where(eq(spaces.id, body.targetSpaceId));
+      if (!targetSpace) return reply.code(404).send({ error: "Target space not found" });
 
       if (!(await canEditInDestination(user, body.targetParentBranchId, body.targetSpaceId))) {
         return reply.code(403).send({ error: "Insufficient destination permissions" });

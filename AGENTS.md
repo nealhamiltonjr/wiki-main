@@ -65,6 +65,45 @@ From `wiki-app-v2/`:
   `npm audit` shows 5 moderate esbuild advisories — dev-tooling only
   (drizzle-kit's CLI chain), not runtime-reachable.
 
+## Slice-10 code audit (fixed)
+
+Cross-boundary data leaks and hardening found in a full-code audit and fixed:
+- **FILES_ROOT** (`file.service.ts`) was one directory too high; now derived
+  from `import.meta.url` + relative path to `data/files`.
+- **Backlink/placement leaks**: a page cloned into a restricted space leaked
+  the hidden placement's slug (page GET `placements`), and backlinks leaked
+  source-page slugs/titles the caller couldn't open. `getPageBacklinks` now
+  takes `user` and filters sources via `canViewPage`; the page GET filters
+  placements per-branch; `/api/pages/:pageId/backlinks` 404s for inaccessible
+  targets. Use `canViewPage(user, pageId)` for page-level visibility
+  (admin→true, null→only anonymous-visible public chains, else any placement
+  the user can resolve).
+- **Favorites**: toggle now requires branch `viewer` (declarative
+  `branchParam` access), and the list endpoint drops favorites whose branch is
+  no longer readable.
+- **Suspended creators' tokens**: middleware rejects bearer tokens whose
+  creator is suspended (was only checked for session principals).
+- **Link-scheme XSS**: `safeLinkHref` (shared/blockIds.ts) neutralizes
+  `javascript:`/`data:`/`vbscript:`; wired into `validateContent` (repairs on
+  save, logs error) and the read-only renderer in `$branchId.tsx`.
+  `@tiptap/extension-link` `isAllowedUri: () => true` is intentional — the
+  server sanitizer is the boundary.
+- **`GET /api/spaces`** now includes spaces whose `defaultRole` is
+  `editor`/`viewer` (implicit grant via `resolveSpaceRole`).
+- **FK 500s**: clone validates target space exists (404), space members and
+  group-grants validate user/group existence (404) instead of raw SQLite FK
+  errors.
+- **NotificationBell badge** uses `/api/notifications/unread-count` — the list
+  caps at 50 so its inline unread undercounts.
+- **Client route reuse**: `/w/$branchId` is ONE route match reused across
+  branch params. Stale CommentsPanel threads/FavoriteButton state persisted
+  across navigation. Fix: reset editMode/showComments/livePage on branchId
+  change, key `PageHeader` + `CommentsPanel` by `page.branchId`, and feed
+  `FavoriteButton` an `initiallyFavorited` derived from `listFavorites()`.
+
+Regression coverage: `src/server/__tests__/audit-fixes.integration.test.ts`
+(9 tests) + `safeLinkHref` unit tests in `src/shared/__tests__/blockIds.test.ts`.
+
 ## Slice status
 
 1. Skeleton — done (commit e6155bf)

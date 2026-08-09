@@ -215,6 +215,40 @@ export async function buildSpaceTree(
   return roots;
 }
 
+/**
+ * Whether the user can read ANY placement of a page. Used to filter derived
+ * cross-page data (backlinks, placements) so a page a user can't access never
+ * leaks its existence through a page they CAN access (brief §13.1).
+ */
+export async function canViewPage(user: UserContext | null, pageId: string): Promise<boolean> {
+  const { db } = getDb();
+  const rows = await db
+    .select({ id: branches.id, spaceId: branches.spaceId, isSystem: branches.isSystem })
+    .from(branches)
+    .where(eq(branches.pageId, pageId));
+  if (rows.length === 0) return false;
+
+  if (!user) {
+    // Anonymous: a page is visible iff it has at least one placement in a
+    // public chain with no local boundary.
+    const visible = await anonymousVisibleBranchIds();
+    return rows.some((r) => visible.has(r.id));
+  }
+  if (user.isAdmin) return true;
+
+  const spaceRoleCache = new Map<string, SpaceRole | null>();
+  for (const r of rows) {
+    let role = spaceRoleCache.get(r.spaceId);
+    if (role === undefined) {
+      role = await resolveSpaceRole(user.id, r.spaceId, user.groupIds);
+      spaceRoleCache.set(r.spaceId, role);
+    }
+    const chain = await getBranchChain(r.id).catch(() => null);
+    if (chain && resolveAccess(user, chain, role) !== "none") return true;
+  }
+  return false;
+}
+
 /** Lists a branch's explicit group grants, with group names for the UI. */
 export async function listBranchPermissions(branchId: string) {
   const { db } = getDb();

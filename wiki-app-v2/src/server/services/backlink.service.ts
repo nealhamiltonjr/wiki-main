@@ -1,6 +1,8 @@
 import { eq, inArray } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { backlinks, branches, pages } from "../db/schema.js";
+import { canViewPage } from "./branch.service.js";
+import type { UserContext } from "../../shared/types.js";
 
 interface PMNode {
   type: string;
@@ -66,8 +68,15 @@ export interface BacklinkEntry {
   targetBlockId: string | null;
 }
 
-/** Every known backlink into the given page, with the source page's slug+title. */
-export async function getPageBacklinks(pageId: string): Promise<BacklinkEntry[]> {
+/**
+ * Every known backlink into the given page, with the source page's slug+title.
+ *
+ * Source pages the caller can't access are filtered out (brief §13.1): a
+ * backlink must never leak the slug or title of a page the requester couldn't
+ * open directly. `user` may be null for anonymous callers (only public-chain
+ * sources survive) or an admin (everything survives).
+ */
+export async function getPageBacklinks(pageId: string, user?: UserContext | null): Promise<BacklinkEntry[]> {
   const { db } = getDb();
   // All placements of this page.
   const placements = await db
@@ -97,6 +106,8 @@ export async function getPageBacklinks(pageId: string): Promise<BacklinkEntry[]>
     const key = `${r.sourcePageId}:${r.targetBlockId ?? "*"}`;
     if (seen.has(key)) continue;
     seen.add(key);
+
+    if (user && !(await canViewPage(user, r.sourcePageId))) continue;
 
     const [srcBranch] = await db
       .select({ id: branches.id })

@@ -100,6 +100,16 @@ export async function registerPermissionMiddleware(app: FastifyInstance) {
       // the token's own scope/permission is enforced below, not the creator's.
       const creator = await getUserContextById(principal.token.createdBy).catch(() => null);
       if (!creator) return reply.code(401).send({ error: "Token owner not found" });
+      // Suspension disables the creator's tokens too — an account suspension
+      // that left working API tokens behind would be a hole in the guard.
+      const { db } = getDb();
+      const creatorRow = await db
+        .select({ suspended: users.suspended })
+        .from(users)
+        .where(eq(users.id, creator.id));
+      if (creatorRow[0]?.suspended) {
+        return reply.code(403).send({ error: "Account suspended. Contact an administrator." });
+      }
       (request as any).userContext = creator;
     }
 
