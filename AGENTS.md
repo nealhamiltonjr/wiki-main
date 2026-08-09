@@ -129,3 +129,11 @@ Regression coverage: `src/server/__tests__/audit-fixes.integration.test.ts`
    Dependencies added: mermaid, prismjs, @types/prismjs.
 6. Next — plugin engine, token-based theming, collab infrastructure,
    typed relations, data migration from old app.
+7. Git flush pipeline — done (commit db12432): Markdown export
+   (tiptapToMarkdown + YAML frontmatter), git service (simple-git:
+   init, commit autosave + manual snapshot, history read, file-at-commit),
+   DB-backed commit queue with exponential backoff worker loop. Wired into
+   savePageOCC/createPage. History/snapshot/restore routes. Client
+   HistoryPanel with commit list, snapshot form, and restore button.
+   121 unit + 8 e2e tests pass. Gate: git log on data/repo shows real commit
+   with page id (confirmed in unit, integration, and e2e suites).
