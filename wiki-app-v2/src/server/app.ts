@@ -9,6 +9,8 @@ import { spaceRoutes } from "./routes/space.routes.js";
 import { treeRoutes } from "./routes/tree.routes.js";
 import { pageRoutes } from "./routes/page.routes.js";
 import { branchRoutes } from "./routes/branch.routes.js";
+import { fileRoutes } from "./routes/file.routes.js";
+import multipart from "@fastify/multipart";
 
 /**
  * Builds a fully-configured Fastify instance WITHOUT calling .listen() — split
@@ -52,11 +54,15 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   });
 
   await app.register(cookie);
+  // Multipart for file uploads — 25MB cap (brief §3.2: too-large files must
+  // fail cleanly with 413, never a bare 500).
+  await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024 } });
   await app.register(authRoutes);
   await app.register(spaceRoutes);
   await app.register(treeRoutes);
   await app.register(pageRoutes);
   await app.register(branchRoutes);
+  await app.register(fileRoutes);
 
   app.get("/api/health", { config: { access: "public" } }, async () => ({
     status: "ok",
