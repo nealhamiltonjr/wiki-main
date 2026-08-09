@@ -190,6 +190,24 @@ export async function purgePage(pageId: string): Promise<void> {
   unindexPageForSearch(pageId);
 }
 
+/** Soft-deletes a page EVERYWHERE: removes every placement, then trashes the page. */
+export async function deletePageEverywhere(pageId: string): Promise<void> {
+  const { db } = getDb();
+  db.transaction((tx) => {
+    tx.delete(branches).where(eq(branches.pageId, pageId)).run();
+    tx.update(pages).set({ deletedAt: new Date() }).where(eq(pages.id, pageId)).run();
+  });
+  unindexPageForSearch(pageId);
+}
+
+/** Renames a page (the slug lives on the page, shared by every placement). */
+export async function renamePage(pageId: string, slug: string): Promise<boolean> {
+  const { db } = getDb();
+  const result = await db.update(pages).set({ slug }).where(eq(pages.id, pageId));
+  const changes = (result as unknown as { changes: number }).changes;
+  return changes > 0;
+}
+
 /** Lists soft-deleted pages in a space, for the per-space Trash view. */
 export async function listTrash(spaceId: string) {
   const { db } = getDb();

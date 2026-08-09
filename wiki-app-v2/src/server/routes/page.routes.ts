@@ -11,7 +11,12 @@ import {
   restorePage,
   purgePage,
   listTrash,
+  deletePageEverywhere,
+  renamePage,
 } from "../services/page.service.js";
+import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
+import { resolveAccess } from "../../shared/permissions/algorithm.js";
+import type { UserContext } from "../../shared/types.js";
 import { getPageBacklinks } from "../services/backlink.service.js";
 
 export async function pageRoutes(app: FastifyInstance) {
@@ -220,6 +225,81 @@ export async function pageRoutes(app: FastifyInstance) {
       const row = await getPageByBranchId(branchId);
       if (!row) return reply.code(404).send({ error: "Page not found" });
       await softDeleteBranch(branchId);
+      return reply.send({ ok: true });
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  // Rename. The slug lives on the page (shared by every placement), so this is
+  // authorized via a single witness branch the caller has editor access on —
+  // exactly like content saves.
+  // -------------------------------------------------------------------------
+
+  const renameBody = z.object({ slug: z.string().min(1).max(120) });
+
+  app.put(
+    "/api/pages/:pageId/branches/:branchId/slug",
+    { config: { access: { branchParam: "branchId", minRole: "editor" } } },
+    async (request, reply) => {
+      const { pageId, branchId } = request.params as { pageId: string; branchId: string };
+      const body = renameBody.parse(request.body);
+
+      const row = await getPageByBranchId(branchId);
+      if (!row || row.page.id !== pageId || row.page.deletedAt) {
+        return reply.code(404).send({ error: "Page not found" });
+      }
+
+      await renamePage(pageId, body.slug);
+      return reply.send({ ok: true, slug: body.slug });
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  // Delete a page EVERYWHERE: soft-delete the page row and remove every branch
+  // (placement). Authorized via a witness branchId in the query string, then
+  // requires editor access on EVERY placement of the page — you can't destroy
+  // placements in spaces you only have view access to. Any placement with
+  // child pages blocks the delete (children would otherwise dangle).
+  // -------------------------------------------------------------------------
+
+  app.delete(
+    "/api/pages/:pageId",
+    { config: { access: { branchParam: "branchId", minRole: "editor", source: "query" } } },
+    async (request, reply) => {
+      const { pageId } = request.params as { pageId: string };
+      const { branchId } = request.query as { branchId?: unknown };
+      if (typeof branchId !== "string" || branchId.length === 0) {
+        return reply.code(400).send({ error: "Missing branchId (authorization witness)" });
+      }
+
+      const witness = await getPageByBranchId(branchId);
+      if (!witness || witness.page.id !== pageId) {
+        return reply.code(404).send({ error: "Page not found" });
+      }
+
+      const { db } = getDb();
+      const allBranches = await db.select().from(branches).where(eq(branches.pageId, pageId));
+      if (allBranches.length === 0) return reply.code(404).send({ error: "Page not found" });
+
+      const user = (request as any).userContext as UserContext;
+      for (const branch of allBranches) {
+        if (branch.isSystem) {
+          return reply.code(403).send({ error: "Cannot delete a page that exists in a system branch" });
+        }
+        const chain = await getBranchChain(branch.id).catch(() => null);
+        if (!chain) return reply.code(404).send({ error: "Branch not found" });
+        const spaceRole = await resolveSpaceRole(user.id, chain[0]!.spaceId, user.groupIds);
+        const result = resolveAccess(user, chain, spaceRole);
+        if (result !== "editor" && result !== "admin") {
+          return reply.code(403).send({ error: "You need editor access on every placement of this page" });
+        }
+        const [child] = await db.select({ id: branches.id }).from(branches).where(eq(branches.parentBranchId, branch.id)).limit(1);
+        if (child) {
+          return reply.code(400).send({ error: "Cannot delete a page whose placements still have child pages" });
+        }
+      }
+
+      await deletePageEverywhere(pageId);
       return reply.send({ ok: true });
     }
   );
