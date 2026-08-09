@@ -10,6 +10,7 @@ import { treeRoutes } from "./routes/tree.routes.js";
 import { pageRoutes } from "./routes/page.routes.js";
 import { branchRoutes } from "./routes/branch.routes.js";
 import { fileRoutes } from "./routes/file.routes.js";
+import { searchRoutes } from "./routes/search.routes.js";
 import multipart from "@fastify/multipart";
 
 /**
@@ -63,6 +64,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(pageRoutes);
   await app.register(branchRoutes);
   await app.register(fileRoutes);
+  await app.register(searchRoutes);
 
   app.get("/api/health", { config: { access: "public" } }, async () => ({
     status: "ok",
