@@ -11,6 +11,9 @@ import { pageRoutes } from "./routes/page.routes.js";
 import { branchRoutes } from "./routes/branch.routes.js";
 import { fileRoutes } from "./routes/file.routes.js";
 import { searchRoutes } from "./routes/search.routes.js";
+import { commentRoutes } from "./routes/comment.routes.js";
+import { favoriteRoutes } from "./routes/favorite.routes.js";
+import { notificationRoutes } from "./routes/notification.routes.js";
 import multipart from "@fastify/multipart";
 
 /**
@@ -65,6 +68,9 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(branchRoutes);
   await app.register(fileRoutes);
   await app.register(searchRoutes);
+  await app.register(commentRoutes);
+  await app.register(favoriteRoutes);
+  await app.register(notificationRoutes);
 
   app.get("/api/health", { config: { access: "public" } }, async () => ({
     status: "ok",

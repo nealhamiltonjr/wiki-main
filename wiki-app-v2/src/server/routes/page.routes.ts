@@ -18,6 +18,7 @@ import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js"
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
 import { getPageBacklinks } from "../services/backlink.service.js";
+import { processMentions } from "../services/mention.service.js";
 
 export async function pageRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
@@ -59,6 +60,23 @@ export async function pageRoutes(app: FastifyInstance) {
         placements,
         backlinks,
       });
+    }
+  );
+
+  // §7.12 block-refs + backlinks: every page that links into this page. The
+  // page's own GET already embeds backlinks for the editor panel; this route is
+  // the API-parity endpoint the regression suite targets.
+  app.get(
+    "/api/pages/:pageId/backlinks",
+    { config: { access: "authenticated" } },
+    async (request, reply) => {
+      const { pageId } = request.params as { pageId: string };
+      try {
+        const backlinks = await getPageBacklinks(pageId);
+        return reply.send({ backlinks });
+      } catch {
+        return reply.send({ backlinks: [] });
+      }
     }
   );
 
@@ -107,6 +125,9 @@ export async function pageRoutes(app: FastifyInstance) {
         .select({ updatedAt: pages.updatedAt, title: pages.title })
         .from(pages)
         .where(eq(pages.id, row.page.id));
+      // Mention notifications are derived data — fire-and-forget so a slow
+      // notification fan-out never delays the save response.
+      processMentions(row.page.id, branchId, row.page.slug, (request as any).userContext?.id ?? "", body.content).catch(() => {});
       return reply.send({ ok: true, updatedAt: fresh?.updatedAt, title: fresh?.title });
     }
   );
