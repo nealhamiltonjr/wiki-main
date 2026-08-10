@@ -13,15 +13,17 @@ const MAX_ATTEMPTS = 5;
  * Retry/backoff: a failed job goes back to pending with exponential backoff,
  * capped at 5 attempts before it's marked failed.
  */
-export async function enqueueJob(kind: string, payload: unknown, runAfter?: Date) {
+export async function enqueueJob(kind: string, payload: unknown, runAfter?: Date): Promise<string> {
   const { db } = getDb();
+  const id = crypto.randomUUID();
   await db.insert(jobQueue).values({
-    id: crypto.randomUUID(),
+    id,
     kind,
     payload: payload as never,
     status: "pending",
     runAfter: runAfter ?? new Date(),
   });
+  return id;
 }
 
 /** Processes due pending jobs. Exported for tests; the loop calls it repeatedly. */
