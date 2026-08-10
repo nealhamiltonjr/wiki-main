@@ -129,6 +129,13 @@ function blockToMarkdown(node: PMNode, listDepth = 0, ctx?: MarkdownExportContex
       const code = (node.content ?? []).map((n) => n.text ?? "").join("");
       return "```" + lang + "\n" + code + "\n```";
     }
+    case "mermaidDiagram": {
+      // Export the diagram source as a fenced ```mermaid block so it survives
+      // the repo file and restores back into a live diagram (markdownToTiptap
+      // maps ```mermaid back to a mermaidDiagram node).
+      const source = (node.content ?? []).map((n) => n.text ?? "").join("");
+      return "```mermaid\n" + source + "\n```";
+    }
     case "blockquote":
       return (node.content ?? [])
         .map((n) => blockToMarkdown(n, listDepth, c))
@@ -211,6 +218,14 @@ function inlineToMarkdown(nodes: PMNode[] | undefined, ctx: MarkdownExportContex
 
 function inlineNodeToMarkdown(node: PMNode, ctx: MarkdownExportContext): string {
   if (node.type === "hardBreak") return "  \n";
+  if (node.type === "mention") {
+    // @tiptap/extension-mention node. Export the display name as plain text so
+    // the reference survives the repo file (and restores as a readable
+    // "@Name" — markdown has no standard mention syntax to round-trip with).
+    const char = (node.attrs?.mentionSuggestionChar as string) ?? "@";
+    const label = (node.attrs?.label as string) ?? "";
+    return label ? `${char}${label}` : "";
+  }
   if (node.type !== "text" || !node.text) return "";
 
   let text = node.text;
@@ -270,11 +285,20 @@ export function markdownToTiptap(markdown: string): PMNode {
         i++;
       }
       i++; // skip closing ```
-      blocks.push({
-        type: "codeBlock",
-        attrs: lang ? { language: lang } : undefined,
-        content: [{ type: "text", text: codeLines.join("\n") }],
-      });
+      if (lang === "mermaid") {
+        // Round-trip the diagram back into a mermaidDiagram node (see
+        // blockToMarkdown). ensureBlockIds assigns the id on save.
+        blocks.push({
+          type: "mermaidDiagram",
+          content: [{ type: "text", text: codeLines.join("\n") }],
+        });
+      } else {
+        blocks.push({
+          type: "codeBlock",
+          attrs: lang ? { language: lang } : undefined,
+          content: [{ type: "text", text: codeLines.join("\n") }],
+        });
+      }
       continue;
     }
 

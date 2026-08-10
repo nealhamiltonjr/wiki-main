@@ -122,4 +122,43 @@ describe("markdownToTiptap", () => {
     expect(text).toContain("key = value");
     expect(text).toContain("hello!");
   });
+
+  it("exports mention nodes as readable @Name text instead of dropping them", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Ask " },
+            { type: "mention", attrs: { id: "u1", label: "Alice", mentionSuggestionChar: "@" } },
+            { type: "text", text: " about the bridge" },
+          ],
+        },
+      ],
+    };
+    const md = tiptapToMarkdown(doc as any);
+    expect(md).toContain("Ask @Alice about the bridge");
+  });
+
+  it("exports mermaid diagrams as a fenced ```mermaid block and round-trips them back", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "mermaidDiagram",
+          content: [{ type: "text", text: "graph TD\n  A-->B" }],
+        },
+      ],
+    };
+
+    const md = tiptapToMarkdown(doc as any);
+    expect(md).toContain("```mermaid\ngraph TD\n  A-->B\n```");
+
+    // And the export restores back into a mermaidDiagram node with the source.
+    const parsed = markdownToTiptap(md);
+    expect(parsed.content?.[0]?.type).toBe("mermaidDiagram");
+    const text = (parsed.content?.[0]?.content ?? []).map((n: any) => n.text ?? "").join("");
+    expect(text).toBe("graph TD\n  A-->B");
+  });
 });
