@@ -148,6 +148,9 @@ Regression coverage: `src/server/__tests__/audit-fixes.integration.test.ts`
      `--root` for the repo's first commit). Never read the snapshot path
      blindly: once a snapshot exists it's present in every later commit's
      tree and would return stale content for later autosave commits.
+     For autosave commits it derives the file's slug from the commit
+     message (page:<id>: Update - <slug>), so pre-rename commits still
+     restore after the page's slug changed.
    - Restore returns 409 on OCC conflict (matches the live save route).
    - getPageHistory greps in git (log --grep) so huge repos stay fast.
    - Restore+snapshot are covered through the real Fastify routes.
