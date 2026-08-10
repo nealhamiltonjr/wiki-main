@@ -39,8 +39,19 @@
   enqueue (auto-repairable errors are logged and saved repaired).
 - **Commit queue**: single-threaded worker, 10 jobs/pass, exponential backoff
   (`min(2^attempts*1000, 60000)`), max 5 attempts → `failed`. `processPendingJobs`
-  return value counts **successes only** (0 for a failing job). Jobs left in
-  `running` by a crash are never reclaimed (known limitation; keep an eye out).
+  return value counts **successes only** (0 for a failing job). Startup calls
+  `reclaimStaleJobs()`: jobs stranded in `running` by a crash are flipped back
+  to `pending` and retried (commits are idempotent, so a re-run is safe).
+- **No-op commits must be skipped, not fail**: `git commit` exits 1 on
+  "nothing to commit". `commitPageChange`/`commitManualSnapshot` check
+  `git diff --cached --name-only` for their paths first and return without a
+  commit when nothing is staged. Reachable via no-op title-only saves (that
+  path doesn't bump `updatedAt`, so the exported file can be byte-identical)
+  and same-millisecond saves. Also what makes crash recovery safe.
+- **Rename must remove the old file**: the rename route passes `oldSlug` in
+  the job payload and `commitPageChange` `git rm`s the previous
+  `<spaceSlug>/<oldSlug>.md` (space slugs never change). Without this the
+  tree keeps a stale copy of the page under its old name.
 - **Markdown fences must outrun content**: a code block whose content contains
   a line of ``` (or longer backtick run) is exported with a **longer** fence
   (`codeFence`); inline code uses one more backtick than the longest run. The
@@ -63,5 +74,18 @@
   and `initGitRepo()`/`buildApp()` in `beforeAll`; they must not run in parallel.
 - `git-flush.integration.test.ts` drains the queue with `processPendingJobs()`
   (exported for tests) and inspects the repo with `execSync("git ...", { cwd: REPO_PATH })`.
-- Queue behavior is covered in `queue.integration.test.ts` (retry/backoff/batch);
-  markdown round-trip in `markdown-roundtrip.test.ts`.
+- Queue behavior is covered in `queue.integration.test.ts` (retry/backoff/batch/
+  reclaim); markdown round-trip in `markdown-roundtrip.test.ts`.
+
+## Known limitations (accepted, not blocking)
+
+- **Deleted pages leave a stale file in the git tree.** `deletePageEverywhere`
+  soft-deletes the page and removes its branches but never enqueues a commit to
+  `git rm` `<spaceSlug>/<pageSlug>.md`, and `_snapshots/<pageId>.md` stays too.
+  Harmless today (history/restore 404 for deleted pages; a later page reusing
+  the slug overwrites the file), but the repo accumulates dead files after
+  deletes. Fixing it needs a git-rm job kind or an inline rm in the delete route.
+- **Mention notifications duplicate on every save.** `processMentions` fires
+  on each save containing an `@mention`; the same mention creates a fresh
+  notification each time (no dedup by (pageId, userId, seen)). UI nuisance, not
+  a data-integrity issue. Out of slice-10 scope.
