@@ -162,4 +162,10 @@ Regression coverage: `src/server/__tests__/audit-fixes.integration.test.ts`
      mermaidDiagram round-trips via ```mermaid fences. Tables and
      details/collapse are a documented best-effort (text survives,
      structure does not).
-   129 unit + 8 e2e tests pass.
+   - Restore rejects non-hex commitHash (zod /^[0-9a-f]{7,64}$/i) — a value
+     like "--output=/tmp/x" would otherwise be parsed as a git option before
+     the file-match could 404.
+   - HistoryPanel: snapshot labels strip the machine prefix (page:<id>:),
+     and a restore 409 triggers the same reload as a successful restore
+     (ApiError.status 409). Snapshot input capped at 200 to match zod.
+   131 unit + 8 e2e tests pass.
