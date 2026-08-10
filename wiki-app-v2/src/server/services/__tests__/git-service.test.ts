@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execSync } from "node:child_process";
 import { rmSync, mkdirSync } from "node:fs";
+import { eq } from "drizzle-orm";
 
 // Git flush pipeline (§8 step 10): autosave commits write real Markdown content
 // to the content repo with the page's id in the commit message (the slice gate),
@@ -118,6 +119,38 @@ describe("git flush pipeline", () => {
   it("history is empty for a page with no commits (repo inited, page never flushed)", async () => {
     const history = await getPageHistory("does-not-exist");
     expect(history).toEqual([]);
+  });
+
+  it("getFileContentAtCommit reads an autosave's OWN content, not a stale snapshot, when a snapshot exists", async () => {
+    const pageId = "p-stale";
+    const branchId = await createPage(pageId, "stale", simpleDoc("v1 autosave"));
+    await commitPageChange(pageId, branchId); // commit 1: v1
+
+    await db.update(pages).set({ content: simpleDoc("v2 content") }).where(eq(pages.id, pageId));
+    await commitPageChange(pageId, branchId); // commit 2: v2 autosave
+
+    await commitManualSnapshot(pageId, "mid snapshot", "u1"); // commit 3: snapshot of v2
+
+    await db.update(pages).set({ content: simpleDoc("v3 content") }).where(eq(pages.id, pageId));
+    await commitPageChange(pageId, branchId); // commit 4: v3 autosave
+
+    const history = await getPageHistory(pageId);
+    const latest = history[0]!; // git log is newest-first → commit 4
+    const md = await getFileContentAtCommit(pageId, latest.hash);
+    expect(md).toContain("v3 content");
+    expect(md).not.toContain("v2 content"); // would be the stale snapshot content under the old path
+
+    // The snapshot commit itself still returns the snapshot's content.
+    const snapshot = history.find((h) => h.message.includes("Snapshot:"));
+    if (!snapshot) throw new Error("expected a snapshot commit");
+    expect(await getFileContentAtCommit(pageId, snapshot.hash)).toContain("v2 content");
+  });
+
+  it("getFileContentAtCommit works for the repo's root commit (the first commit ever)", async () => {
+    // The first test in this file made p1's commit the repo's root commit.
+    const rootHash = execSync("git rev-list --max-parents=0 HEAD", { cwd: TEST_REPO, encoding: "utf-8" }).trim();
+    const md = await getFileContentAtCommit("p1", rootHash);
+    expect(md).toContain("Hello world");
   });
 
   it("re-flushing unchanged content does not create a duplicate commit", async () => {

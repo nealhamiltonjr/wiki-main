@@ -394,7 +394,9 @@ export async function pageRoutes(app: FastifyInstance) {
         expectedUpdatedAt: currentPage.updatedAt,
       });
       if (!result.ok) {
-        return reply.code(500).send({ error: "Failed to save restored content" });
+        // Same conflict contract as the live save route: someone else saved
+        // between the read above and this write, so the client must reload.
+        return reply.code(409).send({ error: "Conflict", message: "This page was updated elsewhere. Reload to see the latest version before saving again." });
       }
       return reply.send({ ok: true });
     }

@@ -93,8 +93,10 @@ export async function commitManualSnapshot(pageId: string, message: string, user
 /**
  * Retrieves the Markdown content of a page's file at a specific commit.
  * Used by the restore endpoint to read historical content back into the
- * editor. Tries the snapshot path first, then falls back to using diff-tree to
- * discover the space-path filename.
+ * editor. Reads the file the commit ACTUALLY modified (via diff-tree): once a
+ * snapshot exists, `_snapshots/<pageId>.md` is present in every later commit's
+ * tree too, so naively reading it for an autosave commit would return the
+ * stale snapshot content instead of that commit's real content.
  */
 export async function getFileContentAtCommit(pageId: string, commitHash: string): Promise<string> {
   if (!git) throw new Error("git repo not initialized - call initGitRepo() first");
@@ -103,18 +105,14 @@ export async function getFileContentAtCommit(pageId: string, commitHash: string)
   const [page] = await db.select().from(pages).where(eq(pages.id, pageId));
   if (!page) throw new Error(`getFileContentAtCommit: page ${pageId} not found`);
 
+  // `--root` makes diff-tree diff a root commit (the repo's first commit) against
+  // the empty tree; without it, the very first commit reports no files at all.
+  const filesOut = await git.raw(["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", commitHash]);
+  const files = filesOut.trim().split("\n").filter(Boolean);
   const snapshotPath = `_snapshots/${pageId}.md`;
-
-  try {
-    return await git.show([`${commitHash}:${snapshotPath}`]);
-  } catch {
-    // Not a snapshot commit — find the space-path file via diff-tree.
-    const filesOut = await git.raw(["diff-tree", "--no-commit-id", "--name-only", "-r", commitHash]);
-    const files = filesOut.trim().split("\n").filter(Boolean);
-    const pageFile = files.find((f) => f.endsWith(`${page.slug}.md`));
-    if (!pageFile) throw new Error(`File not found in commit ${commitHash} for page ${pageId}`);
-    return await git.show([`${commitHash}:${pageFile}`]);
-  }
+  const pageFile = files.find((f) => f === snapshotPath) ?? files.find((f) => f.endsWith(`${page.slug}.md`));
+  if (!pageFile) throw new Error(`File not found in commit ${commitHash} for page ${pageId}`);
+  return await git.show([`${commitHash}:${pageFile}`]);
 }
 
 /** Lists commit history for a page's file - powers the history/snapshot UI. */
