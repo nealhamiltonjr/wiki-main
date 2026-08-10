@@ -110,7 +110,18 @@ export async function getFileContentAtCommit(pageId: string, commitHash: string)
   const filesOut = await git.raw(["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", commitHash]);
   const files = filesOut.trim().split("\n").filter(Boolean);
   const snapshotPath = `_snapshots/${pageId}.md`;
-  const pageFile = files.find((f) => f === snapshotPath) ?? files.find((f) => f.endsWith(`${page.slug}.md`));
+  const snapshotFile = files.find((f) => f === snapshotPath);
+  if (snapshotFile) return await git.show([`${commitHash}:${snapshotFile}`]);
+
+  // Autosave commits write <spaceSlug>/<pageSlug>.md where pageSlug is the
+  // slug AT COMMIT TIME — the page may have been renamed since, so the
+  // current page.slug may not match. Autosave messages are
+  // "page:<id>: Update - <slug>", so derive the commit-time slug from them.
+  const commitSlug = await git.raw(["show", "-s", "--format=%s", commitHash]).then(
+    (msg) => /^page:[^:]+: Update - (.+)$/.exec(msg.trim())?.[1],
+    () => undefined,
+  );
+  const pageFile = files.find((f) => f.endsWith(`/${commitSlug ?? page.slug}.md`));
   if (!pageFile) throw new Error(`File not found in commit ${commitHash} for page ${pageId}`);
   return await git.show([`${commitHash}:${pageFile}`]);
 }

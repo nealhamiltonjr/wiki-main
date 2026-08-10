@@ -146,6 +146,24 @@ describe("git flush pipeline", () => {
     expect(await getFileContentAtCommit(pageId, snapshot.hash)).toContain("v2 content");
   });
 
+  it("getFileContentAtCommit restores a pre-rename commit after the page slug changed", async () => {
+    const pageId = "p-renamed";
+    const branchId = await createPage(pageId, "old-name", simpleDoc("Old slug content"));
+    await commitPageChange(pageId, branchId); // commit 1: old-name.md
+
+    // Rename the page (the app's rename route updates pages.slug) and flush again.
+    await db.update(pages).set({ slug: "new-name", title: "new-name" }).where(eq(pages.id, pageId));
+    await commitPageChange(pageId, branchId); // commit 2: new-name.md
+
+    const history = await getPageHistory(pageId);
+    expect(history.length).toBeGreaterThanOrEqual(2);
+    // Newest-first: history[1] is the pre-rename commit.
+    const preRename = history[1]!;
+    const md = await getFileContentAtCommit(pageId, preRename.hash);
+    expect(md).toContain("Old slug content");
+    expect(md).toContain("slug: \"old-name\"");
+  });
+
   it("getFileContentAtCommit works for the repo's root commit (the first commit ever)", async () => {
     // The first test in this file made p1's commit the repo's root commit.
     const rootHash = execSync("git rev-list --max-parents=0 HEAD", { cwd: TEST_REPO, encoding: "utf-8" }).trim();
