@@ -6,7 +6,7 @@ import { eq, inArray } from "drizzle-orm";
 const DB_PATH = `data/test-queue-${randomBytes(4).toString("hex")}.db`;
 process.env.DB_PATH = DB_PATH;
 
-import { enqueueJob, processPendingJobs } from "../services/queue.service.js";
+import { enqueueJob, processPendingJobs, reclaimStaleJobs } from "../services/queue.service.js";
 import { getDb, closeDb } from "../db/index.js";
 import { jobQueue } from "../db/schema.js";
 
@@ -74,6 +74,28 @@ describe("commit queue (slice-10)", () => {
     const [running] = await db.select().from(jobQueue).where(eq(jobQueue.id, runningId));
     expect(future!.status).toBe("pending");
     expect(running!.status).toBe("running");
+
+    // Clean up so later tests start from a blank slate (the running job would
+    // otherwise be reclaimed as stale by the crash-recovery test).
+    await db.update(jobQueue).set({ status: "failed" }).where(eq(jobQueue.id, runningId));
+  });
+
+  it("reclaims jobs stranded in running (crash recovery) so they are retried", async () => {
+    const { db } = getDb();
+    const id = await enqueueJob("no_such_kind", {});
+    // Simulate a crash mid-drain: the row is left `running` forever.
+    await db.update(jobQueue).set({ status: "running" }).where(eq(jobQueue.id, id));
+
+    expect(await reclaimStaleJobs()).toBe(1);
+    const [job] = await db.select().from(jobQueue).where(eq(jobQueue.id, id));
+    expect(job!.status).toBe("pending");
+
+    // A second call has nothing left to reclaim.
+    expect(await reclaimStaleJobs()).toBe(0);
+
+    // Clean up so the reclaimed job doesn't consume the 10-per-pass budget
+    // of the batching test below.
+    await db.update(jobQueue).set({ status: "failed" }).where(eq(jobQueue.id, id));
   });
 
   it("drains at most 10 jobs per pass (single-threaded worker guard)", async () => {

@@ -114,6 +114,49 @@ describe("git flush pipeline (slice-10 gate)", () => {
     expect(file).toContain("title:");
   });
 
+  it("a no-op save (title-only, unchanged content) does not fail the commit job", async () => {
+    const cookie = await signup("flush-noop@example.com");
+    const spaceRes = await app.inject({ method: "POST", url: "/api/spaces", headers: { cookie }, payload: { name: "Noop Space" } });
+    const spaceId = spaceRes.json().id as string;
+    const pageRes = await app.inject({
+      method: "POST",
+      url: `/api/spaces/${spaceId}/pages`,
+      headers: { cookie },
+      payload: { slug: "noop-page" },
+    });
+    const { pageId, branchId } = pageRes.json() as { pageId: string; branchId: string };
+    await processPendingJobs();
+
+    // Read current content + timestamp so the save below reproduces it exactly.
+    const readRes = await app.inject({ method: "GET", url: `/api/branches/${branchId}/page`, headers: { cookie } });
+    const current = readRes.json() as { content: unknown; title: string; updatedAt: string };
+
+    // Title-only save with the SAME title/content: savePageOCC enqueues a
+    // commit WITHOUT bumping updatedAt, so the exported file is byte-identical
+    // to the last commit. The job must complete (skip the empty commit) rather
+    // than retry and fail on git's "nothing to commit".
+    const saveRes = await app.inject({
+      method: "PUT",
+      url: `/api/branches/${branchId}/page/content`,
+      headers: { cookie },
+      payload: {
+        content: current.content,
+        title: current.title,
+        titleProvided: true,
+        expectedUpdatedAt: current.updatedAt,
+      },
+    });
+    expect(saveRes.statusCode).toBe(200);
+
+    // The one enqueued job completes cleanly (0 would mean it threw).
+    expect(await processPendingJobs()).toBe(1);
+
+    // And no spurious second commit exists for the page.
+    const log = execSync("git log --oneline --all", { cwd: REPO_PATH, encoding: "utf-8" });
+    const commits = log.split("\n").filter((l) => l.includes(`page:${pageId}:`));
+    expect(commits.length).toBe(1);
+  });
+
   it("history read API returns the page's commits after the queue drains", async () => {
     const cookie = await signup("flush-history@example.com");
     const spaceRes = await app.inject({ method: "POST", url: "/api/spaces", headers: { cookie }, payload: { name: "History Space" } });
@@ -311,6 +354,9 @@ describe("git flush pipeline (slice-10 gate)", () => {
     expect(log).toContain(`page:${pageId}: Update - new-name`);
     const files = execSync("git ls-tree -r --name-only HEAD", { cwd: REPO_PATH, encoding: "utf-8" });
     expect(files).toContain("rename-space/new-name.md");
+    // And the OLD slug file must be gone — the rename commit drops it, so the
+    // tree doesn't keep a stale copy of the page under its previous name.
+    expect(files).not.toContain("rename-space/old-name.md");
   });
 
   it("restore rejects a non-hex commitHash instead of passing it to git", async () => {

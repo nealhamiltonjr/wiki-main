@@ -34,7 +34,7 @@ export async function initGitRepo() {
  * in git history. Binary files are never written here — they live in a
  * separate append-only directory referenced by the `files` table.
  */
-export async function commitPageChange(pageId: string, branchId: string) {
+export async function commitPageChange(pageId: string, branchId: string, oldSlug?: string) {
   if (!git) throw new Error("git repo not initialized - call initGitRepo() first");
 
   const { db } = getDb();
@@ -59,9 +59,30 @@ export async function commitPageChange(pageId: string, branchId: string) {
   await writeFile(fullPath, markdown, "utf-8");
 
   await git.add(relPath);
-  // Commit scoped to THIS file: an unrelated file left staged by a previously
+  // A rename must also drop the previous <slug>.md, or the tree keeps a stale
+  // copy of the page under its old name forever (space slugs never change, so
+  // the old path lives in the same directory).
+  const commitPaths = [relPath];
+  if (oldSlug && oldSlug !== page.slug) {
+    const oldRelPath = path.join(spaceSlug, `${oldSlug}.md`);
+    try {
+      await git.rm([oldRelPath]);
+      commitPaths.push(oldRelPath);
+    } catch {
+      // The old file may never have been committed (rename before first flush).
+    }
+  }
+  // Nothing staged for this page's paths → skip the commit instead of letting
+  // `git commit` exit 1 ("nothing to commit") and fail the job after retries.
+  // Reachable with no-op title saves (title path doesn't bump updatedAt),
+  // saves within the same millisecond, and restores that reproduce the current
+  // content exactly.
+  const staged = await git.raw(["diff", "--cached", "--name-only", "--", ...commitPaths]);
+  if (!staged.trim()) return;
+
+  // Commit scoped to THESE paths: an unrelated file left staged by a previously
   // failed job must never ride along inside another page's commit.
-  await git.commit(`page:${page.id}: Update - ${page.slug}`, [relPath]);
+  await git.commit(`page:${page.id}: Update - ${page.slug}`, commitPaths);
 }
 
 /**
@@ -89,6 +110,11 @@ export async function commitManualSnapshot(pageId: string, message: string, user
   const authorString = author ? `${author.name} <${author.email}>` : `Unknown <${userId}@local>`;
 
   await git.add(relPath);
+  // Two snapshots of identical content within the same millisecond produce an
+  // identical file — skip the commit rather than fail the job on git's
+  // "nothing to commit" (exit 1).
+  const staged = await git.raw(["diff", "--cached", "--name-only", "--", relPath]);
+  if (!staged.trim()) return;
   await git.commit(`Snapshot: page:${pageId}: ${message}`, [relPath], { "--author": authorString });
 }
 

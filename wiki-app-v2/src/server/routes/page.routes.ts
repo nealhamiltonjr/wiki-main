@@ -307,12 +307,14 @@ export async function pageRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: "Page not found" });
       }
 
+      const oldSlug = row.page.slug;
       await renamePage(pageId, body.slug);
       // The slug is part of the git file path and frontmatter — a rename with
       // no subsequent edit must still be reflected in the repo, or the git
       // tree keeps the old <slug>.md and drifts from the DB until the next
-      // content save. Re-commit under the new slug through the same queue.
-      await enqueueJob("git_commit", { pageId, branchId, kind: "autosave" });
+      // content save. Re-commit under the new slug through the same queue, and
+      // carry the previous slug so the commit can drop the old file too.
+      await enqueueJob("git_commit", { pageId, branchId, kind: "autosave", oldSlug });
       return reply.send({ ok: true, slug: body.slug });
     }
   );

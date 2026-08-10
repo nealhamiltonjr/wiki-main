@@ -26,6 +26,17 @@ export async function enqueueJob(kind: string, payload: unknown, runAfter?: Date
   return id;
 }
 
+/**
+ * Resets jobs stranded in `running` back to pending so they're retried. A
+ * crash mid-drain leaves the row `running` forever — nothing else would ever
+ * pick it up. Called once at worker startup; exported for tests.
+ */
+export async function reclaimStaleJobs(): Promise<number> {
+  const { db } = getDb();
+  const result = await db.update(jobQueue).set({ status: "pending" }).where(eq(jobQueue.status, "running"));
+  return (result as unknown as { changes: number }).changes ?? 0;
+}
+
 /** Processes due pending jobs. Exported for tests; the loop calls it repeatedly. */
 export async function processPendingJobs(): Promise<number> {
   const { db } = getDb();
@@ -66,6 +77,8 @@ interface GitCommitPayload {
   branchId: string;
   message?: string;
   userId?: string;
+  /** Previous slug at rename time, so the commit can drop the old file. */
+  oldSlug?: string;
 }
 
 async function runJob(kind: string, payload: unknown) {
@@ -75,7 +88,7 @@ async function runJob(kind: string, payload: unknown) {
       if (p.kind === "manual_snapshot") {
         await commitManualSnapshot(p.pageId, p.message ?? "", p.userId ?? "unknown");
       } else {
-        await commitPageChange(p.pageId, p.branchId);
+        await commitPageChange(p.pageId, p.branchId, p.oldSlug);
       }
       return;
     }
@@ -93,6 +106,12 @@ async function runJob(kind: string, payload: unknown) {
  */
 let workerRunning = false;
 export function startWorkerLoop() {
+  // Retry anything a previous process left mid-flight (crash, deploy, test
+  // teardown) before the poll loop starts claiming new work.
+  reclaimStaleJobs().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("[queue] reclaimStaleJobs failed", err);
+  });
   setInterval(() => {
     if (workerRunning) return;
     workerRunning = true;
