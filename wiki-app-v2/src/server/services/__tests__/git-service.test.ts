@@ -119,4 +119,33 @@ describe("git flush pipeline", () => {
     const history = await getPageHistory("does-not-exist");
     expect(history).toEqual([]);
   });
+
+  it("re-flushing unchanged content does not create a duplicate commit", async () => {
+    const pageId = "p-noop";
+    await commitPageChange(pageId, await createPage(pageId, "noop", simpleDoc("Stable content")));
+    const before = Number(execSync("git rev-list --count HEAD", { cwd: TEST_REPO, encoding: "utf-8" }).trim());
+
+    // Same DB content → same exported markdown → git has nothing to commit.
+    await commitPageChange(pageId, `b-${pageId}`);
+    const after = Number(execSync("git rev-list --count HEAD", { cwd: TEST_REPO, encoding: "utf-8" }).trim());
+    expect(after).toBe(before);
+  });
+
+  it("scopes each commit to its own file (a stale staged file never rides along)", async () => {
+    // Commit page A, then dirty + stage its file manually, simulating a job
+    // that failed between git.add and git.commit.
+    await commitPageChange("p-a", await createPage("p-a", "alpha", simpleDoc("Alpha")));
+    execSync("git add home-lab/alpha.md && echo dirty > home-lab/alpha.md && git add home-lab/alpha.md", {
+      cwd: TEST_REPO,
+      encoding: "utf-8",
+    });
+
+    // Commit page B with fresh content.
+    await commitPageChange("p-b", await createPage("p-b", "bravo", simpleDoc("Bravo")));
+
+    // The new HEAD commit must touch ONLY bravo's file, not the stale alpha.
+    const headFiles = execSync("git show --name-only --format= HEAD", { cwd: TEST_REPO, encoding: "utf-8" });
+    expect(headFiles).toContain("home-lab/bravo.md");
+    expect(headFiles).not.toContain("home-lab/alpha.md");
+  });
 });

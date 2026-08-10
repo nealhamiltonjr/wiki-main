@@ -19,9 +19,12 @@ export async function initGitRepo() {
   git = simpleGit(REPO_ROOT);
   if (!isRepo) {
     await git.init();
-    await git.addConfig("user.name", "wiki-app");
-    await git.addConfig("user.email", "wiki-app@localhost");
   }
+  // Always ensure a local ident, even for a repo that already exists: a repo
+  // initialized externally (or by a boot that crashed between init and config)
+  // would otherwise fail every commit with "Please tell me who you are".
+  await git.addConfig("user.name", "wiki-app");
+  await git.addConfig("user.email", "wiki-app@localhost");
 }
 
 /**
@@ -54,7 +57,9 @@ export async function commitPageChange(pageId: string, branchId: string) {
   await writeFile(fullPath, markdown, "utf-8");
 
   await git.add(relPath);
-  await git.commit(`page:${page.id}: Update - ${page.slug}`);
+  // Commit scoped to THIS file: an unrelated file left staged by a previously
+  // failed job must never ride along inside another page's commit.
+  await git.commit(`page:${page.id}: Update - ${page.slug}`, [relPath]);
 }
 
 /**
@@ -82,7 +87,7 @@ export async function commitManualSnapshot(pageId: string, message: string, user
   const authorString = author ? `${author.name} <${author.email}>` : `Unknown <${userId}@local>`;
 
   await git.add(relPath);
-  await git.commit(`Snapshot: page:${pageId}: ${message}`, undefined, { "--author": authorString });
+  await git.commit(`Snapshot: page:${pageId}: ${message}`, [relPath], { "--author": authorString });
 }
 
 /**

@@ -82,14 +82,25 @@ async function runJob(kind: string, payload: unknown) {
   }
 }
 
-/** Infinite poll loop — started once from index.ts (never from buildApp, so tests stay timer-free). */
+/**
+ * Infinite poll loop — started once from index.ts (never from buildApp, so
+ * tests stay timer-free). The `running` guard prevents poll overlap: git
+ * operations are not serialized by simple-git, so two overlapping drains could
+ * race on `.git/index.lock` or fold one page's staged file into another page's
+ * commit.
+ */
+let workerRunning = false;
 export function startWorkerLoop() {
-  // A single loop is enough; the interval never holds a lock, so a second
-  // call would just double-poll harmlessly, but we avoid it anyway.
   setInterval(() => {
-    processPendingJobs().catch((err) => {
-      // eslint-disable-next-line no-console
-      console.error("[queue] worker loop error", err);
-    });
+    if (workerRunning) return;
+    workerRunning = true;
+    processPendingJobs()
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error("[queue] worker loop error", err);
+      })
+      .finally(() => {
+        workerRunning = false;
+      });
   }, POLL_INTERVAL_MS);
 }
