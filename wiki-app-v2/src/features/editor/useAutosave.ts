@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { api, ApiError } from "../../api/client.js";
+import { api } from "../../api/client.js";
+import {
+  AutosaveController,
+  type PendingSave,
+  type SaveState,
+} from "./autosaveController.js";
 
-export type SaveState = "idle" | "dirty" | "saving" | "saved" | "offline" | "conflict";
+export type { SaveState };
 
 /**
- * OCC-aware autosave with a retry queue (§11.5).
- *
- * - Every edit marks the page dirty; a debounce later flushes a save.
- * - The save carries `expectedUpdatedAt`; a 409 means someone else saved first
- *   and is surfaced as a hard conflict (never retried blindly).
- * - A network failure does NOT drop the edit: the payload stays queued and is
- *   retried with backoff while the UI shows "offline". This is the explicit
- *   guarantee from §11.5 — an edit is never silently lost to a dropped LAN.
+ * OCC-aware autosave with a retry queue (§11.5). Thin wrapper over
+ * AutosaveController (see that class for the sequencing rules); this hook just
+ * bridges controller events to React state and flushes queued work on unmount.
  */
 export function useAutosave({
   branchId,
@@ -30,76 +30,66 @@ export function useAutosave({
   onConflict: () => void;
 }) {
   const [state, setState] = useState<SaveState>("idle");
-  const updatedAtRef = useRef<Date>(initialUpdatedAt);
-  const pendingRef = useRef<{ content: unknown; title?: string; titleProvided: boolean; expectedUpdatedAt: Date } | null>(null);
-  const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const retryDelay = useRef(1000);
-  const flushing = useRef(false);
 
-  const flush = useCallback(async () => {
-    const pending = pendingRef.current;
-    if (!pending || flushing.current) return;
-    flushing.current = true;
-    setState("saving");
-    try {
-      const res = await api.savePageContent(branchId, pending);
-      pendingRef.current = null;
-      retryDelay.current = 1000;
-      const next = res.updatedAt ? new Date(res.updatedAt) : pending.expectedUpdatedAt;
-      updatedAtRef.current = next;
-      onSaved(next);
-      setState(pendingRef.current ? "dirty" : "saved");
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
-        setState("conflict");
-        onConflict();
-      } else {
-        // Network failure / 5xx — keep the payload queued, retry with backoff.
-        setState("offline");
-        retryTimer.current = setTimeout(() => {
-          void flush();
-        }, retryDelay.current);
-        retryDelay.current = Math.min(retryDelay.current * 2, 30_000);
-      }
-    } finally {
-      flushing.current = false;
-    }
-  }, [branchId, onSaved, onConflict]);
+  const lastUpdatedAtRef = useRef(initialUpdatedAt);
+  // Callbacks are read through refs at event time so the long-lived controller
+  // never captures a stale closure across renders.
+  const onSavedRef = useRef(onSaved);
+  const onConflictRef = useRef(onConflict);
+  onSavedRef.current = onSaved;
+  onConflictRef.current = onConflict;
+
+  const controllerRef = useRef<AutosaveController | null>(null);
+  if (!controllerRef.current) {
+    controllerRef.current = new AutosaveController(
+      branchId,
+      (id, pending) => api.savePageContent(id, pending),
+      {
+        onSaved: (next) => {
+          lastUpdatedAtRef.current = next;
+          onSavedRef.current(next);
+        },
+        onConflict: () => onConflictRef.current(),
+        onStateChange: setState,
+      },
+    );
+  }
+  const controller = controllerRef.current;
+
+  const buildPending = useCallback((): PendingSave => {
+    const title = getTitle();
+    return {
+      content: getContent(),
+      title,
+      titleProvided: title !== undefined,
+      expectedUpdatedAt: lastUpdatedAtRef.current,
+    };
+  }, [getContent, getTitle]);
 
   const scheduleSave = useCallback(() => {
-    pendingRef.current = {
-      content: getContent(),
-      title: getTitle(),
-      titleProvided: getTitle() !== undefined,
-      expectedUpdatedAt: updatedAtRef.current,
-    };
-    setState("dirty");
-    if (retryTimer.current) clearTimeout(retryTimer.current);
-    retryTimer.current = setTimeout(() => void flush(), 1200);
-  }, [flush, getContent, getTitle]);
+    controller.scheduleSave(buildPending());
+  }, [controller, buildPending]);
 
   const saveNow = useCallback(() => {
-    pendingRef.current = {
-      content: getContent(),
-      title: getTitle(),
-      titleProvided: getTitle() !== undefined,
-      expectedUpdatedAt: updatedAtRef.current,
-    };
-    if (retryTimer.current) clearTimeout(retryTimer.current);
-    void flush();
-  }, [flush, getContent, getTitle]);
+    controller.saveNow(buildPending());
+  }, [controller, buildPending]);
+
+  // A fresh expectedUpdatedAt (e.g. after reload) must be used by the next save.
+  useEffect(() => {
+    lastUpdatedAtRef.current = initialUpdatedAt;
+  }, [initialUpdatedAt]);
 
   // If the route unmounts with a pending save, flush it immediately (fire and
   // forget) so navigation never loses the last keystrokes.
   useEffect(() => {
     return () => {
-      if (retryTimer.current) clearTimeout(retryTimer.current);
-      const pending = pendingRef.current;
+      const pending = controller.queued;
+      controller.dispose();
       if (pending) {
         void api.savePageContent(branchId, pending).catch(() => {});
       }
     };
-  }, [branchId]);
+  }, [branchId, controller]);
 
   return { state, scheduleSave, saveNow };
 }
