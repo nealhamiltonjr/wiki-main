@@ -118,11 +118,12 @@ export async function getFileContentAtCommit(pageId: string, commitHash: string)
 /** Lists commit history for a page's file - powers the history/snapshot UI. */
 export async function getPageHistory(pageId: string): Promise<{ hash: string; message: string; date: string }[]> {
   if (!git) throw new Error("git repo not initialized - call initGitRepo() first");
-  const log = await git.log({ "--all": null }).catch(() => ({ all: [] as unknown[] }));
+  // Grep in git so we never parse thousands of unrelated commits. `page:<id>:`
+  // is present in BOTH autosave and snapshot commit messages. pageId is a UUID
+  // (hex + dashes), so the pattern is literal regex — no escaping needed.
+  const log = await git.log({ "--all": null, "--grep": `page:${pageId}:` }).catch(() => ({ all: [] as unknown[] }));
   const entries = log.all as { message: string; hash: string; date: string }[];
-  return entries
-    .filter((entry) => entry.message.includes(`page:${pageId}:`)) // present in BOTH autosave and snapshot commit messages
-    .map((entry) => ({ hash: entry.hash, message: entry.message, date: entry.date }));
+  return entries.map((entry) => ({ hash: entry.hash, message: entry.message, date: entry.date }));
 }
 
 export interface RepoStatus {

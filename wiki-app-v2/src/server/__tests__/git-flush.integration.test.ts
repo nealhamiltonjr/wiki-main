@@ -165,4 +165,120 @@ describe("git flush pipeline (slice-10 gate)", () => {
     });
     expect(res.statusCode).toBe(404);
   });
+
+  it("restore reads an older commit's content and saves it as the new version", async () => {
+    const cookie = await signup("flush-restore@example.com");
+    const spaceRes = await app.inject({ method: "POST", url: "/api/spaces", headers: { cookie }, payload: { name: "Restore Space" } });
+    const spaceId = spaceRes.json().id as string;
+    const pageRes = await app.inject({
+      method: "POST",
+      url: `/api/spaces/${spaceId}/pages`,
+      headers: { cookie },
+      payload: { slug: "restore-me" },
+    });
+    const { pageId, branchId } = pageRes.json() as { pageId: string; branchId: string };
+    await processPendingJobs(); // drain the initial autosave
+
+    // Save v1 content.
+    let res = await app.inject({
+      method: "GET",
+      url: `/api/branches/${branchId}/page`,
+      headers: { cookie },
+    });
+    let updatedAt = (res.json() as { updatedAt: string }).updatedAt;
+    res = await app.inject({
+      method: "PUT",
+      url: `/api/branches/${branchId}/page/content`,
+      headers: { cookie },
+      payload: {
+        content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Version one" }] }] },
+        expectedUpdatedAt: updatedAt,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    await processPendingJobs();
+
+    // Save v2 content.
+    res = await app.inject({
+      method: "GET",
+      url: `/api/branches/${branchId}/page`,
+      headers: { cookie },
+    });
+    updatedAt = (res.json() as { updatedAt: string }).updatedAt;
+    res = await app.inject({
+      method: "PUT",
+      url: `/api/branches/${branchId}/page/content`,
+      headers: { cookie },
+      payload: {
+        content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Version two" }] }] },
+        expectedUpdatedAt: updatedAt,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    await processPendingJobs();
+
+    const history = (await app.inject({
+      method: "GET",
+      url: `/api/pages/${pageId}/branches/${branchId}/history`,
+      headers: { cookie },
+    }).then((r) => r.json())) as { hash: string; message: string }[];
+    expect(history.length).toBeGreaterThanOrEqual(2);
+
+    // Find the commit that introduced "Version one": the 2nd-newest is the
+    // v1 autosave (newest-first ordering).
+    const v1Commit = history[1]!;
+
+    const restoreRes = await app.inject({
+      method: "POST",
+      url: `/api/pages/${pageId}/branches/${branchId}/restore`,
+      headers: { cookie },
+      payload: { commitHash: v1Commit.hash },
+    });
+    expect(restoreRes.statusCode).toBe(200);
+
+    // The restored content is now the live content.
+    res = await app.inject({ method: "GET", url: `/api/branches/${branchId}/page`, headers: { cookie } });
+    const page = res.json() as { content: { type: string; content: unknown[] } };
+    const text = JSON.stringify(page.content);
+    expect(text).toContain("Version one");
+
+    // Restoring also enqueues a fresh forward-moving commit.
+    await processPendingJobs();
+    const afterLog = execSync("git log --oneline --all", { cwd: REPO_PATH, encoding: "utf-8" });
+    expect(afterLog).toContain(`page:${pageId}:`);
+  });
+
+  it("snapshot route enqueues a manual snapshot that appears in git history", async () => {
+    const cookie = await signup("flush-snapshot@example.com");
+    const spaceRes = await app.inject({ method: "POST", url: "/api/spaces", headers: { cookie }, payload: { name: "Snap Space" } });
+    const spaceId = spaceRes.json().id as string;
+    const pageRes = await app.inject({
+      method: "POST",
+      url: `/api/spaces/${spaceId}/pages`,
+      headers: { cookie },
+      payload: { slug: "snap-me" },
+    });
+    const { pageId, branchId } = pageRes.json() as { pageId: string; branchId: string };
+    await processPendingJobs();
+
+    const snapRes = await app.inject({
+      method: "POST",
+      url: `/api/pages/${pageId}/branches/${branchId}/snapshot`,
+      headers: { cookie },
+      payload: { message: "pre-deploy checkpoint" },
+    });
+    expect(snapRes.statusCode).toBe(202);
+
+    await processPendingJobs();
+    const history = (await app.inject({
+      method: "GET",
+      url: `/api/pages/${pageId}/branches/${branchId}/history`,
+      headers: { cookie },
+    }).then((r) => r.json())) as { message: string }[];
+    expect(history.some((h) => h.message.includes("Snapshot: page:"))).toBe(true);
+
+    // The snapshot file lives under _snapshots/.
+    const files = execSync("git ls-tree -r --name-only HEAD", { cwd: REPO_PATH, encoding: "utf-8" });
+    expect(files).toContain(`_snapshots/${pageId}.md`);
+  });
 });
