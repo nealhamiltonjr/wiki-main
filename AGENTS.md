@@ -149,4 +149,14 @@ Regression coverage: `src/server/__tests__/audit-fixes.integration.test.ts`
      blindly: once a snapshot exists it's present in every later commit's
      tree and would return stale content for later autosave commits.
    - Restore returns 409 on OCC conflict (matches the live save route).
-   125 unit + 8 e2e tests pass.
+   - getPageHistory greps in git (log --grep) so huge repos stay fast.
+   - Restore+snapshot are covered through the real Fastify routes.
+   - Client: a 409-conflict Reload (and a successful restore) clears
+     livePage and bumps a reloadTick that keys the editor, so the editor
+     remounts on fresh server content/timestamp — otherwise every subsequent
+     autosave would 409 again (infinite conflict loop).
+   - Markdown export: mentions become readable @Name text (were dropped),
+     mermaidDiagram round-trips via ```mermaid fences. Tables and
+     details/collapse are a documented best-effort (text survives,
+     structure does not).
+   129 unit + 8 e2e tests pass.
