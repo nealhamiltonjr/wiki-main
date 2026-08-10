@@ -381,4 +381,39 @@ describe("git flush pipeline (slice-10 gate)", () => {
     });
     expect(renameRes.statusCode).toBe(400);
   });
+
+  it("rejects content with unknown node types (422) instead of flushing it to git", async () => {
+    const cookie = await signup("flush-badcontent@example.com");
+    const spaceRes = await app.inject({ method: "POST", url: "/api/spaces", headers: { cookie }, payload: { name: "Bad Content Space" } });
+    const spaceId = spaceRes.json().id as string;
+    const pageRes = await app.inject({
+      method: "POST",
+      url: `/api/spaces/${spaceId}/pages`,
+      headers: { cookie },
+      payload: { slug: "bad-content" },
+    });
+    const { branchId } = pageRes.json() as { branchId: string };
+
+    const readRes = await app.inject({ method: "GET", url: `/api/branches/${branchId}/page`, headers: { cookie } });
+    const updatedAt = (readRes.json() as { updatedAt: string }).updatedAt;
+
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/branches/${branchId}/page/content`,
+      headers: { cookie },
+      payload: {
+        content: { type: "doc", content: [{ type: "mysteryNode", attrs: {}, content: [] }] },
+        expectedUpdatedAt: updatedAt,
+      },
+    });
+    expect(res.statusCode).toBe(422);
+
+    // The invalid doc must never reach the git tree. Page creation DOES enqueue
+    // the initial (empty) commit, so assert on the exported file content rather
+    // than the commit list.
+    await processPendingJobs();
+    const file = execSync("git show HEAD:bad-content-space/bad-content.md", { cwd: REPO_PATH, encoding: "utf-8" });
+    expect(file).not.toContain("mysteryNode");
+    expect(file).toContain("title:"); // still just the initial frontmatter
+  });
 });
