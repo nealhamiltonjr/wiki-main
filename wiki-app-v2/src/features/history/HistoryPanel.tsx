@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { History, RotateCcw, Camera, Loader2, CheckCircle2 } from "lucide-react";
-import { api, type PageHistoryEntry } from "@/api/client";
+import { api, ApiError, type PageHistoryEntry } from "@/api/client";
 import { cn } from "@/lib/utils";
 
 /**
@@ -67,14 +67,31 @@ export function HistoryPanel({
       setRestoreMsg("Restored — saving as a new version.");
       onRestored();
       await refresh();
-    } catch {
-      setRestoreMsg("Restore failed.");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        // Someone saved between opening history and restoring — the server
+        // told us to reload (same contract as the live save route).
+        setRestoreMsg("This page was updated elsewhere — reloading.");
+        onRestored();
+      } else {
+        setRestoreMsg("Restore failed.");
+      }
     } finally {
       setBusy(false);
     }
   };
 
   const isSnapshot = (message: string) => message.startsWith("Snapshot:");
+
+  // Commit messages are "Snapshot: page:<id>: <user message>" — strip the
+  // machine-readable prefix so only the user's label is shown.
+  const snapshotLabel = (message: string) => {
+    let label = message.replace(/^Snapshot:\s*/, "");
+    if (label.startsWith(`page:${pageId}:`)) {
+      label = label.slice(`page:${pageId}:`.length).replace(/^\s*/, "");
+    }
+    return label;
+  };
 
   return (
     <aside className="flex h-full w-80 flex-col border-l border-border bg-background">
@@ -109,7 +126,7 @@ export function HistoryPanel({
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium" title={entry.message}>
-                    {isSnapshot(entry.message) ? entry.message.replace(/^Snapshot:\s*/, "") : "Autosave"}
+                    {isSnapshot(entry.message) ? snapshotLabel(entry.message) : "Autosave"}
                   </div>
                   <div className="mt-0.5 text-xs text-muted-foreground">
                     {new Date(entry.date).toLocaleString()} · {entry.hash.slice(0, 7)}
@@ -140,6 +157,7 @@ export function HistoryPanel({
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               placeholder="e.g. before network rework"
+              maxLength={200}
               className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm outline-none focus:border-ring"
             />
             <button

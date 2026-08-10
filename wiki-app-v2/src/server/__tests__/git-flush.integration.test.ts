@@ -281,4 +281,27 @@ describe("git flush pipeline (slice-10 gate)", () => {
     const files = execSync("git ls-tree -r --name-only HEAD", { cwd: REPO_PATH, encoding: "utf-8" });
     expect(files).toContain(`_snapshots/${pageId}.md`);
   });
+
+  it("restore rejects a non-hex commitHash instead of passing it to git", async () => {
+    const cookie = await signup("flush-badhash@example.com");
+    const spaceRes = await app.inject({ method: "POST", url: "/api/spaces", headers: { cookie }, payload: { name: "Hash Space" } });
+    const spaceId = spaceRes.json().id as string;
+    const pageRes = await app.inject({
+      method: "POST",
+      url: `/api/spaces/${spaceId}/pages`,
+      headers: { cookie },
+      payload: { slug: "bad-hash" },
+    });
+    const { pageId, branchId } = pageRes.json() as { pageId: string; branchId: string };
+    await processPendingJobs();
+
+    // "--output=/tmp/evil" must never reach a git command as an option.
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/pages/${pageId}/branches/${branchId}/restore`,
+      headers: { cookie },
+      payload: { commitHash: "--output=/tmp/evil" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });

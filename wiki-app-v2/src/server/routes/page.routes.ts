@@ -354,7 +354,9 @@ export async function pageRoutes(app: FastifyInstance) {
     }
   );
 
-  const restoreBody = z.object({ commitHash: z.string().min(1) });
+  // commitHash is passed into git commands (diff-tree/show). Validate it as
+  // hex so a value like "--output=/tmp/x" can never be parsed as a git option.
+  const restoreBody = z.object({ commitHash: z.string().regex(/^[0-9a-f]{7,64}$/i) });
 
   app.post(
     "/api/pages/:pageId/branches/:branchId/restore",
