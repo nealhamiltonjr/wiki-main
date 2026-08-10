@@ -28,11 +28,23 @@ function PageView() {
   // "View" never shows stale content and re-editing never saves on a stale OCC
   // timestamp.
   const [livePage, setLivePage] = useState<{ content: unknown; updatedAt: string } | null>(null);
+  // Bumped whenever we discard the session's live content (OCC conflict reload,
+  // git restore). Forces the editor to remount with fresh server data — without
+  // it, a 409 reload leaves the editor holding a stale expectedUpdatedAt and
+  // every subsequent save conflicts again (infinite loop), and a restore stays
+  // hidden behind the older autosaved session content.
+  const [reloadTick, setReloadTick] = useState(0);
 
   const { data: page, loading, error, reload } = useQuery(
     () => api.getPage(branchId),
     [branchId]
   );
+
+  const handleReload = useCallback(() => {
+    setLivePage(null);
+    setReloadTick((t) => t + 1);
+    reload();
+  }, [reload]);
 
   // Reset transient view state whenever we navigate to a different page. The
   // route component instance is reused across branch params (same route match),
@@ -95,8 +107,8 @@ function PageView() {
               slug={page.slug}
               content={content}
               updatedAt={updatedAt}
-              key={page.id}
-              onConflict={() => reload()}
+              key={`${page.id}:${reloadTick}`}
+              onConflict={handleReload}
               onContentChange={(nextContent, nextUpdatedAt) =>
                 setLivePage({ content: nextContent, updatedAt: nextUpdatedAt })
               }
@@ -126,7 +138,7 @@ function PageView() {
             pageId={page.id}
             branchId={page.branchId}
             canEdit={page.access === "editor" || page.access === "admin"}
-            onRestored={() => reload()}
+            onRestored={handleReload}
           />
         )}
       </div>
