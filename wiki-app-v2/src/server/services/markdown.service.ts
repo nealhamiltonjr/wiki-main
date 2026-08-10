@@ -127,14 +127,14 @@ function blockToMarkdown(node: PMNode, listDepth = 0, ctx?: MarkdownExportContex
     case "codeBlock": {
       const lang = (node.attrs?.language as string) ?? "";
       const code = (node.content ?? []).map((n) => n.text ?? "").join("");
-      return "```" + lang + "\n" + code + "\n```";
+      return codeFence(code, lang);
     }
     case "mermaidDiagram": {
       // Export the diagram source as a fenced ```mermaid block so it survives
       // the repo file and restores back into a live diagram (markdownToTiptap
       // maps ```mermaid back to a mermaidDiagram node).
       const source = (node.content ?? []).map((n) => n.text ?? "").join("");
-      return "```mermaid\n" + source + "\n```";
+      return codeFence(source, "mermaid");
     }
     case "blockquote":
       return (node.content ?? [])
@@ -186,6 +186,19 @@ function blockToMarkdown(node: PMNode, listDepth = 0, ctx?: MarkdownExportContex
   }
 }
 
+/**
+ * Builds a fenced code block whose fence is longer than any backtick run in the
+ * content. A content line that is itself ``` (or longer) would otherwise close
+ * the fence early when imported (restore-from-git / markdown import) and the
+ * rest of the block would be parsed as prose — silent data corruption.
+ */
+function codeFence(code: string, lang: string): string {
+  const runs = code.match(/`+/g) ?? [];
+  const longest = runs.reduce((max, run) => Math.max(max, run.length), 0);
+  const fence = "`".repeat(Math.max(3, longest + 1));
+  return `${fence}${lang}\n${code}\n${fence}`;
+}
+
 function listItemToMarkdown(li: PMNode, depth: number, marker: string, ctx: MarkdownExportContext): string {
   const indent = "  ".repeat(depth);
   const inner = (li.content ?? [])
@@ -233,7 +246,15 @@ function inlineNodeToMarkdown(node: PMNode, ctx: MarkdownExportContext): string 
     switch (mark.type) {
       case "bold": text = `**${text}**`; break;
       case "italic": text = `*${text}*`; break;
-      case "code": text = `\`${text}\``; break;
+      case "code": {
+        // Use one more backtick than the longest run inside the code, so a
+        // literal backtick in the text can't terminate the inline code early.
+        const runs = text.match(/`+/g) ?? [];
+        const longest = runs.reduce((max, run) => Math.max(max, run.length), 0);
+        const ticks = "`".repeat(longest + 1);
+        text = `${ticks}${text}${ticks}`;
+        break;
+      }
       case "link": {
         const href = (mark.attrs?.href as string) ?? "";
         // §7.11b.4: wiki-internal constructs (API URLs, router hashes, protocol
@@ -275,16 +296,21 @@ export function markdownToTiptap(markdown: string): PMNode {
 
     const line = lines[i]!;
 
-    // fenced code block
+    // fenced code block — the fence can be longer than ``` (codeFence emits a
+    // longer fence when the content itself contains backticks), so match by
+    // run length rather than a fixed ``` delimiter.
     if (line.trimStart().startsWith("```")) {
-      const lang = line.trimStart().slice(3).trim();
+      const trimmed = line.trimStart();
+      const fenceLen = (trimmed.match(/^`+/) ?? [""])[0]!.length;
+      const lang = trimmed.slice(fenceLen).trim();
       const codeLines: string[] = [];
       i++;
-      while (i < lines.length && !lines[i]!.trimStart().startsWith("```")) {
+      while (i < lines.length) {
+        const closeRun = (lines[i]!.trimStart().match(/^`+/) ?? [""])[0]!.length;
+        if (closeRun >= fenceLen) { i++; break; }
         codeLines.push(lines[i]!);
         i++;
       }
-      i++; // skip closing ```
       if (lang === "mermaid") {
         // Round-trip the diagram back into a mermaidDiagram node (see
         // blockToMarkdown). ensureBlockIds assigns the id on save.
@@ -483,9 +509,32 @@ function parseInline(text: string): PMNode[] {
     const italic = matchDelimited(text, pos, "*");
     if (italic) { nodes.push(...markedText(italic.inner, "italic")); pos = italic.end; continue; }
 
-    // code `...`
-    const code = matchDelimited(text, pos, "`");
-    if (code) { nodes.push({ type: "text", text: code.inner, marks: [{ type: "code" }] }); pos = code.end; continue; }
+    // code `...` — the delimiter run can be longer than one backtick (the
+    // exporter widens it when the code text itself contains backticks), so
+    // match the NEXT run of the SAME length instead of a fixed delimiter.
+    const backtickRun = text.slice(pos).match(/^`+/);
+    if (backtickRun) {
+      const run = backtickRun[0].length;
+      const rest = text.slice(pos + run);
+      let closeIdx = -1;
+      const runRe = /`+/g;
+      let m: RegExpExecArray | null;
+      while ((m = runRe.exec(rest)) !== null) {
+        if (m[0].length === run) { closeIdx = m.index; break; }
+      }
+      if (closeIdx !== -1) {
+        let inner = rest.slice(0, closeIdx);
+        // CommonMark: a single space on both sides is padding, not content.
+        if (inner.length >= 2 && inner.startsWith(" ") && inner.endsWith(" ")) inner = inner.slice(1, -1);
+        nodes.push({ type: "text", text: inner, marks: [{ type: "code" }] });
+        pos = pos + run + closeIdx + run;
+        continue;
+      }
+      // Unmatched run — emit it literally so parsing always advances.
+      nodes.push({ type: "text", text: backtickRun[0] });
+      pos += run;
+      continue;
+    }
 
     // link [text](url)
     if (text[pos] === "[") {
