@@ -135,5 +135,18 @@ Regression coverage: `src/server/__tests__/audit-fixes.integration.test.ts`
    DB-backed commit queue with exponential backoff worker loop. Wired into
    savePageOCC/createPage. History/snapshot/restore routes. Client
    HistoryPanel with commit list, snapshot form, and restore button.
-   121 unit + 8 e2e tests pass. Gate: git log on data/repo shows real commit
-   with page id (confirmed in unit, integration, and e2e suites).
+   Gate: git log on data/repo shows real commit with page id (confirmed in
+   unit, integration, and e2e suites).
+   Review hardening (785c148, 064aea1):
+   - Worker loop is single-flight (`workerRunning` guard) — overlapping
+     drains could race on .git/index.lock or fold one page's staged file
+     into another's commit.
+   - Commits are scoped to their file (`git.commit(msg, [relPath])`) so a
+     stale staged file can't ride along.
+   - initGitRepo always (re)writes user.name/user.email — idempotent.
+   - getFileContentAtCommit resolves the touched file via diff-tree (+
+     `--root` for the repo's first commit). Never read the snapshot path
+     blindly: once a snapshot exists it's present in every later commit's
+     tree and would return stale content for later autosave commits.
+   - Restore returns 409 on OCC conflict (matches the live save route).
+   125 unit + 8 e2e tests pass.
