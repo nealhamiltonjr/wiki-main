@@ -166,8 +166,16 @@ export async function pageRoutes(app: FastifyInstance) {
   // the space), created under a parent branch if one is given.
   // -------------------------------------------------------------------------
 
+  // The slug becomes the git file name (<space>/<slug>.md) — it must never
+  // contain a path separator (path traversal out of the repo) or start with
+  // a separator/`.`/`-` (hidden files, git option injection via a leading
+  // dash when the space slug is empty). No current page uses anything beyond
+  // letters, digits, `-`, `_`, `.` — and the leading/trailing char must be
+  // alphanumeric.
+  const PAGE_SLUG_RE = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/i;
+
   const createPageBody = z.object({
-    slug: z.string().min(1).max(120),
+    slug: z.string().min(1).max(120).regex(PAGE_SLUG_RE),
     title: z.string().optional(),
     parentBranchId: z.string().nullable().optional(),
   });
@@ -285,7 +293,7 @@ export async function pageRoutes(app: FastifyInstance) {
   // exactly like content saves.
   // -------------------------------------------------------------------------
 
-  const renameBody = z.object({ slug: z.string().min(1).max(120) });
+  const renameBody = z.object({ slug: z.string().min(1).max(120).regex(PAGE_SLUG_RE) });
 
   app.put(
     "/api/pages/:pageId/branches/:branchId/slug",

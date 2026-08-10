@@ -45,7 +45,9 @@ export async function commitPageChange(pageId: string, branchId: string) {
   if (!branch) throw new Error(`commitPageChange: branch ${branchId} not found`);
 
   const [space] = await db.select().from(spaces).where(eq(spaces.id, branch.spaceId));
-  const spaceSlug = slugify(space?.name ?? "space");
+  // A space name like "!!!" slugifies to "" — fall back so the page file never
+  // lands bare at the repo root or starts a path with a leading dash.
+  const spaceSlug = slugify(space?.name ?? "space") || "space";
 
   // YAML frontmatter makes title changes visible in git history.
   const frontmatter = frontmatterToMarkdown({ title: page.title, slug: page.slug, date: page.updatedAt?.toISOString() ?? null });

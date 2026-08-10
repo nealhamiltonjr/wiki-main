@@ -335,4 +335,50 @@ describe("git flush pipeline (slice-10 gate)", () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it("rejects slugs that would escape the repo or inject git options", async () => {
+    const cookie = await signup("flush-slug@example.com");
+    const spaceRes = await app.inject({ method: "POST", url: "/api/spaces", headers: { cookie }, payload: { name: "Slug Space" } });
+    expect(spaceRes.statusCode).toBe(201);
+    const spaceId = spaceRes.json().id as string;
+
+    // Path traversal: the slug becomes <space>/<slug>.md on the file system,
+    // so "../../../../tmp/evil" would resolve OUTSIDE the content repo.
+    for (const evil of [
+      "../../../../tmp/evil",
+      "..",
+      "a/../b",
+      "a\\..\\b",
+      "-x",
+      ".hidden",
+      "--output=/tmp/evil",
+      "has space",
+      "",
+    ]) {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/spaces/${spaceId}/pages`,
+        headers: { cookie },
+        payload: { slug: evil },
+      });
+      expect(res.statusCode).toBe(400);
+    }
+
+    // The rename route shares the same guard.
+    const pageRes = await app.inject({
+      method: "POST",
+      url: `/api/spaces/${spaceId}/pages`,
+      headers: { cookie },
+      payload: { slug: "fine-slug" },
+    });
+    expect(pageRes.statusCode).toBe(201);
+    const { pageId, branchId } = pageRes.json() as { pageId: string; branchId: string };
+    const renameRes = await app.inject({
+      method: "PUT",
+      url: `/api/pages/${pageId}/branches/${branchId}/slug`,
+      headers: { cookie },
+      payload: { slug: "../../../../etc/cron.d/evil" },
+    });
+    expect(renameRes.statusCode).toBe(400);
+  });
 });
