@@ -282,6 +282,37 @@ describe("git flush pipeline (slice-10 gate)", () => {
     expect(files).toContain(`_snapshots/${pageId}.md`);
   });
 
+  it("rename commits the new slug so the git tree tracks the DB", async () => {
+    const cookie = await signup("flush-rename@example.com");
+    const spaceRes = await app.inject({ method: "POST", url: "/api/spaces", headers: { cookie }, payload: { name: "Rename Space" } });
+    const spaceId = spaceRes.json().id as string;
+    const pageRes = await app.inject({
+      method: "POST",
+      url: `/api/spaces/${spaceId}/pages`,
+      headers: { cookie },
+      payload: { slug: "old-name" },
+    });
+    const { pageId, branchId } = pageRes.json() as { pageId: string; branchId: string };
+    await processPendingJobs();
+
+    // Rename through the real route, then drain the queue.
+    const renameRes = await app.inject({
+      method: "PUT",
+      url: `/api/pages/${pageId}/branches/${branchId}/slug`,
+      headers: { cookie },
+      payload: { slug: "new-name" },
+    });
+    expect(renameRes.statusCode).toBe(200);
+    await processPendingJobs();
+
+    // The repo must contain the new slug file and a commit naming it, even
+    // though no content save happened after the rename.
+    const log = execSync("git log --oneline --all", { cwd: REPO_PATH, encoding: "utf-8" });
+    expect(log).toContain(`page:${pageId}: Update - new-name`);
+    const files = execSync("git ls-tree -r --name-only HEAD", { cwd: REPO_PATH, encoding: "utf-8" });
+    expect(files).toContain("rename-space/new-name.md");
+  });
+
   it("restore rejects a non-hex commitHash instead of passing it to git", async () => {
     const cookie = await signup("flush-badhash@example.com");
     const spaceRes = await app.inject({ method: "POST", url: "/api/spaces", headers: { cookie }, payload: { name: "Hash Space" } });

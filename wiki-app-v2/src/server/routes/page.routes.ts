@@ -300,6 +300,11 @@ export async function pageRoutes(app: FastifyInstance) {
       }
 
       await renamePage(pageId, body.slug);
+      // The slug is part of the git file path and frontmatter — a rename with
+      // no subsequent edit must still be reflected in the repo, or the git
+      // tree keeps the old <slug>.md and drifts from the DB until the next
+      // content save. Re-commit under the new slug through the same queue.
+      await enqueueJob("git_commit", { pageId, branchId, kind: "autosave" });
       return reply.send({ ok: true, slug: body.slug });
     }
   );
