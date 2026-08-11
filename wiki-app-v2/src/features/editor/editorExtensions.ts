@@ -42,9 +42,18 @@ export function baseExtensions(): Extensions {
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4] },
+      // Tiptap v3's StarterKit already bundles Link and Underline; the custom
+      // instances below carry the app's specific config (openOnClick,
+      // isAllowedUri) and must not be shadowed by StarterKit's defaults.
+      link: false,
+      underline: false,
     }),
     Underline,
-    UniqueID,
+    // "all" = every node except doc/text, mirroring ensureBlockIds — block ids
+    // are a first-class invariant (comments/refs/backlinks), and the Yjs
+    // collab schema MUST declare the id attr or the seed→store round-trip
+    // silently drops every block id (a real bug found via the slice-11 gate).
+    UniqueID.configure({ types: "all" }),
     Link.configure({
       openOnClick: false,
       autolink: true,

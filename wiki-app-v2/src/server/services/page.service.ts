@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { getDb } from "../db/index.js";
 import { pages, branches } from "../db/schema.js";
 import { ensureBlockIds, validateContent, type JSONBlock } from "../../shared/blockIds.js";
+import { getEnabledPluginNodeTypes, getEnabledPluginMarkTypes } from "./plugin.service.js";
 import { refreshBacklinks } from "./backlink.service.js";
 import { indexPageForSearch, unindexPageForSearch } from "./search.service.js";
 import { enqueueJob } from "./queue.service.js";
@@ -66,7 +67,10 @@ export async function getPageByBranchId(branchId: string) {
   // has been corrupted (e.g. by a bug in a previous version, or a manual DB
   // edit), repair it in-memory so the client always gets a valid doc tree.
   const stored = row.page.content as unknown;
-  const { doc, errors } = validateContent(stored);
+  const { doc, errors } = validateContent(stored, {
+    extraNodeTypes: getEnabledPluginNodeTypes(),
+    extraMarkTypes: getEnabledPluginMarkTypes(),
+  });
   if (errors.length > 0) {
     // eslint-disable-next-line no-console
     console.warn("[content-repair-read]", { branchId, pageId: row.page.id, errors });
@@ -94,7 +98,10 @@ export async function savePageOCC(opts: {
   expectedUpdatedAt: Date;
 }): Promise<{ ok: true } | { ok: false; conflict: true } | { ok: false; validationErrors: string[] }> {
   const { db } = getDb();
-  const { doc, errors } = validateContent(opts.content);
+  const { doc, errors } = validateContent(opts.content, {
+    extraNodeTypes: getEnabledPluginNodeTypes(),
+    extraMarkTypes: getEnabledPluginMarkTypes(),
+  });
   const content = ensureBlockIds(doc);
 
   if (errors.some((e) => e.includes("unknown node type"))) {

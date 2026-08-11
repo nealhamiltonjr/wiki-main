@@ -15,6 +15,20 @@
       "when": 1786158784861,
       "tag": "0001_long_prima",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786407599509,
+      "tag": "0002_small_valkyrie",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1786415482248,
+      "tag": "0003_plugins_table",
+      "breakpoints": true
     }
   ]
 }

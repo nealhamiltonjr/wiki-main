@@ -21,7 +21,9 @@ export default defineConfig({
   server: {
     proxy: {
       // API + WebSocket proxied to the Fastify server (built in slice 2).
-      "/api": { target: "http://localhost:3000", changeOrigin: true },
+      // `ws: true` so the collab socket upgrade at `/api/collaboration`
+      // (§8 step 11) reaches Fastify through the same proxy as the REST API.
+      "/api": { target: "http://localhost:3000", changeOrigin: true, ws: true },
       "/ws": { target: "ws://localhost:3000", ws: true },
     },
   },

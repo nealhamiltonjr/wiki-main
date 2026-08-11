@@ -4,8 +4,10 @@ import { toast } from "sonner";
 import { Pencil, Eye, Loader2, MessageSquare, History } from "lucide-react";
 
 import { api, type PageData } from "@/api/client";
-import { PageEditor, type PageEditorHandle } from "@/features/editor/Editor";
+import { CollabEditor, PageEditor, type PageEditorHandle } from "@/features/editor/Editor";
 import { useAutosave, saveStateLabel } from "@/features/editor/useAutosave";
+import { userColor, type CollabUser } from "@/features/editor/useCollab";
+import { useSession } from "@/api/authClient";
 import { ReadOnlyContent } from "@/features/editor/ReadOnlyContent";
 import { CommentsPanel } from "@/features/comments/CommentsPanel";
 import { HistoryPanel } from "@/features/history/HistoryPanel";
@@ -17,11 +19,18 @@ export const Route = createFileRoute("/_authenticated/w/$branchId")({
   component: PageView,
 });
 
+// How long to wait after a collab session stops before refetching the page:
+// the Hocuspocus server persists via onStoreDocument after its debounce
+// window, and the refetch must not beat that write-back or the editor/view
+// would show pre-collab content.
+const COLLAB_FLUSH_WAIT_MS = 2600;
+
 function PageView() {
   const { branchId } = Route.useParams();
   const [editMode, setEditMode] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [collabOn, setCollabOn] = useState(false);
   // Content/updatedAt the editor has autosaved this session. The read view and
   // any re-entry into edit mode use this instead of the fetch-time snapshot so
   // "View" never shows stale content and re-editing never saves on a stale OCC
@@ -39,11 +48,35 @@ function PageView() {
     [branchId]
   );
 
+  // Session user feeds the collab cursor identity; resolved unconditionally so
+  // hook order stays stable across the early returns below.
+  const { data: session } = useSession();
+  const collabUser = useMemo<CollabUser>(() => {
+    const name = session?.user?.name?.trim() || session?.user?.email || "Anonymous";
+    return { name, color: userColor(session?.user?.id ?? name) };
+  }, [session]);
+
   const handleReload = useCallback(() => {
     setLivePage(null);
     setReloadTick((t) => t + 1);
     reload();
   }, [reload]);
+
+  // End of a collab session: let the server's write-back (Hocuspocus debounce)
+  // land before refetching, so the next editor/view starts from the collab
+  // content rather than the pre-session snapshot.
+  const handleCollabSessionEnd = useCallback(() => {
+    setCollabOn(false);
+    window.setTimeout(handleReload, COLLAB_FLUSH_WAIT_MS);
+  }, [handleReload]);
+
+  const toggleEdit = useCallback(() => {
+    // Exiting edit mode while a collab session is live: the collab editor is
+    // about to unmount (provider destroy flushes), so refetch after the
+    // write-back lands instead of showing the stale autosave snapshot.
+    if (editMode && collabOn) handleCollabSessionEnd();
+    setEditMode((m) => !m);
+  }, [editMode, collabOn, handleCollabSessionEnd]);
 
   // Reset transient view state whenever we navigate to a different page. The
   // route component instance is reused across branch params (same route match),
@@ -54,6 +87,7 @@ function PageView() {
     setShowComments(false);
     setShowHistory(false);
     setEditMode(false);
+    setCollabOn(false);
   }, [branchId]);
 
   // Derive the star's initial state from the user's favorites list (refetched
@@ -91,7 +125,7 @@ function PageView() {
         page={page}
         icon={iconAttr?.value}
         editMode={editMode}
-        onToggleEdit={() => setEditMode((m) => !m)}
+        onToggleEdit={toggleEdit}
         showComments={showComments}
         onToggleComments={() => setShowComments((s) => !s)}
         showHistory={showHistory}
@@ -107,6 +141,10 @@ function PageView() {
               content={content}
               updatedAt={updatedAt}
               key={`${page.id}:${reloadTick}`}
+              collabOn={collabOn}
+              collabUser={collabUser}
+              onToggleCollab={() => setCollabOn((c) => !c)}
+              onCollabSessionEnd={handleCollabSessionEnd}
               onConflict={handleReload}
               onContentChange={(nextContent, nextUpdatedAt) =>
                 setLivePage({ content: nextContent, updatedAt: nextUpdatedAt })
@@ -227,11 +265,15 @@ function PageHeader({
 // Editable canvas — Tiptap editor with OCC autosave.
 // ---------------------------------------------------------------------------
 
-function EditableCanvas({ branchId, slug, content, updatedAt, onConflict, onContentChange }: {
+function EditableCanvas({ branchId, slug, content, updatedAt, collabOn, collabUser, onToggleCollab, onCollabSessionEnd, onConflict, onContentChange }: {
   branchId: string;
   slug: string;
   content: unknown;
   updatedAt: string;
+  collabOn: boolean;
+  collabUser: CollabUser;
+  onToggleCollab: () => void;
+  onCollabSessionEnd: () => void;
   onConflict: () => void;
   onContentChange: (content: unknown, updatedAt: string) => void;
 }) {
@@ -253,9 +295,25 @@ function EditableCanvas({ branchId, slug, content, updatedAt, onConflict, onCont
     },
   });
 
+  // Autosave only runs in the single-user editor; while collab is live the
+  // server's onStoreDocument write-back is the only persistence path.
   const handleUpdate = useCallback(() => {
-    scheduleSave();
-  }, [scheduleSave]);
+    if (!collabOn) scheduleSave();
+  }, [collabOn, scheduleSave]);
+
+  if (collabOn) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <CollabEditor documentName={branchId} user={collabUser} />
+        <div className="flex items-center justify-between border-t border-border px-4 py-1 text-xs text-text-muted">
+          <span>{slug}</span>
+          <button type="button" onClick={onCollabSessionEnd} className="underline text-link">
+            Stop live editing
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -268,6 +326,14 @@ function EditableCanvas({ branchId, slug, content, updatedAt, onConflict, onCont
       <div className="flex items-center justify-between border-t border-border px-4 py-1 text-xs text-text-muted">
         <span>{saveStateLabel(saveState)}</span>
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onToggleCollab}
+            className="underline text-link"
+            title="Collaborate live on this page with other editors"
+          >
+            Live edit…
+          </button>
           <span>{slug}</span>
           {saveState === "dirty" && (
             <button type="button" onClick={saveNow} className="underline text-link">

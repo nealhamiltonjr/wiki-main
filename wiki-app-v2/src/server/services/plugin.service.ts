@@ -1,0 +1,326 @@
+import { mkdir, writeFile, rm } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { unzipSync, strFromU8 } from "fflate";
+import type { FastifyInstance } from "fastify";
+
+import { getDb } from "../db/index.js";
+import { plugins, auditLog } from "../db/schema.js";
+import type { PluginInfo } from "../../shared/pluginTypes.js";
+
+// ---------------------------------------------------------------------------
+// Plugin root — mirrors file.service.ts's 3-hop resolution.
+// ---------------------------------------------------------------------------
+const projectRoot = (() => {
+  const here = fileURLToPath(new URL(".", import.meta.url));
+  return path.resolve(here, "../../..");
+})();
+
+export const PLUGIN_ROOT = process.env.PLUGIN_ROOT
+  ? path.resolve(projectRoot, process.env.PLUGIN_ROOT)
+  : path.resolve(projectRoot, "data/plugins");
+
+// ---------------------------------------------------------------------------
+// Manifest schema (§4.3) — Zod `.strict()`: a field the schema doesn't
+// recognise is a hard reject, not a silent ignore.
+// ---------------------------------------------------------------------------
+
+const capabilitySchema = z.object({
+  tiptapExtensions: z.boolean().default(false),
+  slashCommands: z.boolean().default(false),
+  toolbarItems: z.boolean().default(false),
+  settingsPanel: z.boolean().default(false),
+  embedTypes: z.boolean().default(false),
+  serverRoutes: z.boolean().default(false),
+});
+
+const contentModelSchema = z.object({
+  nodes: z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9-]{0,63}$/, "node type name must be a simple identifier")).default([]),
+  marks: z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9-]{0,63}$/, "mark type name must be a simple identifier")).default([]),
+});
+
+const pluginManifestSchema = z.strictObject({
+  id: z.string().regex(/^[a-z0-9][a-z0-9-_]{0,63}$/, "plugin id must be a filesystem-safe slug (a-z0-9, hyphens, underscores)"),
+  name: z.string().min(1).max(80),
+  version: z.string().min(1).max(32),
+  capabilities: capabilitySchema,
+  contentModel: contentModelSchema.optional(),
+});
+
+type ValidatedManifest = z.infer<typeof pluginManifestSchema>;
+
+// Core node/mark types that a plugin content model MUST NOT collide with — the
+// server's validateContent would have no way to distinguish the two.
+const CORE_NODE_TYPES = new Set([
+  "doc", "paragraph", "heading", "bulletList", "orderedList", "listItem",
+  "blockquote", "codeBlock", "horizontalRule", "image", "table",
+  "tableRow", "tableCell", "taskList", "taskItem", "details",
+  "detailsContent", "detailsSummary", "mermaidDiagram", "text", "hardBreak", "mention",
+]);
+const CORE_MARK_TYPES = new Set([
+  "bold", "italic", "underline", "strike", "code", "link",
+]);
+
+// 10 MB cap on total uncompressed plugin file size — a zip bomb of a few KB
+// should never write gigabytes to disk.
+const MAX_TOTAL_UNCOMPRESSED = 10 * 1024 * 1024;
+
+// ---------------------------------------------------------------------------
+// Path safety
+// ---------------------------------------------------------------------------
+
+function isSafeRelativePath(p: string): boolean {
+  if (p.startsWith("/") || /^[A-Za-z]:/.test(p)) return false;
+  const normalized = p.replace(/\\/g, "/");
+  const segments = normalized.split("/").filter(s => s.length > 0 && s !== ".");
+  return !segments.some(s => s === "..");
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export function getPluginDir(pluginId: string): string {
+  return path.resolve(PLUGIN_ROOT, pluginId);
+}
+
+export async function listPlugins(opts: { disabledToo?: boolean }): Promise<PluginInfo[]> {
+  const { db } = getDb();
+  const rows = opts.disabledToo
+    ? await db.select().from(plugins)
+    : await db.select().from(plugins).where(eq(plugins.enabled, true));
+  return rows.map(toPluginInfo);
+}
+
+function toPluginInfo(row: typeof plugins.$inferSelect): PluginInfo {
+  return {
+    id: row.id,
+    name: row.name,
+    version: row.version,
+    enabled: row.enabled,
+    capabilities: row.capabilities,
+    nodeTypes: row.nodeTypes,
+    markTypes: row.markTypes,
+    installedAt: new Date(row.installedAt).toISOString(),
+  };
+}
+
+export async function getEnabledPlugins(): Promise<PluginInfo[]> {
+  return listPlugins({ disabledToo: false });
+}
+
+/**
+ * Returns the union of all enabled plugins' declared content-model node types
+ * so validateContent can accept them. Called on every read/save so the set MUST
+ * be live (not cached at boot) — without this an enabled plugin's nodes would
+ * be rejected by savePageOCC.
+ */
+export function getEnabledPluginNodeTypes(): Set<string> {
+  try {
+    const { db } = getDb();
+    const rows = db.select({ nodeTypes: plugins.nodeTypes }).from(plugins).where(eq(plugins.enabled, true)).all();
+    const s = new Set<string>();
+    for (const r of rows) for (const t of r.nodeTypes) s.add(t);
+    return s;
+  } catch {
+    return new Set();
+  }
+}
+
+export function getEnabledPluginMarkTypes(): Set<string> {
+  try {
+    const { db } = getDb();
+    const rows = db.select({ markTypes: plugins.markTypes }).from(plugins).where(eq(plugins.enabled, true)).all();
+    const s = new Set<string>();
+    for (const r of rows) for (const t of r.markTypes) s.add(t);
+    return s;
+  } catch {
+    return new Set();
+  }
+}
+
+export async function installPluginFromZip(zipBuffer: Buffer, actorUserId: string): Promise<PluginInfo> {
+  const { db } = getDb();
+
+  // 1. Unzip
+  let entries: Record<string, Uint8Array>;
+  try {
+    entries = unzipSync(new Uint8Array(zipBuffer.buffer, zipBuffer.byteOffset, zipBuffer.byteLength));
+  } catch {
+    throw Object.assign(new Error("Invalid zip file — could not decompress"), { statusCode: 400 });
+  }
+
+  // 2. Validate every entry path
+  let totalSize = 0;
+  for (const [entryPath, data] of Object.entries(entries)) {
+    if (!isSafeRelativePath(entryPath)) {
+      throw Object.assign(new Error(`Unsafe path in zip: "${entryPath}"`), { statusCode: 400 });
+    }
+    totalSize += data.byteLength;
+  }
+  if (totalSize > MAX_TOTAL_UNCOMPRESSED) {
+    throw Object.assign(new Error(`Plugin exceeds ${MAX_TOTAL_UNCOMPRESSED / 1024 / 1024}MB limit`), { statusCode: 400 });
+  }
+
+  // 3. Read and validate plugin.json
+  const rawManifest = entries["plugin.json"];
+  if (!rawManifest) throw Object.assign(new Error("Missing plugin.json in zip"), { statusCode: 400 });
+
+  let manifest: ValidatedManifest;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const parsed = JSON.parse(strFromU8(rawManifest, true));
+    manifest = pluginManifestSchema.parse(parsed);
+  } catch (err) {
+    const msg = err instanceof z.ZodError
+      ? `Invalid manifest: ${err.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`
+      : `Invalid plugin.json: ${(err as Error).message}`;
+    throw Object.assign(new Error(msg), { statusCode: 400 });
+  }
+
+  // 4. Check id uniqueness
+  const [existing] = await db.select({ id: plugins.id }).from(plugins).where(eq(plugins.id, manifest.id));
+  if (existing) throw Object.assign(new Error(`Plugin "${manifest.id}" is already installed`), { statusCode: 409 });
+
+  // 5. Check content model doesn't collide with core types
+  const contentModel = manifest.contentModel ?? { nodes: [], marks: [] };
+  for (const t of contentModel.nodes) {
+    if (CORE_NODE_TYPES.has(t)) throw Object.assign(new Error(`Plugin node type "${t}" collides with a core node type`), { statusCode: 400 });
+  }
+  for (const t of contentModel.marks) {
+    if (CORE_MARK_TYPES.has(t)) throw Object.assign(new Error(`Plugin mark type "${t}" collides with a core mark type`), { statusCode: 400 });
+  }
+
+  // 6. Verify required files exist per declared capabilities
+  const hasClient = Object.prototype.hasOwnProperty.call(entries, "client/index.js");
+  const hasServer = Object.prototype.hasOwnProperty.call(entries, "server/index.js");
+  const needsClient = manifest.capabilities.tiptapExtensions || manifest.capabilities.slashCommands ||
+    manifest.capabilities.toolbarItems || manifest.capabilities.settingsPanel || manifest.capabilities.embedTypes;
+  if (needsClient && !hasClient) {
+    throw Object.assign(new Error("Manifest declares client capabilities but no client/index.js found in zip"), { statusCode: 400 });
+  }
+  if (manifest.capabilities.serverRoutes && !hasServer) {
+    throw Object.assign(new Error("Manifest declares serverRoutes but no server/index.js found in zip"), { statusCode: 400 });
+  }
+
+  // 7. Extract to a temp dir, validate, then rename into place (atomic-ish)
+  const destDir = getPluginDir(manifest.id);
+  const tmpDir = path.resolve(PLUGIN_ROOT, `.tmp-${randomUUID()}`);
+  try {
+    await mkdir(tmpDir, { recursive: true });
+    for (const [entryPath, data] of Object.entries(entries)) {
+      const fullPath = path.resolve(tmpDir, entryPath.split("/").join(path.sep));
+      await mkdir(path.dirname(fullPath), { recursive: true });
+      await writeFile(fullPath, data);
+    }
+    // Rename into final place (atomic on most filesystems)
+    await rm(destDir, { recursive: true, force: true });
+    await mkdir(path.dirname(destDir), { recursive: true });
+    await rm(tmpDir, { force: true }); // if dest is already the tmp (shouldn't happen)
+    // rename can fail across devices; use copy+remove fallback:
+    try {
+      // node:fs/promises
+      const { rename } = await import("node:fs/promises");
+      await rename(tmpDir, destDir);
+    } catch {
+      // cross-device fallback: manual copy
+      const { cp, rm } = await import("node:fs/promises");
+      await cp(tmpDir, destDir, { recursive: true });
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  } catch (e) {
+    await rm(tmpDir, { recursive: true, force: true });
+    throw e;
+  }
+
+  // 8. Write DB row
+  await db.insert(plugins).values({
+    id: manifest.id,
+    name: manifest.name,
+    version: manifest.version,
+    enabled: false,
+    capabilities: manifest.capabilities,
+    nodeTypes: contentModel.nodes,
+    markTypes: contentModel.marks,
+  });
+
+  // 9. Audit
+  await db.insert(auditLog).values({
+    actorUserId,
+    action: "plugin_install",
+    targetType: "plugin",
+    targetId: manifest.id,
+    meta: { version: manifest.version },
+  });
+
+  const [row] = await db.select().from(plugins).where(eq(plugins.id, manifest.id));
+  if (!row) throw new Error("Plugin row missing after insert");
+  return toPluginInfo(row);
+}
+
+export async function setPluginEnabled(pluginId: string, enabled: boolean, actorUserId: string | undefined): Promise<PluginInfo> {
+  const { db } = getDb();
+  const [existing] = await db.select().from(plugins).where(eq(plugins.id, pluginId));
+  if (!existing) throw Object.assign(new Error("Plugin not found"), { statusCode: 404 });
+
+  await db.update(plugins).set({ enabled }).where(eq(plugins.id, pluginId));
+
+  await db.insert(auditLog).values({
+    actorUserId: actorUserId ?? null,
+    action: enabled ? "plugin_enable" : "plugin_disable",
+    targetType: "plugin",
+    targetId: pluginId,
+  });
+
+  const [row] = await db.select().from(plugins).where(eq(plugins.id, pluginId));
+  return toPluginInfo(row!);
+}
+
+export async function uninstallPlugin(pluginId: string, actorUserId: string): Promise<void> {
+  const { db } = getDb();
+  const [existing] = await db.select().from(plugins).where(eq(plugins.id, pluginId));
+  if (!existing) throw Object.assign(new Error("Plugin not found"), { statusCode: 404 });
+
+  await db.delete(plugins).where(eq(plugins.id, pluginId));
+  await rm(getPluginDir(pluginId), { recursive: true, force: true });
+
+  await db.insert(auditLog).values({
+    actorUserId,
+    action: "plugin_uninstall",
+    targetType: "plugin",
+    targetId: pluginId,
+  });
+}
+
+/**
+ * Loads and registers server-side routes for every enabled plugin that declares
+ * serverRoutes. Called once during boot (after fastify is built). Fires
+ * dynamic imports — plugins whose server/index.js fail to load are caught and
+ * logged; a misbehaving plugin never crashes the whole instance.
+ */
+export async function registerPluginServerRoutes(app: FastifyInstance): Promise<void> {
+  const enabled = await getEnabledPlugins();
+  for (const plugin of enabled) {
+    if (!plugin.capabilities.serverRoutes) continue;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+      const mod: { default: Parameters<FastifyInstance["register"]>[0] } = await import(
+        /* @vite-ignore */`${getPluginDir(plugin.id)}/server/index.js`
+      );
+      if (!mod || typeof mod.default !== "function") {
+        // eslint-disable-next-line no-console
+        console.warn(`[plugins] "${plugin.id}" server/index.js must default-export a Fastify plugin function`);
+        continue;
+      }
+      await app.register(mod.default, { prefix: `/api/plugins/${plugin.id}` });
+      // eslint-disable-next-line no-console
+      console.log(`[plugins] Loaded server routes for "${plugin.id}"`);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[plugins] Failed to load server routes for "${plugin.id}":`, err);
+    }
+  }
+}

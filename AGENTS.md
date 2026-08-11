@@ -169,3 +169,89 @@ Regression coverage: `src/server/__tests__/audit-fixes.integration.test.ts`
      and a restore 409 triggers the same reload as a successful restore
      (ApiError.status 409). Snapshot input capped at 200 to match zod.
    131 unit + 8 e2e tests pass.
+8. Search — done: FTS5 mirror (`page_fts`) + snippet escaping, stored-XSS search test.
+9. Comments/backlinks/favorites/notifications — done (integration tests per feature).
+10. Git flush pipeline — done (see above).
+11. Collab (Hocuspocus) — done. Hocuspocus wired to the SAME `getDb()` connection in
+    `src/server/services/collab.service.ts`; single-placement rule enforced in
+    `onAuthenticate`. Client uses `@tiptap/extension-collaboration` +
+    `-collaboration-caret` over `baseExtensions()` with `content={undefined}`.
+    - **StrictMode bug**: destroying the provider in a `useEffect` cleanup on a
+      provider created during render caused endless reconnect loops in dev. Fix:
+      `sessionRef` + deferred `setTimeout(0)` destroy guarded by a `mountedRef`
+      (see `useCollab.ts`).
+    - **Invariant — collab doc fragment is an XmlFragment, not Y.Text**:
+      `prosemirrorJSONToYDoc`/y-prosemirror store the doc under
+      `doc.getXmlFragment("default")`. `doc.getText("default")` on it throws
+      ("Type with the name default has already been defined…") or silently creates
+      an empty Y.Text. Any instrumentation/decoding must use `getXmlFragment`.
+    - **Store semantics**: Hocuspocus only runs `onStoreDocument` when the doc got
+      updates (a no-edit session stores nothing — correct). The write-back goes to
+      `collab_documents` AND `pages.content` (so a collab session is a real edit
+      that also enqueues a git flush commit).
+    - **WS wiring**: Hocuspocus v4 with a bare `ws` server does not attach
+      message/close handlers; `src/server/index.ts` forwards them explicitly.
+    - Gate: `collab.integration.test.ts` 8 tests green (incl. multi-placement
+      rejection + write-back); manual two-tab sync + stop → reload persistence
+      verified. Typecheck clean.
+12. Plugin engine — next.
+
+## Slice-12: Plugin engine (completed)
+
+### Architecture
+- **Server**: `src/server/services/plugin.service.ts` handles upload (zip
+  decode via `fflate`, path-traversal guard), install, enable/disable, and
+  uninstall. `src/server/routes/plugin.routes.ts` exposes REST endpoints at
+  `/api/plugins`. Server-side routes from enabled plugins are mounted under
+  `/api/plugins/:pluginId/` via `registerPluginServerRoutes()` (app.ts).
+- **Client**: `src/plugins/registry.ts` — module-level store with React hooks
+  (`useTiptapExtensions`, `useSlashCommands`, `useToolbarItems`, etc.).
+  `src/plugins/api.ts` — PluginAPI constructor with capability enforcement
+  (§4.4). `src/plugins/loader.ts` — `loadPlugins()` fetches manifest list,
+  dynamically imports each enabled plugin's `client/index.js`, calls its
+  `register(api)` function.
+- **Content model**: `filterUnknownNodes()` and `validateContent()` in
+  `shared/blockIds.ts` accept `extraNodeTypes`/`extraMarkTypes` Set params.
+  Page read/write passes plugin node types from the enabled plugin list;
+  collab seed filters unknown nodes before Y.doc creation. When a plugin is
+  disabled/uninstalled, its nodes degrade to paragraphs preserving text.
+
+### Plugin contract (§4.4)
+- `plugin.json` manifest: id, name, version, capabilities (booleans:
+  tiptapExtensions, slashCommands, toolbarItems, settingsPanel, embedTypes,
+  serverRoutes), contentModel (nodes[], marks[]).
+- `client/index.js`: default-export `register(api)` function receiving
+  `{ Tiptap, React, registerTiptapExtension, registerSlashCommand,
+  registerToolbarItem, registerSettingsPanel, registerEmbedType }`.
+- `server/index.js`: Fastify plugin `async function(app, opts, done)`.
+- Capability enforcement: calling an undeclared register method throws.
+
+### Slash menu
+- `src/features/editor/SlashMenu.tsx` — Tiptap ProseMirror plugin extension
+  activated by "/" at line start/after whitespace. Filters commands from the
+  plugin registry by keyword match. Arrow-nav + Enter to execute.
+
+### Admin UI
+- `src/routes/_authenticated/settings.tsx` — settings index with plugin link.
+- `src/routes/_authenticated/settings/plugins.tsx` — upload, list,
+  enable/disable toggle, uninstall with auth guard.
+- `src/routes/_authenticated.tsx` calls `loadPlugins()` after session confirm.
+
+### Tests
+- `src/server/__tests__/plugin.integration.test.ts` — auth gates, content
+  validate with extraNodeTypes.
+- `src/shared/__tests__/blockIds.test.ts` — 6 new filterUnknownNodes tests
+  (preserve known, degrade unknown to paragraph, recurse nested, filter marks,
+  accept plugin nodes via extra set, empty content).
+
+### Pitfalls
+- `import.meta.hot` only exists in Vite dev mode — guard with
+  `typeof import.meta !== "undefined"` before accessing `.hot`.
+- `AnyExtension` from `@tiptap/core` is the base type for all
+  Extension/Node/Mark — use it instead of `Extension` for the registry store.
+- Fastify multipart returns 415 for non-multipart bodies sent to a multipart
+  route. To test file uploads use `app.inject()` with proper encoding.
+
+### Notable fixtures
+- `test-fixtures/hello-world-plugin/` — a minimal plugin exercising all
+  PluginAPI methods. `test-fixtures/hello-world-plugin.zip` is pre-built.

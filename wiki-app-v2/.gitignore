@@ -4,6 +4,7 @@ data/
 *.local
 *.log
 .DS_Store
+*.tsbuildinfo
 
 # Playwright
 test-results/

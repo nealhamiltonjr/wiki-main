@@ -1,8 +1,10 @@
+import { useEffect } from "react";
 import { createFileRoute, Outlet, useNavigate, Link } from "@tanstack/react-router";
 
 import { useSession } from "@/api/authClient";
 import { Tree } from "@/features/tree/Tree";
 import { NotificationBell } from "@/features/notifications/NotificationBell";
+import { loadPlugins } from "@/plugins/loader";
 
 // Pathless authenticated layout: the single chrome shell (sidebar + topbar)
 // that wraps every page a signed-in user can reach. The session gate redirects
@@ -25,6 +27,10 @@ function AuthenticatedLayout() {
     return null;
   }
 
+  // Load plugin bundles once the session is available. Must be after the
+  // session guard so the fetch cookie (auth token) is present. Idempotent.
+  useEffect(() => { void loadPlugins(); }, []);
+
   return (
     <div className="flex h-screen overflow-hidden">
       <aside className="flex w-64 shrink-0 flex-col border-r" aria-label="Sidebar">
@@ -35,7 +41,12 @@ function AuthenticatedLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between border-b px-4" aria-label="Topbar">
           <Link to="/" className="text-sm font-medium hover:text-primary transition-colors">Knowledge Base</Link>
-          <NotificationBell />
+          <div className="flex items-center gap-3">
+            {session.user.isAdmin && (
+              <Link to="/settings/plugins" className="text-xs text-text-muted hover:text-foreground transition-colors">Settings</Link>
+            )}
+            <NotificationBell />
+          </div>
         </header>
         <main className="min-h-0 flex-1 overflow-auto">
           <Outlet />

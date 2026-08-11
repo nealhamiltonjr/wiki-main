@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { validateContent, ensureBlockIds, collectBlockIds, safeLinkHref } from "../blockIds.js";
+import { validateContent, ensureBlockIds, collectBlockIds, safeLinkHref, filterUnknownNodes, KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES } from "../blockIds.js";
+import type { JSONBlock } from "../blockIds.js";
 
 describe("validateContent", () => {
   it("accepts a valid doc", () => {
@@ -114,5 +115,79 @@ describe("safeLinkHref + link sanitization", () => {
     const mark = (paragraph.marks as unknown[])[0] as { attrs?: { href?: string } };
     expect(mark.attrs?.href).toBe("#");
     expect(errors.some((e) => e.includes("unsafe link scheme"))).toBe(true);
+  });
+});
+
+describe("filterUnknownNodes", () => {
+  it("preserves known block types", () => {
+    const doc: JSONBlock = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "hello" }] }],
+    };
+    const result = filterUnknownNodes(doc, KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES);
+    expect(result.content).toHaveLength(1);
+    const p = result.content![0] as JSONBlock;
+    expect(p.type).toBe("paragraph");
+  });
+
+  it("converts unknown block nodes to paragraphs preserving text", () => {
+    const doc: JSONBlock = {
+      type: "doc",
+      content: [{ type: "drawioDiagram", attrs: { foo: 1 }, content: [{ type: "text", text: "some text" }] }],
+    };
+    const result = filterUnknownNodes(doc, KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES);
+    expect(result.content).toHaveLength(1);
+    const p = result.content![0] as JSONBlock;
+    expect(p.type).toBe("paragraph");
+    const text = p.content?.[0] as { text?: string };
+    expect(text.text).toBe("some text");
+  });
+
+  it("converts nested unknown blocks recursively", () => {
+    const doc: JSONBlock = {
+      type: "doc",
+      content: [{
+        type: "bulletList",
+        content: [{ type: "listItem", content: [{ type: "drawioDiagram", content: [{ type: "text", text: "nested" }] }] }],
+      }],
+    };
+    const result = filterUnknownNodes(doc, KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES);
+    const bulletList = result.content?.[0] as JSONBlock | undefined;
+    expect(bulletList?.type).toBe("bulletList");
+    const listItem = bulletList?.content?.[0] as JSONBlock | undefined;
+    expect(listItem?.type).toBe("listItem");
+    expect(listItem?.content?.[0]?.type).toBe("paragraph"); // was drawioDiagram
+    const textNode = listItem?.content?.[0] as JSONBlock | undefined;
+    const text = textNode?.content?.[0] as { text?: string } | undefined;
+    expect(text?.text).toBe("nested");
+  });
+
+  it("filters unknown marks from inline nodes", () => {
+    const doc: JSONBlock = {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "hi", marks: [{ type: "bold" }, { type: "fancyGlow" }] }] }],
+    };
+    const result = filterUnknownNodes(doc, KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES);
+    const textNode = (result.content?.[0] as JSONBlock | undefined)?.content?.[0] as { marks?: { type: string }[] } | undefined;
+    expect(textNode?.marks).toHaveLength(1);
+    expect(textNode?.marks?.[0]?.type).toBe("bold");
+  });
+
+  it("accepts plugin node types when in the allowed set", () => {
+    const block = new Set([...KNOWN_BLOCK_TYPES, "pluginDiagram"]);
+    const doc: JSONBlock = {
+      type: "doc",
+      content: [{ type: "pluginDiagram", attrs: { x: 1 } }],
+    };
+    const result = filterUnknownNodes(doc, block, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES);
+    expect(result.content?.[0]?.type).toBe("pluginDiagram");
+  });
+
+  it("handles empty content gracefully", () => {
+    const doc: JSONBlock = { type: "doc", content: [] };
+    const result = filterUnknownNodes(doc, KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES);
+    expect(result.type).toBe("doc");
+    expect(Array.isArray(result.content)).toBe(true);
+    // Empty doc maps to empty content — no repair needed.
   });
 });

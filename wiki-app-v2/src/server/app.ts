@@ -15,6 +15,8 @@ import { commentRoutes } from "./routes/comment.routes.js";
 import { favoriteRoutes } from "./routes/favorite.routes.js";
 import { notificationRoutes } from "./routes/notification.routes.js";
 import { gitRoutes } from "./routes/git.routes.js";
+import { pluginRoutes } from "./routes/plugin.routes.js";
+import { registerPluginServerRoutes } from "./services/plugin.service.js";
 import multipart from "@fastify/multipart";
 
 /**
@@ -73,6 +75,12 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(favoriteRoutes);
   await app.register(notificationRoutes);
   await app.register(gitRoutes);
+  await app.register(pluginRoutes);
+
+  // Register server routes for every enabled plugin that declares the
+  // serverRoutes capability. A failing plugin is logged and skipped; it never
+  // takes down the whole instance.
+  await registerPluginServerRoutes(app);
 
   app.get("/api/health", { config: { access: "public" } }, async () => ({
     status: "ok",

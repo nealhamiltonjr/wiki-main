@@ -1,0 +1,17 @@
+{
+  "id": "hello-world",
+  "name": "Hello World Plugin",
+  "version": "1.0.0",
+  "capabilities": {
+    "tiptapExtensions": true,
+    "slashCommands": true,
+    "toolbarItems": true,
+    "settingsPanel": true,
+    "embedTypes": false,
+    "serverRoutes": true
+  },
+  "contentModel": {
+    "nodes": [],
+    "marks": []
+  }
+}

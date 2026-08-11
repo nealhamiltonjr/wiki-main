@@ -1,6 +1,7 @@
 import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { user, session, account, verification } from "./auth-schema.js";
+import type { PluginCapabilities } from "../../shared/pluginTypes.js";
 
 const id = () => text("id").primaryKey().$defaultFn(() => crypto.randomUUID());
 const timestamps = {
@@ -213,6 +214,39 @@ export const jobQueue = sqliteTable("job_queue", {
   attempts: integer("attempts").notNull().default(0),
   runAfter: integer("run_after", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
   ...timestamps,
+});
+
+// ---------------------------------------------------------------------------
+// Collab documents (§8 step 11) — Yjs update states for live-collaboration
+// sessions, keyed by document name. Written through THE single DB connection
+// (brief §3.2: never a second `new Database()`). `name` is the BRANCH id the
+// client opens; the doc is seeded from pages.content on first load and the
+// latest state is written back to pages.content on store so the git flush
+// pipeline and search index never drift from what collaborators actually see.
+// ---------------------------------------------------------------------------
+export const collabDocuments = sqliteTable("collab_documents", {
+  name: text("name").primaryKey(),
+  data: text("data").notNull(), // base64-encoded Yjs update (Yjs update binaries are not valid UTF-8 text)
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+});
+
+// ---------------------------------------------------------------------------
+// Plugins - brief §4. The uploaded code lives under data/plugins/<id>/ (never
+// in the DB); this row records the manifest contract and install state.
+// `enabled` is deliberately NOT auto-set on install (§4.2.5: an admin flips
+// the switch after reviewing). nodeTypes/markTypes mirror the manifest's
+// declared content model so validateContent keeps accepting plugin node types
+// while the plugin is enabled.
+// ---------------------------------------------------------------------------
+export const plugins = sqliteTable("plugins", {
+  id: text("id").primaryKey(), // filesystem-safe slug, validated at install
+  name: text("name").notNull(),
+  version: text("version").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  capabilities: text("capabilities", { mode: "json" }).$type<PluginCapabilities>().notNull(),
+  nodeTypes: text("node_types", { mode: "json" }).$type<string[]>().notNull(),
+  markTypes: text("mark_types", { mode: "json" }).$type<string[]>().notNull(),
+  installedAt: integer("installed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
 });
 
 // System/debug log - deliberately separate from the security audit log (brief

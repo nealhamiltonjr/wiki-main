@@ -55,18 +55,18 @@ export interface ContentValidation {
 
 // Known safe block types (Tiptap StarterKit + our extensions). Unknown block
 // types are rejected — a stray HTML node from a paste is not persisted.
-const KNOWN_BLOCK_TYPES = new Set([
+export const KNOWN_BLOCK_TYPES = new Set([
   "paragraph", "heading", "bulletList", "orderedList", "listItem",
   "blockquote", "codeBlock", "horizontalRule", "image", "table",
   "tableRow", "tableCell", "taskList", "taskItem", "details",
   "detailsContent", "detailsSummary", "mermaidDiagram",
 ]);
 
-const KNOWN_INLINE_TYPES = new Set([
+export const KNOWN_INLINE_TYPES = new Set([
   "text", "hardBreak", "mention",
 ]);
 
-const KNOWN_MARK_TYPES = new Set([
+export const KNOWN_MARK_TYPES = new Set([
   "bold", "italic", "underline", "strike", "code", "link",
 ]);
 
@@ -99,7 +99,10 @@ export function safeLinkHref(href: string): string {
  *
  * Returns the (possibly repaired) document and any validation errors.
  */
-export function validateContent(input: unknown): { doc: JSONBlock; errors: string[] } {
+export function validateContent(
+  input: unknown,
+  opts?: { extraNodeTypes?: Set<string>; extraMarkTypes?: Set<string> },
+): { doc: JSONBlock; errors: string[] } {
   const errors: string[] = [];
 
   if (!input || typeof input !== "object") {
@@ -129,14 +132,15 @@ export function validateContent(input: unknown): { doc: JSONBlock; errors: strin
 
     const type = node.type;
     const isInline = KNOWN_INLINE_TYPES.has(type);
-    const isKnown = KNOWN_BLOCK_TYPES.has(type) || isInline || type === "doc";
+    const isKnown = KNOWN_BLOCK_TYPES.has(type) || isInline || type === "doc"
+      || (opts?.extraNodeTypes?.has(type) ?? false);
 
     if (!isKnown) {
       errors.push(`${path}: unknown node type "${type}" — rejected`);
       return;
     }
 
-    if (isBlockType(type)) {
+    if (isBlockType(type) || (opts?.extraNodeTypes?.has(type) ?? false)) {
       if (!node.attrs?.id) {
         node.attrs = { ...(node.attrs ?? {}), id: defaultGenerateId() };
         errors.push(`${path}: block "${type}" missing id — auto-assigned`);
@@ -150,7 +154,8 @@ export function validateContent(input: unknown): { doc: JSONBlock; errors: strin
     // Validate marks on inline nodes.
     if (isInline && Array.isArray(node.marks)) {
       for (const mark of node.marks) {
-        if (typeof mark.type !== "string" || !KNOWN_MARK_TYPES.has(mark.type)) {
+        const markKnown = KNOWN_MARK_TYPES.has(mark.type) || (opts?.extraMarkTypes?.has(mark.type) ?? false);
+        if (typeof mark.type !== "string" || !markKnown) {
           errors.push(`${path}: unknown mark type "${String(mark.type)}"`);
         }
         // Neutralize script-capable link schemes before persisting.
@@ -255,4 +260,53 @@ export function blockIdAtPosition(doc: JSONBlock, pos: number): string | null {
   };
   walk(doc, 0);
   return found;
+}
+
+/**
+ * Strips (or converts) block nodes whose type is not in the allowed set, so a
+ * Tiptap schema built without the disabled plugin's extension doesn't throw
+ * "unknown node type" on load. Unknown block nodes become paragraphs
+ * (preserving text content recursively); unknown inline nodes become plain
+ * text. This runs both server-side (collab seed) and client-side (editor
+ * mount) so disabled-plugin content is always survivable (§4.4).
+ */
+export function filterUnknownNodes(
+  doc: JSONBlock,
+  knownBlockTypes: ReadonlySet<string>,
+  knownInlineTypes: ReadonlySet<string>,
+  knownMarkTypes: ReadonlySet<string>,
+): JSONBlock {
+  const walk = (node: JSONBlock): JSONBlock => {
+    if (!node || typeof node.type !== "string") return { type: "text", text: "" };
+
+    const type = node.type;
+    if (type === "doc") {
+      const content = Array.isArray(node.content) ? node.content.map(walk) : [{ type: "paragraph" }];
+      return { ...node, content };
+    }
+    if (knownInlineTypes.has(type)) {
+      const n = { ...node };
+      if (Array.isArray(node.marks)) {
+        n.marks = node.marks.filter(m => knownMarkTypes.has(m.type));
+      }
+      return n;
+    }
+    if (!knownBlockTypes.has(type)) {
+      // Unknown block → paragraph with child text
+      const gatherText = (n: JSONBlock): string => {
+        if (n.type === "text") return n.text ?? "";
+        if (Array.isArray(n.content)) return n.content.map(gatherText).join("");
+        return "";
+      };
+      const text = gatherText(node);
+      return text ? { type: "paragraph", content: [{ type: "text", text }] } : { type: "paragraph" };
+    }
+    const out = { ...node };
+    if (Array.isArray(node.content)) {
+      out.content = node.content.map(walk);
+    }
+    return out;
+  };
+
+  return walk(doc);
 }
