@@ -95,6 +95,34 @@
   zip with `python3 -m zipfile`-style after editing the dir (paths must be
   `plugin.json`, `client/index.js`, `server/index.js` at zip root).
 
+## Slice-13 / first-party plugins
+
+- First-party reference plugins: `test-fixtures/web-clipper-plugin/` (serverRoute
+  `POST /api/web-clipper/fetch` + slash command inserting a `webCitation` node) and
+  `test-fixtures/drawio-embed-plugin/` (embedTypes: custom node + `renderReadOnly`).
+  Both are seeded INSTALLED+ENABLED by `scripts/seed-e2e.ts`.
+- **Fastify can't register routes after `ready()`** (`AVV_ERR_ROOT_PLG_BOOTED`).
+  `registerAllPluginServerRoutes` therefore registers every installed plugin's
+  routes at BOOT with an onRequest `enabled` guard; there is no mid-run
+  registration. A plugin installed at runtime gets its routes on the NEXT server
+  restart. Server plugins must use the Fastify callback signature
+  `(fastify, opts, done)` — never mix `async` plugin functions with `done`.
+- Plugin routes are served at `/api/plugins/<id>/...` (serverRoutes) and client
+  bundles at `/plugins/<id>/client/index.js` (validated id, JS content-type,
+  `Cache-Control: max-age=300`). Vite proxies `/plugins` → Fastify in dev.
+- **Slash-menu query/range bug (fixed):** the menu captured `range.from` when "/"
+  was typed, but when an ATOM node sits at the insertion point (e.g. a draw.io
+  embed at doc position 0) ProseMirror inserts the "/" AFTER the atom, so the
+  query included the leading "/" (filter matched nothing) and execute() would
+  mis-delete. `computeSlashQuery` now derives query + range from the caret's text
+  block on every doc change (line-start / after-whitespace ⇒ block text is
+  `<slash><query>`). Unit-tested in `slashMenu.test.ts`.
+- E2E: `e2e/firstparty.spec.ts` (web clipper + draw.io embed, both on the seeded
+  "cli" page) + `e2e/plugins.spec.ts` (hello-world admin upload/enable/slash).
+  `playwright.config.ts` launches Chromium with `--allow-net` for the web
+  clipper's localhost fetch. Assertions use `.first()` so repeat runs (which
+  accumulate content on the shared cli page) don't trip strict-mode.
+
 ## E2E infrastructure traps (learned passing the slice-12 gate)
 
 - **Stale dev servers defeat the reseed.** `playwright.config.ts` uses

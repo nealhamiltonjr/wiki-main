@@ -9,11 +9,27 @@
  * (DB_PATH defaults to data/e2e.db - the API server must point at the same file.)
  */
 import { eq } from "drizzle-orm";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { hashPassword } from "better-auth/crypto";
 import { getDb } from "../src/server/db/index.js";
 import { users, identities, spaces, spaceMembers, pages, branches, attributes, notifications } from "../src/server/db/schema.js";
+import { installPluginFromZip, setPluginEnabled } from "../src/server/services/plugin.service.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export const E2E_USER = { email: "e2e@test.local", password: "E2ePass-1234", name: "E2E Tester" };
+
+// First-party reference plugins (§4.6), pre-installed AND enabled here so the
+// API server registers their server routes at boot. Fastify refuses to add
+// routes after ready(), so a serverRoutes plugin uploaded mid-run (like the
+// slice-12 hello-world) can't get live routes without a restart — pre-seeding
+// is the only way the web-clipper's /clip route exists in the e2e server.
+const FIRST_PARTY_PLUGINS = [
+  { zip: path.resolve(__dirname, "../test-fixtures/web-clipper-plugin.zip"), id: "web-clipper" },
+  { zip: path.resolve(__dirname, "../test-fixtures/drawio-embed-plugin.zip"), id: "drawio-embed" },
+];
 
 export async function seedE2E(): Promise<void> {
   const { db } = getDb();
@@ -47,6 +63,18 @@ export async function seedE2E(): Promise<void> {
     userId,
     password: passwordHash,
   });
+
+  // Install + enable the first-party reference plugins (audit rows reference
+  // the seed user, so this must run after the user insert). A duplicate install
+  // (plugin rows surviving a re-seed of the same DB) is a 409 — just re-enable.
+  for (const { zip, id } of FIRST_PARTY_PLUGINS) {
+    try {
+      await installPluginFromZip(readFileSync(zip), userId);
+    } catch (err) {
+      if ((err as { statusCode?: number }).statusCode !== 409) throw err;
+    }
+    await setPluginEnabled(id, true, userId);
+  }
 
   const spaceId = crypto.randomUUID();
   await db.insert(spaces).values({ id: spaceId, name: "Demo Space", createdBy: userId });

@@ -1,0 +1,17 @@
+{
+  "id": "drawio-embed",
+  "name": "Draw.io Embed",
+  "version": "1.0.0",
+  "capabilities": {
+    "tiptapExtensions": true,
+    "slashCommands": true,
+    "toolbarItems": false,
+    "settingsPanel": false,
+    "embedTypes": true,
+    "serverRoutes": false
+  },
+  "contentModel": {
+    "nodes": ["drawioEmbed"],
+    "marks": []
+  }
+}

@@ -70,10 +70,14 @@ test("plugin slash command works end-to-end in the editor", async ({ page }) => 
   await page.keyboard.type("/");
   const slashMenu = page.locator("[data-slash-menu]");
   await expect(slashMenu).toBeVisible();
-  await expect(slashMenu.getByRole("button", { name: /Insert Hello World block/ })).toBeVisible();
+  const helloItem = slashMenu.getByRole("button", { name: /Insert Hello World block/ });
+  await expect(helloItem).toBeVisible();
 
-  // Run it — the helloWorld node must render in the document.
-  await page.keyboard.press("Enter");
+  // Run it — the helloWorld node must render in the document. Click the command
+  // rather than pressing Enter: Enter runs the FIRST filtered command, and its
+  // index depends on plugin registration order (slice-13 pre-seeds web-clipper
+  // and drawio-embed before hello-world is uploaded, so they come first).
+  await helloItem.click();
   await expect(slashMenu).toBeHidden();
   await expect(page.locator(".ProseMirror [data-hello-world]")).toBeVisible();
   await expect(page.locator(".ProseMirror [data-hello-world]")).toContainText("Hello from plugin!");

@@ -55,8 +55,20 @@ export function registerSettingsPanel(def: SettingsPanelDef) {
   settingsPanels.push(def);
   notify();
 }
+let _embedTypeMap: Map<string, EmbedTypeDef> | null = null;
+
+/** Cached map — a fresh Map per call would break useSyncExternalStore (getSnapshot must return a stable reference when nothing changed). */
+export function getEmbedTypeMap(): Map<string, EmbedTypeDef> {
+  if (!_embedTypeMap) {
+    _embedTypeMap = new Map();
+    for (const et of embedTypes) _embedTypeMap.set(et.name, et);
+  }
+  return _embedTypeMap;
+}
+
 export function registerEmbedType(def: EmbedTypeDef) {
   embedTypes.push(def);
+  _embedTypeMap = null;
   notify();
 }
 
@@ -90,9 +102,5 @@ export function useEmbedTypes(): EmbedTypeDef[] {
  * (read-only view or disabled plugin).
  */
 export function useEmbedTypeMap(): Map<string, EmbedTypeDef> {
-  return useSyncExternalStore(subscribe, () => {
-    const m = new Map<string, EmbedTypeDef>();
-    for (const et of embedTypes) m.set(et.name, et);
-    return m;
-  });
+  return useSyncExternalStore(subscribe, getEmbedTypeMap, getEmbedTypeMap);
 }

@@ -43,7 +43,12 @@ export default defineConfig({
         // the two hot paths AND give the global bucket a huge window so the
         // limiter never rejects a worker mid-suite.
         'BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES=\'{"/sign-in/*":false,"/sign-up/*":false}\' ' +
-        'BETTER_AUTH_RATE_LIMIT_WINDOW=3600 BETTER_AUTH_RATE_LIMIT_MAX=10000 npx tsx src/server/index.ts',
+        'BETTER_AUTH_RATE_LIMIT_WINDOW=3600 BETTER_AUTH_RATE_LIMIT_MAX=10000 ' +
+        // Slice-13 web clipper: the plugin's /clip route fetches a user-supplied
+        // URL, and its SSRF guard blocks loopback by default. The e2e clips the
+        // app's own dev front page (http://localhost:5173/) — allow private hosts
+        // in the test environment only.
+        'ALLOW_PRIVATE_CLIP_HOSTS=1 npx tsx src/server/index.ts',
       url: "http://localhost:3000/api/health",
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,

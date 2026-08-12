@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { safeLinkHref } from "@/shared/blockIds";
 import { MermaidRenderer } from "./extensions/MermaidRenderer.js";
+import { useEmbedTypeMap } from "@/plugins/registry";
 
 /**
  * Simple server-rendering-safe content renderer. Walks Tiptap JSON nodes into
@@ -19,9 +20,10 @@ interface PMNode {
 
 export function ReadOnlyContent({ content }: { content: unknown }) {
   const doc = content as PMNode | null;
+  const embedMap = useEmbedTypeMap();
   if (!doc || doc.type !== "doc" || !Array.isArray(doc.content)) return null;
 
-  return <>{doc.content.map((node, i) => <BlockNode key={i} node={node} />)}</>;
+  return <>{doc.content.map((node, i) => <BlockNode key={i} node={node} embedMap={embedMap} />)}</>;
 }
 
 function InlineNode({ node }: { node: PMNode }) {
@@ -57,7 +59,7 @@ function InlineNode({ node }: { node: PMNode }) {
   return null;
 }
 
-function BlockNode({ node }: { node: PMNode }) {
+function BlockNode({ node, embedMap }: { node: PMNode; embedMap: Map<string, import("@/plugins/defs.js").EmbedTypeDef> }) {
   const children = Array.isArray(node.content)
     ? node.content.map((n, i) => <InlineNode key={i} node={n} />)
     : null;
@@ -73,13 +75,13 @@ function BlockNode({ node }: { node: PMNode }) {
       return children ? <h4 id={node.attrs?.id as string | undefined}>{children}</h4> : null;
     }
     case "bulletList":
-      return <ul>{node.content?.map((n, i) => <BlockNode key={i} node={n} />)}</ul>;
+      return <ul>{node.content?.map((n, i) => <BlockNode key={i} node={n} embedMap={embedMap} />)}</ul>;
     case "orderedList":
-      return <ol>{node.content?.map((n, i) => <BlockNode key={i} node={n} />)}</ol>;
+      return <ol>{node.content?.map((n, i) => <BlockNode key={i} node={n} embedMap={embedMap} />)}</ol>;
     case "listItem":
       return <li>{children}</li>;
     case "blockquote":
-      return <blockquote>{node.content?.map((n, i) => <BlockNode key={i} node={n} />)}</blockquote>;
+      return <blockquote>{node.content?.map((n, i) => <BlockNode key={i} node={n} embedMap={embedMap} />)}</blockquote>;
     case "codeBlock": {
       const lang = (node.attrs as Record<string, unknown> | null)?.language as string | undefined;
       const code = (node.content as Array<{ text?: string }> | undefined)?.map((n) => n.text ?? "").join("\n") ?? "";
@@ -91,8 +93,15 @@ function BlockNode({ node }: { node: PMNode }) {
       const source = (node.content as Array<{ text?: string }> | undefined)?.map((n) => n.text ?? "").join("\n") ?? "";
       return <MermaidRenderer source={source} />;
     }
-    default:
+    default: {
+      // Plugin-provided embed types (§4.4 registerEmbedType) render through
+      // their own read-only renderer. Unknown atom nodes (e.g. a node whose
+      // plugin was disabled after save) fall through to the inert default —
+      // never a throw, so a page with a disabled plugin's node still opens.
+      const embed = embedMap.get(node.type);
+      if (embed?.renderReadOnly) return <>{embed.renderReadOnly(node.attrs ?? {})}</>;
       return children ? <div>{children}</div> : null;
+    }
   }
 }
 

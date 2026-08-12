@@ -9,7 +9,7 @@ import type { FastifyInstance } from "fastify";
 
 import { getDb } from "../db/index.js";
 import { plugins, auditLog } from "../db/schema.js";
-import type { PluginInfo } from "../../shared/pluginTypes.js";
+import type { PluginInfo, PluginCapabilities } from "../../shared/pluginTypes.js";
 
 // ---------------------------------------------------------------------------
 // Plugin root — mirrors file.service.ts's 3-hop resolution.
@@ -274,6 +274,10 @@ export async function setPluginEnabled(pluginId: string, enabled: boolean, actor
     targetId: pluginId,
   });
 
+  // No route registration here: Fastify cannot add routes after boot, so every
+  // installed serverRoutes plugin is registered at boot behind a per-request
+  // enabled-guard (registerPluginServerRoutes). Flipping `enabled` is what makes
+  // the guard pass or fail — no restart needed for enable/disable.
   const [row] = await db.select().from(plugins).where(eq(plugins.id, pluginId));
   return toPluginInfo(row!);
 }
@@ -295,31 +299,66 @@ export async function uninstallPlugin(pluginId: string, actorUserId: string): Pr
 }
 
 /**
- * Loads and registers server-side routes for every enabled plugin that declares
- * serverRoutes. Called once during boot (after fastify is built). Fires
- * dynamic imports — plugins whose server/index.js fail to load are caught and
- * logged; a misbehaving plugin never crashes the whole instance.
+ * Loads and registers server-side routes for every INSTALLED plugin that
+ * declares serverRoutes — enabled or disabled — each behind a per-request
+ * guard that 404s while the plugin row is missing or disabled. Called once
+ * during boot (after fastify is built).
+ *
+ * Registration is boot-only by necessity: Fastify refuses to add routes after
+ * `ready()`, so a plugin whose zip is uploaded while the instance is running
+ * cannot get server routes until the next restart (its client capabilities
+ * still come live immediately). Loading a disabled plugin's module at boot is
+ * safe — the guard never lets a request through — and it means enable/disable
+ * toggles take effect instantly on already-registered routes. The guard also
+ * makes uninstall effective: the row disappears → 404.
+ *
+ * A misbehaving plugin (bad module, route without config.access — the §4.5
+ * fail-closed boot check) is caught and logged; it never crashes the instance.
  */
 export async function registerPluginServerRoutes(app: FastifyInstance): Promise<void> {
-  const enabled = await getEnabledPlugins();
-  for (const plugin of enabled) {
-    if (!plugin.capabilities.serverRoutes) continue;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-      const mod: { default: Parameters<FastifyInstance["register"]>[0] } = await import(
-        /* @vite-ignore */`${getPluginDir(plugin.id)}/server/index.js`
-      );
-      if (!mod || typeof mod.default !== "function") {
-        // eslint-disable-next-line no-console
-        console.warn(`[plugins] "${plugin.id}" server/index.js must default-export a Fastify plugin function`);
-        continue;
-      }
-      await app.register(mod.default, { prefix: `/api/plugins/${plugin.id}` });
-      // eslint-disable-next-line no-console
-      console.log(`[plugins] Loaded server routes for "${plugin.id}"`);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error(`[plugins] Failed to load server routes for "${plugin.id}":`, err);
-    }
+  const installed = await listPlugins({ disabledToo: true });
+  for (const plugin of installed) {
+    if (plugin.capabilities.serverRoutes) await registerPluginServerRoutesIfNeeded(app, plugin);
   }
 }
+
+/**
+ * Register a single plugin's server module under /api/plugins/<id> behind the
+ * enabled-guard. Idempotent per plugin id per process.
+ */
+async function registerPluginServerRoutesIfNeeded(app: FastifyInstance, plugin: { id: string; capabilities: PluginCapabilities }): Promise<void> {
+  if (_registeredServerPlugins.has(plugin.id)) return;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+    const mod: { default: Parameters<FastifyInstance["register"]>[0] } = await import(
+      /* @vite-ignore */`${getPluginDir(plugin.id)}/server/index.js`
+    );
+    if (!mod || typeof mod.default !== "function") {
+      // eslint-disable-next-line no-console
+      console.warn(`[plugins] "${plugin.id}" server/index.js must default-export a Fastify plugin function`);
+      return;
+    }
+    // Register in a child scope with an onRequest guard: the routes only answer
+    // while the plugin row exists AND is enabled.
+    await app.register(async (child) => {
+      child.addHook("onRequest", async (_request, reply) => {
+        const { db } = getDb();
+        const [row] = await db
+          .select({ enabled: plugins.enabled })
+          .from(plugins)
+          .where(eq(plugins.id, plugin.id));
+        if (!row || !row.enabled) return reply.code(404).send({ error: "Plugin not found" });
+      });
+      await child.register(mod.default, { prefix: `/api/plugins/${plugin.id}` });
+    });
+    _registeredServerPlugins.add(plugin.id);
+    // eslint-disable-next-line no-console
+    console.log(`[plugins] Loaded server routes for "${plugin.id}"`);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[plugins] Failed to load server routes for "${plugin.id}":`, err);
+  }
+}
+
+/** Plugin server modules this process has already registered (see above). */
+const _registeredServerPlugins = new Set<string>();

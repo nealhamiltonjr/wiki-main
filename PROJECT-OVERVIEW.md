@@ -7,7 +7,52 @@ USER_CONTEXT: Continue building wiki-app-v2 following WIKI-REDESIGN-BRIEF-V2.md 
 - **slice-10 (Git flush pipeline):** completed.
 - **slice-11 (Collab via Hocuspocus):** completed — root-cause bug fixed, all gate tests green, full manual lifecycle verified.
 - **slice-12 (Plugin engine):** completed — code + E2E gate green (10/10 e2e parallel, 176/176 unit/integration).
-- **slice-13+ (First-party plugins, settings, theming, users/groups, regression):** not started.
+- **slice-13 (First-party plugins — web clipper & Draw.io embed):** completed — code + gate green (12/12 e2e parallel, 195/195 unit/integration), incl. a real slash-menu bug fix. See SLICE-13 section.
+- **slice-14+ (Settings, theming, users/groups, regression):** not started.
+
+## Slice-13 — first-party plugins
+
+### Gate status
+
+- `npx vitest run` → 22 files, **195/195 passed** (was 189; +6 new slash-menu unit tests).
+- `npx playwright test` → **12/12 passed in parallel**, stable across consecutive clean runs (verified twice + repeat-each for the new spec).
+
+### What was built
+
+1. **Boot-time server-route registration** (`registerAllPluginServerRoutes` in
+   `plugin.service.ts`): Fastify forbids adding routes after `ready()`
+   (`AVV_ERR_ROOT_PLG_BOOTED`), so every installed plugin's `serverRoutes` are
+   registered at boot behind an onRequest `enabled` guard (no mid-run registration).
+   Server plugins must use the Fastify callback signature `(fastify, opts, done)`.
+2. **Web-clipper plugin** (`test-fixtures/web-clipper-plugin/`): serverRoute
+   `POST /api/web-clipper/fetch` fetches a URL server-side and returns
+   title/excerpt; slash command inserts a `webCitation` node (link + blockquote).
+3. **Draw.io embed plugin** (`test-fixtures/drawio-embed-plugin/`): `embedTypes`
+   capability — new `drawioEmbed` node + `renderReadOnly` used by `ReadOnlyContent`
+   via `useEmbedTypeMap()`; slash command inserts the embed.
+4. **seed-e2e.ts** pre-installs + enables both plugins so their server routes are
+   live before e2e boots; `playwright.config.ts` adds `--allow-net` for the
+   clipper's localhost fetch.
+5. **Real bug fixed in SlashMenu.tsx:** when an ATOM node sits at the insertion
+   point (a draw.io embed at doc position 0), ProseMirror inserts "/" after the
+   atom, so the old `range.from` captured at type-time made the query include the
+   leading "/" — the menu filtered to nothing and execute() would mis-delete.
+   `computeSlashQuery` now recomputes query + range from the caret's text block on
+   every doc change (menu only opens at line start / after whitespace, so block
+   text is `<slash><query>`). Verified: the /web slash now resolves next to a
+   leading draw.io node; unit-tested in `slashMenu.test.ts`.
+6. **Test hardening:** plugins.spec hello-world slash test clicks its command
+   button instead of Enter (Enter runs the FIRST filtered command; slice-13 seeds
+   web-clipper/drawio before hello-world is uploaded). firstparty assertions use
+   `.first()` so repeat runs that accumulate content on the seeded cli page don't
+   trip strict-mode violations.
+
+### Known repeat-mode caveat (pre-existing, not blocking)
+
+`npx playwright test --repeat-each=2` reuses ONE seeded server, so stateful specs
+fail on the second pass: `plugins.spec.ts:26` (hello-world already enabled) and
+`slice9.spec.ts:63` (notification already read). Both pass on every fresh seed;
+the firstparty spec is repeat-stable.
 
 ## Slice-12 — plugin engine
 

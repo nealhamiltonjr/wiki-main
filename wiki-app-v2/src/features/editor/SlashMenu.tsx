@@ -34,6 +34,30 @@ const slashKey = new PluginKey<SlashState>("slashMenu");
 
 const SLASH_MAX_ITEMS = 64;
 
+/**
+ * Recompute the slash query and the text range it covers from the CURRENT
+ * document. Deriving both from the caret's text block (rather than a position
+ * captured when "/" was typed) is what keeps the menu correct when an ATOM
+ * node sits at the insertion point: ProseMirror then inserts the "/" after the
+ * atom (e.g. a draw.io embed at doc position 0), so a pre-computed
+ * `range.from` would include the "/" in the query and mis-delete on execute.
+ *
+ * The menu only opens at line start / after whitespace, so the text between the
+ * last space boundary and the caret is exactly "<slash><query>".
+ */
+export function computeSlashQuery(tr: { doc: { resolve: (pos: number) => { parent: { textContent: string }; parentOffset: number } }; selection: { from: number } }) {
+  const to = tr.selection.from;
+  const $to = tr.doc.resolve(to);
+  const textBefore = $to.parent.textContent.slice(0, $to.parentOffset);
+  const lastSpace = Math.max(textBefore.lastIndexOf(" "), textBefore.lastIndexOf("\n"));
+  const queryText = textBefore.slice(lastSpace + 1);
+  const query = queryText.startsWith("/") ? queryText.slice(1) : queryText;
+  // The "/" in the doc sits `queryText.length` chars before the caret (plain
+  // text between the boundary and the caret maps linearly to positions).
+  const from = to - queryText.length;
+  return { query, range: { from: from + 1, to } } satisfies Pick<SlashState, "query" | "range">;
+}
+
 export const SlashMenuExtension = Extension.create({
   name: "slashMenu",
 
@@ -55,10 +79,7 @@ export const SlashMenuExtension = Extension.create({
           }
           // While open, live-track the query as the user types/deletes.
           if (prev.open && tr.docChanged) {
-            const from = prev.range.from;
-            const to = tr.selection.from;
-            const query = to > from ? tr.doc.textBetween(from, to, " ") : "";
-            return { ...prev, query };
+            return { ...prev, ...computeSlashQuery(tr) };
           }
           return prev;
         },

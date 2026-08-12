@@ -1,0 +1,17 @@
+{
+  "id": "web-clipper",
+  "name": "Web Clipper",
+  "version": "1.0.0",
+  "capabilities": {
+    "tiptapExtensions": false,
+    "slashCommands": true,
+    "toolbarItems": false,
+    "settingsPanel": false,
+    "embedTypes": false,
+    "serverRoutes": true
+  },
+  "contentModel": {
+    "nodes": [],
+    "marks": []
+  }
+}
