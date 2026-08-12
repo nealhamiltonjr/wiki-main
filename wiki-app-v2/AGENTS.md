@@ -77,6 +77,46 @@
 - Queue behavior is covered in `queue.integration.test.ts` (retry/backoff/batch/
   reclaim); markdown round-trip in `markdown-roundtrip.test.ts`.
 
+## Slice-12 / plugin engine
+
+- Plugin zips live in `data/plugins/<id>/` (`PLUGIN_ROOT`); install extracts to a
+  `.tmp-*` dir, validates the manifest (id/name/version/capabilities/contentModel),
+  then `rename()`s it into place. `rename` can throw EXDEV across devices → the
+  fallback is `cp -r` + `rm -r`. Never `rm(tmpDir, { force: true })` without
+  `recursive: true` — EISDIR, and it made every upload 500.
+- The manifest's `contentModel.nodes` is the source of truth the server uses
+  (`getEnabledPluginNodeTypes()`) for `validateContent`; a plugin that registers a
+  Tiptap node MUST declare it in the manifest or saves of that node get rejected.
+- Client registry (`src/plugins/registry.ts`) is a module singleton; `loadPlugins()`
+  in `_authenticated.tsx` gates the whole authenticated layout on a
+  `useSyncExternalStore` snapshot. `SlashMenu` is a rewritten state machine
+  (keyboard nav + Enter/Escape), not a CSS-hover popover.
+- E2E plugin fixture: `test-fixtures/hello-world-plugin/` (dir) + `.zip`. Rebuild the
+  zip with `python3 -m zipfile`-style after editing the dir (paths must be
+  `plugin.json`, `client/index.js`, `server/index.js` at zip root).
+
+## E2E infrastructure traps (learned passing the slice-12 gate)
+
+- **Stale dev servers defeat the reseed.** `playwright.config.ts` uses
+  `reuseExistingServer: !CI`; a leftover `vite`/`tsx src/server/index.ts` from a
+  previous session is reused without the DB wipe + seed (and without the e2e
+  env vars). Kill them before running e2e.
+- **better-auth rate-limits ALL auth paths, not just sign-in.** The default global
+  bucket (20/60s) applies to `/get-session`, `/sign-out`, etc. Page loads across the
+  suite burn it and logins start 429ing mid-suite (looks like "stuck on login page").
+  The e2e webServer sets `BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES` (sign-in/sign-up) AND
+  `BETTER_AUTH_RATE_LIMIT_WINDOW=3600 BETTER_AUTH_RATE_LIMIT_MAX=10000`.
+- **Do not assert on transient reload states.** The plugin admin page shows
+  "Installed! Reloading…" and calls `window.location.reload()` immediately; the text
+  often never renders. Wait for the post-reload table instead.
+- **`/` only opens the slash menu at line start / after whitespace.** After earlier
+  specs have typed into a page, clicking the editor center lands mid-text; press
+  `Control+Home` first (or use a page no other spec edits).
+- **Parallel workers share the welcome page's collab doc.** `editor.spec` /
+  `slice9.spec` edit "welcome" concurrently, and their collab round-trips re-render
+  the editor mid-interaction (eats keystrokes/Enter). Any spec that needs a quiet
+  editor should use the seeded "notes" page.
+
 ## Known limitations (accepted, not blocking)
 
 - **Deleted pages leave a stale file in the git tree.** `deletePageEverywhere`
