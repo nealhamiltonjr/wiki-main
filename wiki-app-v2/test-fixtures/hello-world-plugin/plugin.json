@@ -11,7 +11,7 @@
     "serverRoutes": true
   },
   "contentModel": {
-    "nodes": [],
+    "nodes": ["helloWorld"],
     "marks": []
   }
 }

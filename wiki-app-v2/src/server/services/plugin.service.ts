@@ -219,7 +219,6 @@ export async function installPluginFromZip(zipBuffer: Buffer, actorUserId: strin
     // Rename into final place (atomic on most filesystems)
     await rm(destDir, { recursive: true, force: true });
     await mkdir(path.dirname(destDir), { recursive: true });
-    await rm(tmpDir, { force: true }); // if dest is already the tmp (shouldn't happen)
     // rename can fail across devices; use copy+remove fallback:
     try {
       // node:fs/promises

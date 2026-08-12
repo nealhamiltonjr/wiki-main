@@ -32,11 +32,18 @@ export default defineConfig({
     {
       command:
         'rm -f data/e2e.db data/e2e.db-wal data/e2e.db-shm && ' +
+        // Fresh plugin state too — the slice-12 gate uploads hello-world through
+        // the real UI, and a stale data/plugins dir would linger across runs.
+        'rm -rf data/plugins && ' +
         'DB_PATH=data/e2e.db BETTER_AUTH_SECRET=e2e-secret-0123456789abcdef0123456789abcdef npx tsx scripts/seed-e2e.ts && ' +
         'DB_PATH=data/e2e.db BETTER_AUTH_SECRET=e2e-secret-0123456789abcdef0123456789abcdef BETTER_AUTH_URL=http://localhost:3000 PORT=3000 ' +
-        // Parallel e2e workers sign in repeatedly; disable auth rate limiting so
-        // the limiter never rejects a worker mid-suite.
-        'BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES=\'{"/sign-in/*":false,"/sign-up/*":false}\' npx tsx src/server/index.ts',
+        // Parallel e2e workers sign in repeatedly AND every page load fires a
+        // session check; better-auth's global bucket (20/60s by default) also
+        // applies to /get-session, /sign-out, etc. — not just /sign-in. Disable
+        // the two hot paths AND give the global bucket a huge window so the
+        // limiter never rejects a worker mid-suite.
+        'BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES=\'{"/sign-in/*":false,"/sign-up/*":false}\' ' +
+        'BETTER_AUTH_RATE_LIMIT_WINDOW=3600 BETTER_AUTH_RATE_LIMIT_MAX=10000 npx tsx src/server/index.ts',
       url: "http://localhost:3000/api/health",
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,

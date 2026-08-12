@@ -5,6 +5,7 @@ import { useSession } from "@/api/authClient";
 import { Tree } from "@/features/tree/Tree";
 import { NotificationBell } from "@/features/notifications/NotificationBell";
 import { loadPlugins } from "@/plugins/loader";
+import { usePluginsLoaded } from "@/plugins/registry";
 
 // Pathless authenticated layout: the single chrome shell (sidebar + topbar)
 // that wraps every page a signed-in user can reach. The session gate redirects
@@ -17,6 +18,13 @@ export const Route = createFileRoute("/_authenticated")({
 function AuthenticatedLayout() {
   const { data: session, isPending } = useSession();
   const navigate = useNavigate();
+  const pluginsLoaded = usePluginsLoaded();
+
+  // Hooks must run unconditionally — this fires once the session resolves so
+  // the plugin list fetch carries the auth cookie. loadPlugins is idempotent.
+  useEffect(() => {
+    if (session) void loadPlugins();
+  }, [session]);
 
   if (isPending) {
     return <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">Loading…</div>;
@@ -27,9 +35,12 @@ function AuthenticatedLayout() {
     return null;
   }
 
-  // Load plugin bundles once the session is available. Must be after the
-  // session guard so the fetch cookie (auth token) is present. Idempotent.
-  useEffect(() => { void loadPlugins(); }, []);
+  // Wait for plugin bundles to register BEFORE the first editor can mount —
+  // the editor builds its Tiptap schema once, so a late plugin node/command
+  // would never make it into the schema. loadPlugins resolves even on failure.
+  if (!pluginsLoaded) {
+    return <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">Loading…</div>;
+  }
 
   return (
     <div className="flex h-screen overflow-hidden">

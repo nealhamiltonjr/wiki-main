@@ -34,6 +34,9 @@ export async function seedE2E(): Promise<void> {
     name: E2E_USER.name,
     email: E2E_USER.email,
     emailVerified: true,
+    // Global admin — the e2e suite exercises admin surfaces (plugin upload in
+    // the slice-12 gate, settings IA in slice-14) under this one identity.
+    isAdmin: true,
   });
   // better-auth stores the credential password on the account row, not the user
   // row (providerId "credential", accountId = userId) - sign-in verifies there.

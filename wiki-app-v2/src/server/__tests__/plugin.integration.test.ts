@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
-import { rmSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
@@ -55,6 +55,16 @@ describe("plugin engine (slice-12) integration", () => {
       adminCookie = extractCookie(signupRes.headers["set-cookie"]);
       expect(adminCookie).toBeTruthy();
     }
+
+    // The plugin upload routes are global-admin-only (config.access: "admin"),
+    // and signup can never create a global admin (isAdmin is input:false on the
+    // public auth API). Promote the test user directly in the DB — the access
+    // middleware reads isAdmin fresh per request, so the existing session picks
+    // it up immediately.
+    const { getDb } = await import("../db/index.js");
+    const { users } = await import("../db/schema.js");
+    const { eq } = await import("drizzle-orm");
+    await getDb().db.update(users).set({ isAdmin: true }).where(eq(users.email, "admin@test.invalid"));
   });
 
   afterAll(async () => {
@@ -86,6 +96,60 @@ describe("plugin engine (slice-12) integration", () => {
     // No multipart boundary → fastify-multipart returns 415 as the body
     // can't be parsed as multipart.
     expect(res.statusCode).toBe(415);
+  });
+
+  it("installs the hello-world fixture zip end-to-end", async () => {
+    const zipPath = path.resolve(__dirname, "../../../test-fixtures/hello-world-plugin.zip");
+    const zipData = readFileSync(zipPath);
+    const boundary = `----test-${randomBytes(4).toString("hex")}`;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/plugins",
+      headers: { cookie: adminCookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="hello-world-plugin.zip"\r\nContent-Type: application/zip\r\n\r\n`),
+        zipData,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]),
+    });
+
+    expect(res.statusCode).toBe(201);
+    const info = JSON.parse(res.payload) as {
+      id: string; name: string; version: string; enabled: boolean; nodeTypes: string[];
+    };
+    expect(info.id).toBe("hello-world");
+    expect(info.name).toBe("Hello World Plugin");
+    expect(info.version).toBe("1.0.0");
+    expect(info.enabled).toBe(false);
+    // The manifest's content model drives what validateContent accepts.
+    expect(info.nodeTypes).toContain("helloWorld");
+
+    // The zip's files must be on disk at the expected locations.
+    const pluginDir = path.resolve(__dirname, "../../../data/plugins/hello-world");
+    expect(readFileSync(path.join(pluginDir, "plugin.json"), "utf-8")).toContain('"hello-world"');
+    expect(readFileSync(path.join(pluginDir, "client/index.js"), "utf-8")).toContain("HelloWorldNode");
+    expect(readFileSync(path.join(pluginDir, "server/index.js"), "utf-8")).toContain("helloWorldPlugin");
+  });
+
+  it("rejects a second install of the same plugin id", async () => {
+    const zipPath = path.resolve(__dirname, "../../../test-fixtures/hello-world-plugin.zip");
+    const zipData = readFileSync(zipPath);
+    const boundary = `----test-${randomBytes(4).toString("hex")}`;
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/plugins",
+      headers: { cookie: adminCookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="hello-world-plugin.zip"\r\nContent-Type: application/zip\r\n\r\n`),
+        zipData,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]),
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.payload).toContain("already installed");
   });
 
   it("content validation accepts plugin node types via extra options", async () => {

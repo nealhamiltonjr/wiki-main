@@ -25,6 +25,10 @@ export default defineConfig({
       // (§8 step 11) reaches Fastify through the same proxy as the REST API.
       "/api": { target: "http://localhost:3000", changeOrigin: true, ws: true },
       "/ws": { target: "ws://localhost:3000", ws: true },
+      // Plugin client bundles are served by Fastify from data/plugins (slice-12).
+      // The loader's dynamic import() of `/plugins/<id>/client/index.js` must
+      // reach the API server in dev — Vite has no file there.
+      "/plugins": { target: "http://localhost:3000", changeOrigin: true },
     },
   },
 });
