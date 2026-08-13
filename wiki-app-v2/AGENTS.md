@@ -685,3 +685,93 @@ the alias row stays in the table forever.
 - Bulk-prune aliases via a single admin action ("delete all `reason:
   missing` aliases" — a one-button cleanup for the common case).
 - A "broken wikilinks" category once the wikilink node ships.
+
+## Slice-23 — real diff view between commits (§12.3)
+
+### Why this slice exists
+
+> "Once a page has accumulated any history, an authoritative 'show me
+> what changed between any two revisions' diff view (paragraph-by-
+> paragraph or line-by-line if the page is a single text block) lets
+> you recover the answer to 'why did this paragraph get rewritten
+> last week'."  (brief §12.3)
+
+The git-flush pipeline already keeps every page's Markdown in the
+content repo with `<space-slug>/<page-slug>.md` plus YAML frontmatter
+holding the title and updatedAt. Slice-23 adds a way to read TWO of
+those revisions back out and produce a line-level unified diff between
+them, returning the data the front-end slideover will render.
+
+### What changed
+
+- `src/server/services/diff.service.ts` (new): `diffRevisions(pageId,
+  fromHash, toHash)` reads both revisions via the existing
+  `getFileContentAtCommit` (which already handles the "snapshot vs
+  autosave" distinction in `git.service.ts:120`), strips YAML
+  frontmatter, computes a hand-rolled LCS-based line diff, and returns
+  `{ titleChanged, fromTitle, toTitle, lines[], summary }`.
+- `src/server/routes/page.routes.ts`: `GET
+  /api/pages/:pageId/branches/:branchId/diff?from=<sha>&to=<sha>`,
+  viewer-gated — same gate as the history route it sits next to.
+  Returns 404 when either hash can't be resolved.
+- `src/server/services/__tests__/diff.test.ts` (new): 8 unit tests
+  for `splitFrontmatter`, `stripFrontmatter`, and `computeLineDiff`.
+- `src/server/__tests__/diff.integration.test.ts` (new): 8
+  integration tests through the real Fastify app:
+  - diff a revision against itself → 0 lines of change
+  - diff commits that round-trip to identical file content → 0
+    lines of change
+  - added / removed line detection (real route, real git plumbing)
+  - `titleChanged` signal derived from frontmatter, independent of
+    body diff
+  - `fromLine` / `toLine` are populated correctly for context vs
+    added
+  - 404 on a non-existent target hash
+  - 403 for a non-member querying a private page's diff
+
+### Design notes
+
+- **Line-level, not paragraph-level.** The Tiptap doc serialises to
+  Markdown with one paragraph per block and `\n\n` between them —
+  paragraph-level alignment would need a separate block-id mapping
+  from `markdownToTiptap`, which the export side doesn't currently
+  preserve (Slice-23 deliberately doesn't add that plumbing in this
+  pass). Line-level LCS on the Markdown body is simple, dependency-
+  free, and reads naturally — Markdown is line-oriented.
+- **Hand-rolled LCS, no `diff` dependency.** `diff` is in the
+  lockfile transitively (via vitest), but relying on a transitive
+  isn't safe across vitest bumps. The LCS is ~30 lines and
+  O(N*M) memory — fine for page-sized files (a personal-wiki page
+  rarely exceeds a few hundred lines).
+- **Frontmatter is bookkeeping.** The body is what changed in the
+  meaningful sense; the YAML wrapper is bookkeeping. Title changes
+  are surfaced separately via `titleChanged` / `fromTitle` /
+  `toTitle` so the UI can call them out without crowding the line
+  diff. The body diff itself strips frontmatter before splitting
+  into lines.
+- **History is newest-first.** `getPageHistory` returns commits in
+  reverse-chronological order (the git log default), so the
+  chronologically-OLDEST hash lives at the tail. Test helpers use
+  `pickFirstLast(history)` to pick a sensible pair without re-doing
+  the ordering logic per test.
+- **Empty diff ≠ bug.** A save that produces no file change is a
+  no-op in the git-flush pipeline (see `git.service.ts:80`), so the
+  history may have gaps. Tests that need ≥2 distinct commits either
+  save twice with different content or save a third time to "reset"
+  to an earlier value.
+- **`getFileContentAtCommit` already does the heavy lifting.** It
+  resolves the right file path for a commit given that the page may
+  have been renamed (`diff-tree` reports the actual file the commit
+  modified, and the snapshot/autosave branch is selected based on
+  `page:<id>:` message format). Slice-23 just consumes it.
+
+### Follow-ups left for later
+
+- A front-end slideover with two dropdowns and a unified-diff
+  rendering (CSS `bg-red-100` for removed, `bg-green-100` for
+  added).
+- Optional "Show changes since I last viewed" — store a per-user
+  pointer to last-viewed commit and offer it as a default
+  comparison.
+- A wikilink node (§13.1) that would let us rebuild the diff at
+  the Tiptap block level instead of the Markdown line level.

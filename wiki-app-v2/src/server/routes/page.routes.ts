@@ -15,6 +15,7 @@ import {
   renamePage,
 } from "../services/page.service.js";
 import { getBranchChain, resolveSpaceRole, canViewPage } from "../services/branch.service.js";
+import { diffRevisions } from "../services/diff.service.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
 import { getPageBacklinks } from "../services/backlink.service.js";
@@ -341,6 +342,30 @@ export async function pageRoutes(app: FastifyInstance) {
       } catch (err) {
         request.log.warn({ err, pageId }, "Git history unavailable (repo not initialized?)");
         return reply.send([]);
+      }
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  // Revision diff (brief §12.3). Given two commits, returns a line-level
+  // unified diff of the page body, plus a title-diff signal derived from
+  // the YAML frontmatter. Read-only, viewer-gated (same gate as history).
+  // -------------------------------------------------------------------------
+  app.get(
+    "/api/pages/:pageId/branches/:branchId/diff",
+    { config: { access: { branchParam: "branchId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const { pageId, branchId } = request.params as { pageId: string; branchId: string };
+      const q = z.object({ from: z.string().min(7), to: z.string().min(7) }).parse(request.query);
+      const row = await getPageByBranchId(branchId);
+      if (!row || row.page.id !== pageId || row.page.deletedAt) {
+        return reply.code(404).send({ error: "Page not found" });
+      }
+      try {
+        return reply.send(await diffRevisions(pageId, q.from, q.to));
+      } catch (err) {
+        request.log.warn({ err, pageId, from: q.from, to: q.to }, "Revision diff failed");
+        return reply.code(404).send({ error: "Revision not found" });
       }
     }
   );
