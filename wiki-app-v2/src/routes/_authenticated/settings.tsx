@@ -7,12 +7,36 @@ export const Route = createFileRoute("/_authenticated/settings")({
   component: SettingsLayout,
 });
 
-// §7.1 Information architecture — one route with a left-hand sub-navigation.
-// Profile / Appearance / Tokens are every signed-in user's own settings; the
-// rest are admin-only instance management. Direct navigation to an admin
-// section by a non-admin redirects to Profile below (the server also enforces
-// `config.access: "admin"` on every one of those APIs, so this is UX, not the
-// security boundary).
+// §7.2 Audit pass (slice-14 gate). Every settings-shaped surface in the app
+// either lives inside `/settings/*` (this route's ten sub-pages) or is one of
+// the deliberate page-contextual controls below. Nothing to move as of this
+// commit; this comment is the audit receipt and the rule future PRs must not
+// break without updating it.
+//
+//   * Topbar `Settings` link → `/settings/plugins` (E2E gate). The user
+//     reaches every settings sub-page from there on every page.
+//   * Sidebar space selector (`features/tree/Tree.tsx`) — navigation, not
+//     settings. Toggles the visible tree; exposes no role/permission knobs.
+//   * Page chrome (`routes/_authenticated/w/$branchId.tsx`) — Favorite, Edit,
+//     History, Comments. None are settings-shaped.
+//   * HistoryPanel "Save a named snapshot" form — a page-contextual action
+//     that writes a new history entry for the open page. Not a settings form.
+//   * CommentsPanel reply form — page-contextual conversation thread.
+//   * NotificationBell — page-contextual (topbar surface). No preferences or
+//     delivery settings live here; default delivery is email only and is
+//     configured per-user inside `/settings/profile` (added in a later slice).
+//   * Plugin settings panels — rendered inside `/settings/plugins` via
+//     `registerSettingsPanel` (§4.4). A plugin cannot inject its own settings
+//     UI into the page chrome.
+//
+// Deferred page-contextual controls (not yet built, both per §7.1's allowed
+// exceptions, both will deep-link to `/settings/*` for anything beyond the
+// single immediate action they own):
+//   * Page "Share" dialog → token policy around no-expiration grants lives
+//     in `/settings/tokens`; the dialog only owns the per-page share link.
+//   * Branch "Permissions" dialog (right-click on the tree) → group / role
+//     grants for that branch live; broad permission policy lives in
+//     `/settings/groups` and `/settings/spaces`.
 const SECTIONS = [
   { to: "/settings/profile", label: "Profile", adminOnly: false },
   { to: "/settings/appearance", label: "Appearance", adminOnly: false },
