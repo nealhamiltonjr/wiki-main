@@ -605,3 +605,83 @@ this should ship with rename, not after.
 - Visual indicator in the editor when an open page was hit through a
   redirect (e.g., toast "Opened via alias `todo` — current slug is
   `tasks`").
+
+## Slice-22 — maintenance report for orphaned pages + broken redirects (§12.7)
+
+### Why this slice exists
+
+Brief §12.7: "A personal wiki that grows organically over months
+accumulates pages nothing links to anymore, and wikilinks that point
+at a page that got renamed or deleted before §12.2's redirect handling
+existed (or a wikilink typo). A simple admin/maintenance report —
+orphaned pages (no backlinks), broken wikilinks — turns 'the wiki
+slowly rots' into a five-minute occasional cleanup pass."
+
+Worth shipping right after §12.2 because the redirect infrastructure
+it just added is the largest source of "broken wikilinks" the report
+needs to surface — a redirect whose target page is later deleted or
+moved out of a space is the canonical broken-link case, and the
+resolver already returns 404 for it (so the page is invisible) but
+the alias row stays in the table forever.
+
+### What landed
+
+- **`src/server/services/maintenance.service.ts`** (new):
+  - `buildMaintenanceReport(spaceId)` returns
+    `{ generatedAt, orphanedPages, brokenRedirects }`.
+  - `orphanedPages`: every non-system, non-trashed branch in this space
+    whose page is not the target of any backlink, sorted by
+    `updatedAt` desc. The "not the target of any backlink" check
+    joins the `backlinks` table through `branches.targetBranchId` so
+    intra-space references are detected (a reference from a page in
+    another space still counts — backlinks are global).
+  - `brokenRedirects`: `page_redirects` rows in this space whose
+    target page is either `deletedAt !== null` (`reason: "deleted"`)
+    or no longer has a non-system branch in this space (`reason:
+    "missing"`). Stale rows whose `oldSlug` matches the page's
+    current slug are filtered out (the rename-back-to-old-slug case
+    in §12.2).
+  - `deleteAlias(spaceId, oldSlug)` — single-alias prune, the companion
+    mutation to the report.
+- **Routes** (in `space.routes.ts`):
+  - `GET /api/spaces/:spaceId/maintenance` — admin-only (the report
+    leaks page metadata that non-admins shouldn't see).
+  - `DELETE /api/spaces/:spaceId/redirects/:oldSlug` — admin-only.
+- **Tests** — `src/server/__tests__/maintenance.integration.test.ts`,
+  12 cases: empty report, orphan detection, referenced-page is NOT
+  orphan, deleted-target redirect surfacing, missing-target redirect
+  surfacing, healthy redirects are quiet, stale rows filtered out,
+  single-alias DELETE, route-level admin gating (read + delete),
+  `deleteAlias` service direct (true / false).
+
+### Design notes
+
+- **Per-space, not global.** The brief's target user is the operator
+  doing an occasional cleanup pass; a single space stays readable as
+  the wiki grows. A platform-wide admin view can iterate over spaces
+  at the route layer.
+- **Admin-only.** The report's "broken redirects" output includes
+  page titles and slugs of pages the operator might not otherwise be
+  able to read; gating on `spaceAdminGuard` keeps that surface inside
+  the same scope as the existing space settings.
+- **Backlinks are global, not space-scoped.** A page referenced from
+  a sibling space is NOT orphaned here. The brief's "nothing links
+  to them anymore" doesn't say "from this space only", and forcing
+  isolation would surface false positives for any cross-space wiki.
+- **No automatic pruning.** The brief says "occasional cleanup pass" —
+  the operator clicks "delete this alias" or "delete this orphaned
+  page" from the report. Auto-cleanup would be a destructive
+  surprise; the existing Trash/Restore flow already covers removing
+  an orphaned page on intent.
+- **No "broken wikilinks" category yet.** Wikilinks are a Tiptap node
+  that doesn't exist yet (§13.1 will bring typed relations). Until
+  then, "broken wikilinks" reduces to "broken redirects" — which
+  Slice-22 surfaces — and orphans — which Slice-22 surfaces.
+
+### Follow-ups left for later
+
+- A front-end slideover/route that renders the report with one-click
+  "Go to page" / "Delete alias" / "Send to trash" actions.
+- Bulk-prune aliases via a single admin action ("delete all `reason:
+  missing` aliases" — a one-button cleanup for the common case).
+- A "broken wikilinks" category once the wikilink node ships.

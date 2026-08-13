@@ -6,6 +6,7 @@ import { spaces, spaceMembers, spaceGroupPermissions, users, groups } from "../d
 import { listGroups } from "../services/group.service.js";
 import { buildSpaceTree, resolveSpaceRole, getBranchChain } from "../services/branch.service.js";
 import { resolveSlug } from "../services/page.service.js";
+import { buildMaintenanceReport, deleteAlias } from "../services/maintenance.service.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
 
@@ -267,6 +268,38 @@ export async function spaceRoutes(app: FastifyInstance) {
         redirected: resolved.redirected,
         oldSlug: resolved.oldSlug ?? null,
       });
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  // Maintenance report (brief §12.7). A single read-only view per space that
+  // surfaces orphaned pages (no backlinks) and broken redirect aliases. The
+  // brief's audience is the wiki operator doing an occasional cleanup pass;
+  // a per-space view stays readable as the wiki grows. Admin-only because
+  // the report's "broken redirects" output leaks page metadata that
+  // non-admins shouldn't see.
+  // -------------------------------------------------------------------------
+  app.get(
+    "/api/spaces/:spaceId/maintenance",
+    { config: { access: { spaceParam: "spaceId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const blocked = await spaceAdminGuard(request, reply);
+      if (blocked) return blocked;
+      const { spaceId } = request.params as { spaceId: string };
+      return reply.send(await buildMaintenanceReport(spaceId));
+    }
+  );
+
+  app.delete(
+    "/api/spaces/:spaceId/redirects/:oldSlug",
+    { config: { access: { spaceParam: "spaceId", minRole: "viewer" } } },
+    async (request, reply) => {
+      const blocked = await spaceAdminGuard(request, reply);
+      if (blocked) return blocked;
+      const { spaceId, oldSlug } = request.params as { spaceId: string; oldSlug: string };
+      const ok = await deleteAlias(spaceId, oldSlug);
+      if (!ok) return reply.code(404).send({ error: "Alias not found" });
+      return reply.send({ ok: true });
     }
   );
 }
