@@ -83,6 +83,38 @@ export interface NotificationEntry {
   createdAt: string;
 }
 
+export interface PageSearchHit {
+  pageId: string;
+  branchId: string;
+  slug: string;
+  title: string;
+  snippet: string;
+  spaceId: string;
+  spaceName: string;
+}
+
+export interface PageSearchResponse {
+  results: PageSearchHit[];
+  spaces: Array<{ id: string; name: string; pageCount: number }>;
+  count: number;
+}
+
+export interface OwnedRelation {
+  id: string;
+  type: string;
+  position: number;
+  createdAt: string;
+  target: { id: string; title: string; branchId: string | null } | null;
+}
+
+export interface IncomingRelation {
+  id: string;
+  type: string;
+  position: number;
+  createdAt: string;
+  source: { id: string; title: string; branchId: string | null } | null;
+}
+
 export const api = {
   listSpaces: () => request<SpaceSummary[]>("/api/spaces"),
   createSpace: (name: string) => request<{ id: string; name: string }>("/api/spaces", {
@@ -143,4 +175,21 @@ export const api = {
   unreadCount: () => request<{ unread: number }>("/api/notifications/unread-count"),
   markNotificationRead: (id: string) => request<{ ok: true }>(`/api/notifications/${id}/read`, { method: "PUT" }),
   markAllNotificationsRead: () => request<{ ok: true }>("/api/notifications/read-all", { method: "PUT" }),
+  searchPages: (q: string, opts: { spaceId?: string; limit?: number } = {}) => {
+    const params = new URLSearchParams({ q });
+    if (opts.spaceId) params.set("spaceId", opts.spaceId);
+    if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+    return request<PageSearchResponse>(`/api/search?${params.toString()}`);
+  },
+  listOwnedRelations: (pageId: string) =>
+    request<{ owned: OwnedRelation[] }>(`/api/pages/${pageId}/relations`),
+  listIncomingRelations: (pageId: string) =>
+    request<{ incoming: IncomingRelation[] }>(`/api/pages/${pageId}/relations/incoming`),
+  addRelation: (pageId: string, body: { type: string; toPageId: string; position?: number }) =>
+    request<OwnedRelation>(`/api/pages/${pageId}/relations`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  removeRelation: (pageId: string, attributeId: string) =>
+    request<void>(`/api/pages/${pageId}/relations/${attributeId}`, { method: "DELETE" }),
 };

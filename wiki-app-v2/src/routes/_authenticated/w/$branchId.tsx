@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Pencil, Eye, Loader2, MessageSquare, History } from "lucide-react";
+import { Pencil, Eye, Loader2, MessageSquare, History, Link2 } from "lucide-react";
 
 import { api, type PageData } from "@/api/client";
 import { CollabEditor, PageEditor, type PageEditorHandle } from "@/features/editor/Editor";
@@ -12,6 +12,7 @@ import { ReadOnlyContent } from "@/features/editor/ReadOnlyContent";
 import { TableOfContents } from "@/features/editor/TableOfContents";
 import { CommentsPanel } from "@/features/comments/CommentsPanel";
 import { HistoryPanel } from "@/features/history/HistoryPanel";
+import { RelationsPanel } from "@/features/relations/RelationsPanel";
 import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import { useQuery } from "@/lib/useQuery";
 import { cn } from "@/lib/utils";
@@ -31,6 +32,7 @@ function PageView() {
   const [editMode, setEditMode] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showRelations, setShowRelations] = useState(false);
   const [collabOn, setCollabOn] = useState(false);
   // Content/updatedAt the editor has autosaved this session. The read view and
   // any re-entry into edit mode use this instead of the fetch-time snapshot so
@@ -87,6 +89,7 @@ function PageView() {
     setLivePage(null);
     setShowComments(false);
     setShowHistory(false);
+    setShowRelations(false);
     setEditMode(false);
     setCollabOn(false);
   }, [branchId]);
@@ -131,6 +134,8 @@ function PageView() {
         onToggleComments={() => setShowComments((s) => !s)}
         showHistory={showHistory}
         onToggleHistory={() => setShowHistory((s) => !s)}
+        showRelations={showRelations}
+        onToggleRelations={() => setShowRelations((s) => !s)}
         initiallyFavorited={favoriteBranchIds?.has(page.branchId) ?? false}
       />
       <div className="flex min-h-0 flex-1">
@@ -179,6 +184,13 @@ function PageView() {
             onRestored={handleReload}
           />
         )}
+        {showRelations && (
+          <RelationsPanel
+            key={page.id}
+            pageId={page.id}
+            canEdit={page.access === "editor" || page.access === "admin"}
+          />
+        )}
       </div>
     </div>
   );
@@ -193,6 +205,8 @@ function PageHeader({
   onToggleComments,
   showHistory,
   onToggleHistory,
+  showRelations,
+  onToggleRelations,
   initiallyFavorited,
 }: {
   page: PageData;
@@ -203,6 +217,8 @@ function PageHeader({
   onToggleComments: () => void;
   showHistory: boolean;
   onToggleHistory: () => void;
+  showRelations: boolean;
+  onToggleRelations: () => void;
   initiallyFavorited: boolean;
 }) {
   return (
@@ -244,6 +260,19 @@ function PageHeader({
           data-testid="comments-toggle"
         >
           <MessageSquare className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onToggleRelations}
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-md border border-border transition-colors",
+            showRelations ? "bg-accent text-primary" : "text-text-secondary hover:bg-surface-hover"
+          )}
+          aria-label={showRelations ? "Hide relations" : "Show relations"}
+          aria-pressed={showRelations}
+          data-testid="relations-toggle"
+        >
+          <Link2 className="h-4 w-4" />
         </button>
         {page.access === "editor" || page.access === "admin" ? (
           <button

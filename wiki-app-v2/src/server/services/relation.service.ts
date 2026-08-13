@@ -36,7 +36,14 @@ export interface OwnedRelation {
   type: string;
   position: number;
   createdAt: Date;
-  target: { id: string; title: string } | null;
+  /**
+   * Target page reference. `branchId` is set when at least one readable
+   * branch of the target page was found; null means the caller can't
+   * navigate to it (typically because the target is in a space they
+   * don't have access to — the relation is filtered out entirely in
+   * that case, so this should always be set when present).
+   */
+  target: { id: string; title: string; branchId: string | null } | null;
 }
 
 export interface IncomingRelation {
@@ -44,7 +51,7 @@ export interface IncomingRelation {
   type: string;
   position: number;
   createdAt: Date;
-  source: { id: string; title: string } | null;
+  source: { id: string; title: string; branchId: string | null } | null;
 }
 
 export interface CreateRelationInput {
@@ -228,7 +235,7 @@ export async function addRelation(input: CreateRelationInput, caller: UserContex
     type: row.name,
     position: row.position,
     createdAt: row.createdAt,
-    target: { id: input.toPageId, title: "" }, // title filled in by listOwnedRelations on read
+    target: { id: input.toPageId, title: "", branchId: null }, // filled in by listOwnedRelations on read
   };
 }
 
@@ -252,7 +259,8 @@ export async function removeRelation(attributeId: string, caller: UserContext): 
 
 /** List relations declared by `pageId` (i.e. this page points outward).
  *  Targets the caller cannot read are omitted entirely — per the brief's
- *  no-existence-leak rule. */
+ *  no-existence-leak rule. Each visible target carries `branchId` so the
+ *  UI can navigate to it. */
 export async function listOwnedRelations(pageId: string, caller: UserContext): Promise<OwnedRelation[]> {
   const { db } = getDb();
   const rows = await db
@@ -274,36 +282,32 @@ export async function listOwnedRelations(pageId: string, caller: UserContext): P
 
   if (rows.length === 0) return [];
 
-  // Resolve target page titles; drop those the caller can't read.
+  // Resolve target page titles + a branchId the caller can navigate to;
+  // drop those the caller can't read.
   const targetIds = [...new Set(rows.map((r) => r.targetId).filter((x): x is string => !!x))];
-  const accessible = await filterReadablePageIds(targetIds, caller);
-
-  // Fetch titles only for accessible targets (single round trip).
-  const accessibleList = [...accessible];
-  const titles = accessibleList.length
-    ? new Map(
-        (
-          await db
-            .select({ id: pages.id, title: pages.title })
-            .from(pages)
-            .where(inArray(pages.id, accessibleList))
-        ).map((r) => [r.id, r.title]),
-      )
-    : new Map<string, string>();
+  const { pageInfo, accessible } = await loadReadablePageInfo(targetIds, caller);
 
   return rows
     .filter((r) => r.targetId !== null && accessible.has(r.targetId))
-    .map((r) => ({
-      id: r.id,
-      type: r.name,
-      position: r.position,
-      createdAt: r.createdAt,
-      target: { id: r.targetId as string, title: titles.get(r.targetId as string) ?? "" },
-    }));
+    .map((r) => {
+      const info = pageInfo.get(r.targetId as string);
+      return {
+        id: r.id,
+        type: r.name,
+        position: r.position,
+        createdAt: r.createdAt,
+        target: {
+          id: r.targetId as string,
+          title: info?.title ?? "",
+          branchId: info?.branchId ?? null,
+        },
+      };
+    });
 }
 
 /** List relations pointing at `pageId` from other pages. Sources the
- *  caller cannot read are omitted — no source-existence leak. */
+ *  caller cannot read are omitted — no source-existence leak. Each visible
+ *  source carries `branchId` so the UI can navigate to it. */
 export async function listIncomingRelations(pageId: string, caller: UserContext): Promise<IncomingRelation[]> {
   const { db } = getDb();
   const rows = await db
@@ -321,27 +325,24 @@ export async function listIncomingRelations(pageId: string, caller: UserContext)
   if (rows.length === 0) return [];
 
   const sourceIds = [...new Set(rows.map((r) => r.sourceId))];
-  const accessible = await filterReadablePageIds(sourceIds, caller);
-  const titles = accessible.size
-    ? new Map(
-        (
-          await db
-            .select({ id: pages.id, title: pages.title })
-            .from(pages)
-            .where(inArray(pages.id, [...accessible]))
-        ).map((r) => [r.id, r.title]),
-      )
-    : new Map<string, string>();
+  const { pageInfo, accessible } = await loadReadablePageInfo(sourceIds, caller);
 
   return rows
     .filter((r) => accessible.has(r.sourceId))
-    .map((r) => ({
-      id: r.id,
-      type: r.name,
-      position: r.position,
-      createdAt: r.createdAt,
-      source: { id: r.sourceId, title: titles.get(r.sourceId) ?? "" },
-    }));
+    .map((r) => {
+      const info = pageInfo.get(r.sourceId);
+      return {
+        id: r.id,
+        type: r.name,
+        position: r.position,
+        createdAt: r.createdAt,
+        source: {
+          id: r.sourceId,
+          title: info?.title ?? "",
+          branchId: info?.branchId ?? null,
+        },
+      };
+    });
 }
 
 /** Helper: returns the subset of `candidatePageIds` the caller can read. */
@@ -365,6 +366,51 @@ async function filterReadablePageIds(
       and(inArray(branches.pageId, candidatePageIds), inArray(branches.spaceId, accessibleSpaceIds)),
     );
   return new Set(rows.map((r) => r.pageId));
+}
+
+/** Returns, for each page in `candidatePageIds` the caller can read,
+ *  the page's title and a branchId they can navigate to (any branch in
+ *  a readable space — the first one is fine since the page is the
+ *  same regardless of placement). Pages the caller can't read are
+ *  absent from `pageInfo`; `accessible` is the full readable set so
+ *  callers can filter rows without losing the index. */
+async function loadReadablePageInfo(
+  candidatePageIds: string[],
+  caller: UserContext,
+): Promise<{
+  pageInfo: Map<string, { title: string; branchId: string }>;
+  accessible: Set<string>;
+}> {
+  const accessible = await filterReadablePageIds(candidatePageIds, caller);
+  if (accessible.size === 0) return { pageInfo: new Map(), accessible };
+
+  const { db } = getDb();
+  const accessibleList = [...accessible];
+
+  // One query for titles, one for branchIds. Branch order is arbitrary;
+  // picking any branchId is correct because the relation points at the
+  // page, not a specific placement.
+  const [titleRows, branchRows] = await Promise.all([
+    db
+      .select({ id: pages.id, title: pages.title })
+      .from(pages)
+      .where(inArray(pages.id, accessibleList)),
+    db
+      .selectDistinct({ pageId: branches.pageId, branchId: branches.id })
+      .from(branches)
+      .where(inArray(branches.pageId, accessibleList)),
+  ]);
+
+  const branchByPage = new Map<string, string>();
+  for (const r of branchRows) branchByPage.set(r.pageId, r.branchId);
+
+  const pageInfo = new Map<string, { title: string; branchId: string }>();
+  for (const r of titleRows) {
+    const branchId = branchByPage.get(r.id);
+    if (!branchId) continue;
+    pageInfo.set(r.id, { title: r.title, branchId });
+  }
+  return { pageInfo, accessible };
 }
 
 /** Used by tests / diagnostics. Returns every (pageId, type, targetPageId)

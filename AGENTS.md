@@ -306,3 +306,136 @@ Regression coverage: `src/server/__tests__/audit-fixes.integration.test.ts`
   cookie), and promote the test user to `isAdmin: true` directly in the DB
   before admin requests — better-auth's session picks up the change because
   the access middleware reads `isAdmin` fresh per request.
+
+## Slice-25: typed relations between pages (§13.1, commit `f8eefc7`)
+
+### Architecture
+- A relation is an `attributes` row whose `value` is empty and `valuePageId`
+  is set; the relation type is `name` (free-form printable text ≤ 64 chars,
+  the strictest blocking rule that still allows "depends on", "is a component
+  of", etc.). Stored on the existing attributes table — no new schema object,
+  just migration `0006` adding the FK + index.
+- `src/server/services/relation.service.ts` — CRUD (`addRelation`,
+  `removeRelation`, `listOwnedRelations`, `listIncomingRelations`,
+  `listOwnedRelationsRaw`) + access checks (`canReadPage`, `canEditPage`,
+  `loadAccessibleSpaceIds`). Owns the permission rank table
+  `admin=3 > editor=2 > viewer=1 > none=0`.
+- `src/server/routes/relation.routes.ts` — 4 endpoints under
+  `/api/pages/:pageId/relations` (`GET owned`, `GET incoming`, `POST`,
+  `DELETE`). POST is gated by edit access on source + read access on target
+  (the "no existence leak" rule applies to create-time too — you can't
+  create a relation pointing at a page you can't see). DELETE requires
+  edit access on source; the route validates that the URL's `pageId` is a
+  real page before delegating to `removeRelation`.
+
+### Critical invariants
+- **No-existence leak** (brief §13.1): both `listOwnedRelations` and
+  `listIncomingRelations` use `filterReadablePageIds` to drop targets/sources
+  the caller can't read — the response simply omits them rather than
+  redacting. A caller who can't read the page itself gets **404**, not 200.
+- **No duplicate canRead/canEdit helpers in routes.** First version of
+  `relation.routes.ts` had its own `canReadPage`/`canEditPage` that checked
+  `role === "editor"` only — the space admin who created the page got
+  rejected with 403. Always import from the service (single source of rank
+  semantics). The integration test for "create a relation as the
+  space-admin" is the regression test.
+- **Self-relation blocked at create time** — a relation cannot point at its
+  own source page (asserted in `addRelation` before the FK insert).
+
+### Tests
+- `src/server/services/__tests__/relation.test.ts` — 9 unit tests for
+  validation, CRUD, and the access rank table.
+- `src/server/__tests__/relation.integration.test.ts` — 10 integration
+  tests using `app.inject()` with the real auth + DB + permission stack.
+  Includes the regression for the "space admin can edit" case.
+- 36 files / 310 tests pass. Typecheck clean.
+
+### Slice-26 follow-up (still on the brief §13.1 axis)
+The backend is complete; the **client side is not wired**:
+- `src/api/client.ts` has no `addRelation` / `listOwnedRelations` /
+  `listIncomingRelations` / `removeRelation` wrappers.
+- `src/routes/_authenticated/w/$branchId.tsx` has slots for
+  `CommentsPanel`, `HistoryPanel`, `FavoriteButton` but nothing for
+  relations — same panel pattern, new icon (`Link2` or `Network`).
+- Search wrapper also missing in the client (`/api/search` exists server
+  side) — needed for the relation-target page picker.
+
+## Slice-26: relations UI panel — finishes §13.1
+
+### What landed
+- `src/api/client.ts` — added `searchPages`, `listOwnedRelations`,
+  `listIncomingRelations`, `addRelation`, `removeRelation`. Added
+  `PageSearchHit`, `PageSearchResponse`, `OwnedRelation`,
+  `IncomingRelation` interfaces (all with `branchId` on the
+  ref side, see below).
+- `src/server/services/relation.service.ts` — added
+  `loadReadablePageInfo(candidatePageIds, caller)` that returns
+  `{ pageInfo: Map<pageId, {title, branchId}>, accessible }`.
+  `listOwnedRelations` and `listIncomingRelations` now use it so the
+  client gets a `branchId` per ref. The `branchId` is the *first*
+  branch in any readable space for that page — the relation points at
+  the page, not a specific placement, so any branch is correct. The
+  previous helper `filterReadablePageIds` is kept (still used by
+  callers that only need the Set of ids).
+- `src/server/services/relation.service.ts` — `OwnedRelation.target`
+  and `IncomingRelation.source` now carry `branchId: string | null`
+  (additive; `null` only when the page exists but has no readable
+  branch — should not happen in practice since we already filter on
+  accessibility, but null is the safe fallback for the UI).
+- `src/features/relations/RelationsPanel.tsx` — new sidebar panel
+  matching the existing `CommentsPanel` / `HistoryPanel` shape:
+    - Header with `Link2` icon, plus a `+` toggle (only when `canEdit`).
+    - Outgoing section (`ArrowRight`, primary-tinted type chips).
+    - Incoming section (`ArrowLeft`, accent-tinted type chips).
+    - Clicking a target/source title navigates to `/w/$branchId`.
+    - Search-driven target picker: debounced 200ms, ≥ 2-char query,
+      filters out the current page from hits, click to pick.
+    - Pure `validateRelationType` helper exported for unit testing
+      (mirrors server-side validation: non-empty, ≤ 64 chars,
+      no control chars).
+- `src/routes/_authenticated/w/$branchId.tsx` — added a third
+  header toggle (`Link2`) next to the History and Comments buttons;
+  reuses the same reset-on-branch-change effect so navigating
+  between pages closes the panel.
+- Tests:
+    - `src/features/relations/__tests__/RelationsPanel.test.tsx` —
+      5 unit tests for `validateRelationType` (normal, empty,
+      length bound, control chars, trim).
+    - `src/server/__tests__/relation.integration.test.ts` — extended
+      the two existing happy-path tests with `branchId` assertions
+      on both owned and incoming rows.
+- 37 files / 315 tests pass (was 36 / 310 in slice-25). Typecheck
+  clean.
+
+### Invariants enforced
+- **Target picker excludes self.** The search hits are filtered to
+  drop `h.pageId === pageId` so a relation can't point at its own
+  source page (the server already rejects this — UI prevents the
+  wasted request too).
+- **Permission boundaries preserved.** The picker uses
+  `/api/search` which already permission-filters via
+  `searchPages()` in the service; the relation routes still gate
+  `POST` on edit-access-source + read-access-target, so even if the
+  UI somehow picked an unreadable target the server returns 400.
+- **No existence leak.** Incoming rows from spaces the viewer can't
+  read are dropped server-side (already in slice-25); the UI just
+  renders what's in the response, so no client-side redaction is
+  needed.
+- **Editor-only operations.** Remove buttons and the add-form toggle
+  both check `canEdit` from the panel prop, which the route derives
+  from `page.access === "editor" || page.access === "admin"`
+  (matching the existing pattern for comments/history).
+
+### Pitfalls hit
+- `useMemo` was initially imported but never used — fixed during
+  typecheck.
+- The first version of the panel had navigation tied to a single
+  `branchId` resolved client-side; that needed a new endpoint, so
+  the cleaner choice was to extend the relation service response
+  with `branchId` (which it already had to query for the access
+  filter — it just wasn't returning it). This avoided creating a
+  new route for a value the service already knows.
+
+### Next-up
+- §13.2: `[[wikilink]]` syntax extraction, backlinks stored on save,
+  and graph view.

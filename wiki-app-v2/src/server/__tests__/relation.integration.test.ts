@@ -133,13 +133,13 @@ async function listIncoming(cookie: string, pageId: string): Promise<unknown[]> 
 interface OwnedRelationRow {
   id: string;
   type: string;
-  target: { id: string; title: string } | null;
+  target: { id: string; title: string; branchId: string | null } | null;
 }
 
 interface IncomingRelationRow {
   id: string;
   type: string;
-  source: { id: string; title: string } | null;
+  source: { id: string; title: string; branchId: string | null } | null;
 }
 
 describe("relations (brief §13.1)", () => {
@@ -157,9 +157,12 @@ describe("relations (brief §13.1)", () => {
     expect(owned[0]!.type).toBe("depends on");
     expect(owned[0]!.target?.id).toBe(b.pageId);
     expect(owned[0]!.target?.title).toBe("Beta");
+    // slice-26: the relation target also carries a branchId the UI can
+    // navigate to — when the target has a readable branch, this is set.
+    expect(owned[0]!.target?.branchId).toBe(b.branchId);
   });
 
-  it("shows the same relation in the target's incoming list", async () => {
+  it("shows the same relation in the target's incoming list with branchId", async () => {
     const me = await signup(`rel-b-${randomBytes(4).toString("hex")}@x.com`);
     const space = await createSpace(me.cookie, "IncSpace");
     const a = await createPage(me.cookie, space, "alpha", "Alpha");
@@ -171,6 +174,7 @@ describe("relations (brief §13.1)", () => {
     expect(incoming[0]!.type).toBe("supersedes");
     expect(incoming[0]!.source?.id).toBe(a.pageId);
     expect(incoming[0]!.source?.title).toBe("Alpha");
+    expect(incoming[0]!.source?.branchId).toBe(a.branchId);
   });
 
   it("omits owned relations whose target page the caller cannot read (no existence leak)", async () => {
