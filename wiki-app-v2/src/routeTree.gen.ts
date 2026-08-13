@@ -26,6 +26,7 @@ import { Route as AuthenticatedSettingsSpacesRouteImport } from './routes/_authe
 import { Route as AuthenticatedSettingsSystemRouteImport } from './routes/_authenticated/settings/system'
 import { Route as AuthenticatedSettingsTokensRouteImport } from './routes/_authenticated/settings/tokens'
 import { Route as AuthenticatedSettingsUsersRouteImport } from './routes/_authenticated/settings/users'
+import { Route as AuthenticatedTrashSpaceIdRouteImport } from './routes/_authenticated/trash/$spaceId'
 import { Route as AuthenticatedWBranchIdRouteImport } from './routes/_authenticated/w/$branchId'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
@@ -122,6 +123,12 @@ const AuthenticatedSettingsUsersRoute =
     path: '/users',
     getParentRoute: () => AuthenticatedSettingsRoute,
   } as any)
+const AuthenticatedTrashSpaceIdRoute =
+  AuthenticatedTrashSpaceIdRouteImport.update({
+    id: '/trash/$spaceId',
+    path: '/trash/$spaceId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedWBranchIdRoute = AuthenticatedWBranchIdRouteImport.update({
   id: '/w/$branchId',
   path: '/w/$branchId',
@@ -143,6 +150,7 @@ export interface FileRoutesByFullPath {
   '/settings/system': typeof AuthenticatedSettingsSystemRoute
   '/settings/tokens': typeof AuthenticatedSettingsTokensRoute
   '/settings/users': typeof AuthenticatedSettingsUsersRoute
+  '/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/w/$branchId': typeof AuthenticatedWBranchIdRoute
   '/settings/': typeof AuthenticatedSettingsIndexRoute
 }
@@ -160,6 +168,7 @@ export interface FileRoutesByTo {
   '/settings/system': typeof AuthenticatedSettingsSystemRoute
   '/settings/tokens': typeof AuthenticatedSettingsTokensRoute
   '/settings/users': typeof AuthenticatedSettingsUsersRoute
+  '/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/w/$branchId': typeof AuthenticatedWBranchIdRoute
   '/settings': typeof AuthenticatedSettingsIndexRoute
 }
@@ -181,6 +190,7 @@ export interface FileRoutesById {
   '/_authenticated/settings/system': typeof AuthenticatedSettingsSystemRoute
   '/_authenticated/settings/tokens': typeof AuthenticatedSettingsTokensRoute
   '/_authenticated/settings/users': typeof AuthenticatedSettingsUsersRoute
+  '/_authenticated/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/_authenticated/w/$branchId': typeof AuthenticatedWBranchIdRoute
   '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
 }
@@ -201,6 +211,7 @@ export interface FileRouteTypes {
     | '/settings/system'
     | '/settings/tokens'
     | '/settings/users'
+    | '/trash/$spaceId'
     | '/w/$branchId'
     | '/settings/'
   fileRoutesByTo: FileRoutesByTo
@@ -218,6 +229,7 @@ export interface FileRouteTypes {
     | '/settings/system'
     | '/settings/tokens'
     | '/settings/users'
+    | '/trash/$spaceId'
     | '/w/$branchId'
     | '/settings'
   id:
@@ -238,6 +250,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings/system'
     | '/_authenticated/settings/tokens'
     | '/_authenticated/settings/users'
+    | '/_authenticated/trash/$spaceId'
     | '/_authenticated/w/$branchId'
     | '/_authenticated/settings/'
   fileRoutesById: FileRoutesById
@@ -368,6 +381,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsUsersRouteImport
       parentRoute: typeof AuthenticatedSettingsRoute
     }
+    '/_authenticated/trash/$spaceId': {
+      id: '/_authenticated/trash/$spaceId'
+      path: '/trash/$spaceId'
+      fullPath: '/trash/$spaceId'
+      preLoaderRoute: typeof AuthenticatedTrashSpaceIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/w/$branchId': {
       id: '/_authenticated/w/$branchId'
       path: '/w/$branchId'
@@ -416,6 +436,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedHealthRoute: typeof AuthenticatedHealthRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRouteWithChildren
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedTrashSpaceIdRoute: typeof AuthenticatedTrashSpaceIdRoute
   AuthenticatedWBranchIdRoute: typeof AuthenticatedWBranchIdRoute
 }
 
@@ -423,6 +444,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedHealthRoute: AuthenticatedHealthRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRouteWithChildren,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedTrashSpaceIdRoute: AuthenticatedTrashSpaceIdRoute,
   AuthenticatedWBranchIdRoute: AuthenticatedWBranchIdRoute,
 }
 

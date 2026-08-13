@@ -35,5 +35,10 @@ test("seeded tree renders after login", async ({ page }) => {
   await expect(page.getByText("🚀", { exact: true })).toBeVisible();
 
   // Root branches are in the tree; no system branches or deleted pages leak in.
-  await expect(page.getByText("Trash", { exact: true })).toHaveCount(0);
+  // Scope to the tree arborist — the slice-20 sidebar Trash link lives
+  // outside the tree, in the sidebar footer (it's a navigation affordance,
+  // not a leaked tree node).
+  await expect(
+    page.getByRole("tree", { name: "Pages tree" }).getByText("Trash", { exact: true })
+  ).toHaveCount(0);
 });

@@ -74,6 +74,6 @@ npm start            # production server (NODE_ENV=production)
   `tree.routes.ts` registered in `app.ts`.
   E2E: `scripts/seed-e2e.ts` seeds a real better-auth credential user + demo
   space tree; Playwright boots BOTH servers (Vite :5173 + API :3000) and
-  verifies login → space → tree render (`npm run e2e`, 2 specs). Integration
+  verifies login → space → tree render (`npm run e2e`, 8 specs / 19 browser cases). Integration
   tests cover 401 unauthenticated, space create/list, tree pruning of deleted
   pages, and 403 for non-members (24 tests total).

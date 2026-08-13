@@ -5,7 +5,7 @@
 - `npm run typecheck` ‚Äî `tsc --noEmit` (strict; unused vars fail the build)
 - `npm run test` ‚Äî vitest, **sequential** (`fileParallelism: false` ‚Äî integration
   tests share the `data/` dir and a single lazy SQLite connection per worker)
-- `npm run e2e` ‚Äî Playwright (8 specs)
+- `npm run e2e` ‚Äî Playwright (8 specs, 19 cases)
 - `npm run build` ‚Äî typecheck + vite build (SSR via `vite dev`; server entry is
   `src/server/index.ts`)
 
@@ -448,3 +448,65 @@ gaps that made it feel unfinished:
   on each save containing an `@mention`; the same mention creates a fresh
   notification each time (no dedup by (pageId, userId, seen)). UI nuisance, not
   a data-integrity issue. Out of slice-10 scope.
+
+## Slice-20 — per-space trash UI (§12.1)
+
+### Why this slice exists
+
+Server-side §12.1 (soft delete via `deletedAt`, the three trash routes,
+`listTrash` / `restorePage` / `purgePage` on `page.service`) shipped with
+slice-9. The UI half — a `/trash/:spaceId` page users can reach from the
+sidebar — was missing; without it, restore/purge are unreachable from the
+app and the only way to undelete a page is a SQL console.
+
+### What landed
+
+- **`src/features/trash/TrashPanel.tsx`** — loads via
+  `useQuery(api.listTrash(spaceId))`; branches into loading / error / empty /
+  list. Each row shows slug, title, and a `relativeTime` formatter
+  (just-now / m / h / d / mo buckets) for the `deletedAt` timestamp. Restore
+  fires `api.restorePage(spaceId, pageId)` then optimistically reloads; Purge
+  opens `ConfirmDialog` then calls `api.purgePage`.
+- **`src/routes/_authenticated/trash/$spaceId.tsx`** — thin route that
+  reads `spaceId` and renders `<TrashPanel>`. The space is intentionally
+  per-URL (matching the brief's "trash is per-space" model) so the sidebar
+  link from each space scopes you to that space's trash.
+- **`src/features/tree/Tree.tsx`** — sidebar footer now ships a `<Link>` to
+  `/trash/{activeSpace}` with `data-testid="trash-sidebar-link"` (so e2e
+  can target it). Lucide's `Trash2` icon makes the affordance recognisable.
+- **`e2e/tree.spec.ts`** — the post-login "no Trash node leaks into the
+  tree" assertion was scoped to `role="tree", name="Pages tree"` so it
+  still passes once the sidebar footer gained its Trash link.
+- **`e2e/slice20.spec.ts`** — 5 cases: sidebar link reaches the view,
+  full restore lifecycle (delete via API → list → restore → row gone from
+  the list AND the API), full purge lifecycle (confirm dialog → row gone
+  → reload still empty), cancel-purge keeps the row, and a smoke that
+  the panel mounts.
+- **`src/features/trash/__tests__/TrashPanel.test.tsx`** — 7 unit cases
+  that lock the `relativeTime` buckets (just now / 1m / 30m / 59m / 1h /
+  23h / 1d / 29d / 1mo / 12mo + unparseable → "") and a render smoke
+  that the panel mounts with its testid.
+
+### Decisions worth remembering
+
+- **`TrashEntry` is reused from `@/api/client`** — no parallel view type.
+  Keeps the panel honest if the server adds/removes a field later (TS
+  forces the update).
+- **`relativeTime` takes an optional `now`** — deterministic so the
+  unit test can pin its bucket boundaries without freezing `Date.now`.
+- **No delete-from-tree UI yet.** Tree-context delete is a separate UI
+  concern (backlog). The e2e drives deletes via `page.request.delete()`
+  — the same endpoint the future UI will call.
+- **`data-testid="trash-panel"` on every branch** — including loading,
+  so e2e can mount-and-wait with one selector.
+- **Tests stay SSR-friendly.** Following the existing pattern in
+  `TableOfContents.test.tsx`, the trash unit test uses
+  `renderToStaticMarkup` for a deterministic sync render; the e2e
+  drives the full async lifecycle. No `@testing-library/react` added.
+
+### Follow-ups left for later
+
+- A real Delete-page affordance from the tree (right-click / row menu) so
+  users don't need a trick to send pages to trash.
+- Trash retention indicator (e.g., "purged after N days") as a slideover.
+- Bulk-select on the trash list for batch restore or batch purge.
