@@ -375,6 +375,28 @@ export const favorites = sqliteTable("favorites", {
 });
 
 // ---------------------------------------------------------------------------
+// Lenses / saved filters (§12.4) — user-defined cross-cutting views over the
+// page tree. The criteria JSON is interpreted by lens.service.ts; we don't
+// normalise the structure into separate tables because (a) criteria are
+// user-shaped and free-form, and (b) every lens is read/written in its
+// entirety on edit, so a single JSON column is simpler than a join.
+// ---------------------------------------------------------------------------
+export const savedFilters = sqliteTable("saved_filters", {
+  id: id(),
+  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  criteria: text("criteria", { mode: "json" }).notNull(),
+  visibility: text("visibility", { enum: ["private", "unlisted", "public"] })
+    .notNull()
+    .default("private"),
+  // Random token for unlisted share URLs. Generated on demand; null for
+  // private and public lenses.
+  shareToken: text("share_token").unique(),
+  ...timestamps,
+});
+
+// ---------------------------------------------------------------------------
 // FTS5 full-text search (§7.12d.2)
 // Virtual table, created via raw SQL at boot (see db/index.ts). External-
 // content FTS so we store the text separately and keep FTS in sync via

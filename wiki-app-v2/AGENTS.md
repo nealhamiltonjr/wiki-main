@@ -775,3 +775,141 @@ them, returning the data the front-end slideover will render.
   comparison.
 - A wikilink node (§13.1) that would let us rebuild the diff at
   the Tiptap block level instead of the Markdown line level.
+
+## Slice-24 — lenses / saved-filter view (§12.4)
+
+### Why this slice exists
+
+> "The tree is a single hierarchy, but your actual content spans
+> several unrelated axes at once — a homelab page and a ham radio page
+> might both relate to 'antenna feedline,' a recipe and a homesteading
+> note might both be tagged 'canning.' A tree can only put a page in
+> one place at a time (cloning aside). The attributes system already in
+> the product model (§2) is most of what's needed here — extend it
+> into a simple saved-filter/tag-browse view ('show me every page
+> tagged `proxmox`' across every space you have access to) so cross-
+> cutting topics don't require restructuring the tree to surface them."
+> (brief §12.4)
+
+Lenses are user-shaped saved filters over the existing `attributes`
+table — no new tagging infrastructure needed. The criteria vocabulary
+covers the brief's user-context list verbatim: tag, property, regex
+over title, owner=self, owner=group.
+
+### What changed
+
+- `src/server/db/schema.ts`: new `savedFilters` table —
+  `id, ownerId, name, description, criteria (JSON),
+  visibility (private/unlisted/public), shareToken, createdAt`.
+  `shareToken` is unique and is generated only for unlisted lenses.
+- `drizzle/0005_greedy_stepford_cuckoos.sql` (new): the migration
+  for the table above. Auto-applied on boot by the existing
+  `migrate(...)` call in `db/index.ts`.
+- `src/server/services/lens.service.ts` (new):
+  - `createLens`, `getLens`, `getLensByToken`, `listLensesForUser`,
+    `updateLens`, `deleteLens` — standard CRUD on the new table.
+  - `runLens(lens, caller)` — evaluates the criteria against
+    `pages ⨝ branches ⨝ spaces` with positional-parameter SQL
+    (no identifier interpolation), returning one row per page
+    (collapsed across multiple placements via `GROUP BY p.id`).
+  - Criteria vocabulary: `tags[]`, `properties[{name,value}]`,
+    `titleRegex`, `ownerScope` ∈ `self | anyone | {group, groupId}`,
+    `spaceIds[]`, `includeTrash` (default `false`).
+  - Access scoping: non-admin callers are auto-restricted to spaces
+    they have viewer access to (via `space_members` ∪
+    `space_group_permissions`); admin bypasses the same way search
+    does.
+- `src/server/db/index.ts`: registers a deterministic `REGEXP`
+  SQL function so `titleRegex` works (SQLite ships without one).
+  Bad patterns throw at evaluation time so failures are loud, not
+  silent.
+- `src/server/routes/lens.routes.ts` (new): 8 routes wired into
+  `app.ts` after `tokenRoutes`:
+  - `GET /api/lenses` (authenticated) — list own + public.
+  - `POST /api/lenses` (authenticated) — create.
+  - `GET /api/lenses/:id` (authenticated) — read; visibility-gated.
+  - `PATCH /api/lenses/:id` (authenticated) — owner or admin.
+  - `DELETE /api/lenses/:id` (authenticated) — owner or admin.
+  - `GET /api/lenses/:id/results` (authenticated) — run + return hits.
+  - `GET /api/lenses/by-token/:token` (public) — fetch by share
+    token (the token is the capability).
+  - `GET /api/lenses/by-token/:token/results` (authenticated) — run
+    a shared lens with the caller's own access scope.
+- `src/server/services/__tests__/lens.test.ts` (new): 8 unit
+  tests for the criteria evaluator (no HTTP):
+  - matches by tag
+  - intersects `tag AND titleRegex`
+  - returns `[]` for criteria with no matches
+  - `ownerScope: "self"` filters to the caller's pages
+  - `ownerScope: { kind: "group", groupId }` filters via
+    `user_groups` membership
+  - `includeTrash: false` default excludes soft-deleted;
+    `includeTrash: true` reveals them
+  - invalid `titleRegex` throws `invalid regex pattern`
+  - `shareToken` lifecycle: generated on `unlisted`, cleared on
+    transition to `private`/`public`, regenerated on transition
+    back to `unlisted` (so the old share URL stops working).
+- `src/server/__tests__/lens.integration.test.ts` (new): 7
+  integration tests through the real Fastify app, covering
+  create/list/run, title-regex, property match, `owner=self`,
+  visibility enforcement (outsider can't read or run a private
+  lens), unlisted share-token URLs, and admin-vs-owner patch/
+  delete.
+
+### Design notes
+
+- **No `tags` table — derive from `attributes`.** The brief calls
+  this out explicitly: "The attributes system already in the
+  product model (§2) is most of what's needed here." Tag matching
+  is `attributes.name = 'tag' AND attributes.value IN [...]`,
+  which is already indexed-friendly. Pages with no `name='tag'`
+  attribute are excluded by definition.
+- **One row per page, not per placement.** `pages` is the
+  authoritative unit — `branches` is just a placement record.
+  `GROUP BY p.id` collapses clones. The `MIN(b.id)` keeps the
+  ordering deterministic without a window function. The
+  front-end uses `branchId` to navigate to the first placement
+  for the page; the user can swap to another placement via the
+  existing tree UI.
+- **Raw SQL inside a typed service.** The criteria is small
+  (≤ 5 distinct clauses) and the structure is fixed. Hand-built
+  positional-parameter SQL is simpler and more auditable than
+  building a drizzle `WHERE` and reading back its internal
+  `queryChunks`. All user-controlled values bind as parameters
+  (`?`), never as SQL fragments. The only string interpolation
+  is for `IN (?,?,?)` placeholder counts, which is a count, not
+  a value.
+- **REGEXP via JS.** SQLite's built-in `REGEXP` is a no-op
+  unless you register a function. We do, with a JS `RegExp`
+  throw on bad patterns so a malformed lens fails loudly at
+  `runLens` time rather than silently returning zero matches.
+- **Visibility is three-state, not two.** `public` is "everyone
+  authenticated can find it via the list endpoint," `unlisted`
+  is "only people with the share-token URL can find it," and
+  `private` is "only the owner." The unlisted share token is
+  rotated every time visibility transitions back to `unlisted`,
+  so a leaked URL stops working on the next toggle.
+- **Access scoping mirrors search.** `loadAccessibleSpaceIds`
+  re-implements the same `space_members ∪ space_group_permissions`
+  union that `accessibleBranchIds` already uses in
+  `branch.service.ts`, but at the space level. Admin users
+  bypass it; everyone else gets auto-scoped before the criteria
+  even runs. This is a deliberate choice: it keeps the per-row
+  permission check out of `runLens` (the lens is a *view*, not
+  an enumeration of every page) and matches the principle in
+  the brief that lenses surface content you can already see.
+
+### Follow-ups left for later
+
+- Lens-list endpoints (`GET /api/lenses`) and a front-end
+  `LensesPage` with create / edit / share UI.
+- A `?includeHits=true` mode on the list endpoint so the index
+  page can render previews without a second round-trip.
+- "Recently used" — order the list by last-`runLens` timestamp
+  once we add that.
+- Server-side caching keyed on `criteria.hash` for very large
+  pagesets; not worth it until the dataset exceeds a few
+  thousand pages.
+- Per-lens bookmarks / starred-lenses, if user feedback says
+  the public + unlisted list is hard to navigate.
+

@@ -55,6 +55,21 @@ export function getDb() {
     )
   `);
 
+  // SQLite ships without a REGEXP function unless you register one. Lenses
+  // (brief §12.4) match pages by regex-over-title, so register a thin
+  // JS-side implementation. The pattern itself is parameterised and
+  // expected to be from a trusted user (lens owner), but treat untrusted
+  // usage defensively — throw on invalid regexes so the query fails loudly
+  // instead of silently dropping matches.
+  sqlite.function("regexp", { deterministic: true }, (pattern: unknown, value: unknown) => {
+    if (typeof pattern !== "string" || typeof value !== "string") return 0;
+    try {
+      return new RegExp(pattern).test(value) ? 1 : 0;
+    } catch {
+      throw new Error(`invalid regex pattern: ${pattern}`);
+    }
+  });
+
   state = { db, sqlite };
   return state;
 }
