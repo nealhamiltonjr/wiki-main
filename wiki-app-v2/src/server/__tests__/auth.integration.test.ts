@@ -74,7 +74,12 @@ describe("slice 2 gate: server foundation", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.user.email).toBe("slice2@example.com");
-    expect(body.user.isAdmin).toBe(false);
+    // Slice-18: on a fresh DB the very first sign-up is automatically promoted
+    // to admin via databaseHooks.user.create.before (no chicken-and-egg with
+    // settings IA). The bootstrap test in bootstrap.integration.test.ts
+    // covers the full first/second-user behavior; here we just confirm the
+    // response shape carries the flag set server-side.
+    expect(body.user.isAdmin).toBe(true);
     expect(body.token).toBeTruthy();
   });
 

@@ -300,6 +300,66 @@ been satisfied only in unit terms and was actually unwired in production.
 
 Items 1, 2, 7, 8 remain manual smoke. Item 3 is not yet applicable.
 
+## Slice-18 Ñ first-boot bootstrap (¤11.6 + admin chicken-and-egg)
+
+### Why this slice exists
+
+The brief's ¤11.1 said "migrate the real production data Ñ don't just port
+the schema." After slice-17 we learned the prior DB held only test data, so
+the user direction is **don't migrate, just ship with an empty data/ and
+make a fresh install walkable**. That trade-off is only acceptable if the
+very first person to hit a fresh deploy can:
+
+1. Sign up (no admin yet to gate sign-up).
+2. Be made admin automatically (no CLI workaround, no chicken-and-egg
+   with `PATCH /api/users/:id` which requires an existing admin).
+3. Land in a working wiki with the ¤11.6 fixture (a Welcome space, a
+   handful of pages) instead of an empty tree.
+
+All three now happen via `databaseHooks.user.create.{before,after}` wired
+into better-auth in `src/server/auth/config.ts`.
+
+### What changed
+
+- **`src/server/services/bootstrap.service.ts` (new).** `isFirstUser()`
+  does `SELECT COUNT(*) FROM user`; `seedWelcomeSpace(ownerId)` materializes
+  the ¤11.6 fixture (space "Welcome" + pages: welcome / notes /
+  getting-started / cli-reference + branch tree). Idempotent: if any space
+  exists, returns null without touching the DB. The seed intentionally does
+  **not** install first-party plugins (those are admin-uploaded, not
+  auto-installed) and does **not** create a test user (better-auth just did).
+- **`src/server/auth/config.ts`** Ñ added `databaseHooks.user.create.before`
+  that returns `{ data: { ...user, isAdmin: true } }` iff `isFirstUser()`.
+  `additionalFields.isAdmin` is `input:false`, so the only path to set
+  `isAdmin=true` at sign-up is this server-side hook. The `.after` hook
+  runs `seedWelcomeSpace(user.id)` inside try/catch Ñ a sign-up response
+  must not be 5xx'd because of a seed hiccup.
+- **`src/server/__tests__/bootstrap.integration.test.ts` (new).** Three
+  tests: first sign-up is admin + Welcome seeded; second sign-up is NOT
+  admin + Welcome not duplicated; client-supplied `isAdmin: true` is
+  stripped (belt-and-suspenders against input:false bypass attempts).
+- **`src/server/__tests__/auth.integration.test.ts`** Ñ updated the
+  existing first-sign-up assertion from `isAdmin === false` to `isAdmin
+  === true` (the test now exercises the bootstrap path; the bootstrap
+  test file owns the "second user is not admin" assertion).
+
+### Design notes
+
+- **Race window on first sign-up.** `isFirstUser()` reads count, then
+  better-auth inserts. Two concurrent sign-ups at count=0 could both see
+  zero and both become admin. Acceptable for a self-hosted wiki; brief
+  explicitly calls it fine. The space seed is fully idempotent (returns
+  null if any space exists), so the race can never produce two Welcome
+  spaces.
+- **Welcome is personal, not shared.** The seed gives the first admin
+  membership in Welcome (admin role) and sets `defaultRole: "editor"` so
+  collaborators can join. Subsequent users do NOT auto-join Welcome Ñ
+  they get their own space via `/spaces` when they want one.
+- **¤11.1 is now off the "must-do" list** per user direction. The repo
+  ships with an empty `data/` directory; first boot materializes a
+  walkable state via these hooks. Any future "import from old app"
+  need is a separate concern, not a launch blocker.
+
 ## Known limitations (accepted, not blocking)
 
 - **Deleted pages leave a stale file in the git tree.** `deletePageEverywhere`

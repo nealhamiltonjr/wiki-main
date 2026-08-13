@@ -3,6 +3,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 
 import { getDb } from "../db/index.js";
 import * as schema from "../db/auth-schema.js";
+import { isFirstUser, seedWelcomeSpace } from "../services/bootstrap.service.js";
 
 function getAuthDb() {
   const { db } = getDb();
@@ -79,6 +80,42 @@ export function createAuth() {
           required: false,
           defaultValue: false,
           input: false,
+        },
+      },
+    },
+    // Slice-18 — first-boot bootstrap. Without these hooks, a fresh deploy
+    // would either (a) have no admins (the brief's PATCH /api/users/:id
+    // promotion requires an existing admin, so it's a chicken-and-egg), or
+    // (b) require a CLI workaround to seed the first admin and the Welcome
+    // space. Both hooks run inside better-auth's adapter transaction so
+    // there's no race between "check users empty" and "insert admin."
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            if (await isFirstUser()) {
+              // Override the adapter-bound user object: this user becomes the
+              // first admin. additionalFields.isAdmin has input:false, so the
+              // client cannot reach this code path; the only way to set
+              // isAdmin=true at sign-up is via this server-side hook.
+              return { data: { ...user, isAdmin: true } };
+            }
+            return { data: user };
+          },
+          after: async (user) => {
+            // Seed the §11.6 Welcome space for the newly-promoted admin.
+            // Failures are logged, never thrown: a sign-up response must not
+            // be 5xx'd because of a seed hiccup, and the next-boot sweep
+            // (manual `npm run seed-welcome`) can repair an empty install.
+            // seedWelcomeSpace is idempotent — concurrent first sign-ups (a
+            // theoretical race; the brief calls it acceptable to have two
+            // admins) will not duplicate the tree.
+            try {
+              await seedWelcomeSpace(user.id);
+            } catch (err) {
+              console.warn("[bootstrap] welcome-space seed failed:", { userId: user.id, err: String(err) });
+            }
+          },
         },
       },
     },
