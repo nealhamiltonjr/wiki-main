@@ -115,6 +115,29 @@ export interface IncomingRelation {
   source: { id: string; title: string; branchId: string | null } | null;
 }
 
+export interface GraphNode {
+  id: string;
+  title: string;
+  branchId: string | null;
+  isCenter: boolean;
+}
+
+export interface GraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  kind: "backlink" | "relation";
+  label: string | null;
+  direction: "out" | "in";
+}
+
+export interface PageGraphResponse {
+  center: string;
+  hops: number;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 export const api = {
   listSpaces: () => request<SpaceSummary[]>("/api/spaces"),
   createSpace: (name: string) => request<{ id: string; name: string }>("/api/spaces", {
@@ -192,4 +215,10 @@ export const api = {
     }),
   removeRelation: (pageId: string, attributeId: string) =>
     request<void>(`/api/pages/${pageId}/relations/${attributeId}`, { method: "DELETE" }),
+
+  // Brief §13.2: graph view of a page's local neighborhood.
+  getPageGraph: (pageId: string, opts: { hops?: number } = {}) => {
+    const q = opts.hops === undefined ? "" : `?hops=${Math.min(Math.max(opts.hops, 1), 3)}`;
+    return request<PageGraphResponse>(`/api/pages/${pageId}/graph${q}`);
+  },
 };

@@ -439,3 +439,97 @@ The backend is complete; the **client side is not wired**:
 ### Next-up
 - §13.2: `[[wikilink]]` syntax extraction, backlinks stored on save,
   and graph view.
+
+## Slice-27: graph view — finishes §13.2
+
+### What landed
+- `src/server/services/backlink.service.ts` — added
+  `getPageOutgoingLinks(pageId, caller)`: inverse of `getPageBacklinks`,
+  resolves target branchId → pageId, applies the same no-existence-leak
+  filter so links into unreadable spaces disappear entirely.
+- `src/server/services/graph.service.ts` — new service. `getPageGraph(
+  pageId, caller, { hops })` returns `{ center, hops, nodes, edges }`
+  with permission-filtered nodes/edges. Default hops=1 (brief: "Scope
+  it to a single page's local neighborhood by default (its direct
+  links/relations, one hop out)"). `hops` is clamped to [1,3] for
+  safety; the BFS is implemented but the typical use is one hop.
+- `src/server/routes/graph.routes.ts` — new route file. Single
+  endpoint `GET /api/pages/:pageId/graph?hops=N`. 404 on unreadable
+  center (no existence leak).
+- `src/server/app.ts` — registered `graphRoutes` next to `relationRoutes`.
+- `src/api/client.ts` — added `GraphNode`, `GraphEdge`, `PageGraphResponse`
+  types and `getPageGraph(pageId, opts)` wrapper.
+- `src/features/graph/GraphPanel.tsx` — new panel matching the
+  CommentsPanel/HistoryPanel/RelationsPanel shape:
+  - `Network` icon header (lucide).
+  - Hand-rolled SVG circular layout (no new deps).
+  - Center node tinted primary; neighbors on a circle, distributed
+    deterministically (no Math.random → no hydration flicker).
+  - Edges colored by kind: backlinks muted, relations primary-tinted;
+    arrows point from "out" edges away from center and "in" edges
+    toward center.
+  - Relation type label rendered at the edge midpoint.
+  - Click a node → navigate via TanStack Router to `/w/$branchId`.
+  - Pure layout helpers `computeLayout` and `computeEdgeLayout`
+    exported for unit testing (no React dependency).
+- `src/routes/_authenticated/w/$branchId.tsx` — added a 4th header
+  toggle (`Network`) next to History/Comments/Relations; the existing
+  reset-on-branch-change effect was extended to close the panel.
+- Tests:
+  - `src/features/graph/__tests__/GraphPanel.test.ts` — 7 unit tests
+    for `computeLayout` (single node, N even distribution, determinism,
+    no-center fallback, bbox fit) and `computeEdgeLayout` (path
+    string, missing-endpoint drop).
+  - `src/server/__tests__/graph.integration.test.ts` — 8 integration
+    tests: lonely page, outgoing-backlink edges, incoming-backlink
+    edges, relation-with-label edges, dedupe across kinds, 404 on
+    unreadable center, space isolation (neighbors in unreadable
+    spaces dropped), hops clamping.
+- 39 files / 330 tests pass (was 37 / 315 in slice-26). Typecheck clean.
+
+### Invariants enforced
+- **No existence leak on center.** Unreadable center → 404 (same as
+  the existing `/api/pages/:pageId/backlinks` endpoint).
+- **No existence leak on neighbors.** `getPageOutgoingLinks` and the
+  graph BFS apply the same space-accessibility filter as
+  `getPageBacklinks`. If a relation or backlink would point at a page
+  in a space the caller can't access, the row is dropped server-side
+  before it ever leaves the endpoint.
+- **Deterministic layout.** `computeLayout` uses only fixed angles
+  derived from index; no `Math.random()`. Critical: React renders the
+  panel server-side (initial HTML) and client-side (hydration) and a
+  non-deterministic layout would cause a hydration mismatch.
+- **Direction labels.** Every edge has a `direction: "in" | "out"`
+  relative to the center, so the UI can render arrows consistently
+  regardless of which side of the graph the neighbor ends up on.
+- **Deduped at the edge level.** Same (from, to, kind, label) tuple
+  is collapsed via an in-memory key set inside the BFS, so a page
+  that appears as both an outgoing backlink and an outgoing relation
+  shows up as two distinct edges (different colors/labels) rather than
+  one edge being shadowed.
+
+### Pitfalls hit
+- The brief uses the word "wikilinks" loosely, but the existing system
+  has no `[[double-bracket]]` syntax — "wikilinks" here means the
+  internal link marks (`href: "/api/branches/<id>/page"`) that
+  `refreshBacklinks` already extracts on save. So no new editor
+  extension was needed; the graph view is purely a presentation layer
+  on the existing index.
+- First test failure: used the wrong URL shape for `getUpdatedAt` —
+  the page GET is keyed by branchId, not pageId. Fixed by switching
+  the helper to `/api/branches/:branchId/page` and updating call
+  sites.
+- Typecheck initially flagged the test importing `GraphNode`/`GraphEdge`
+  from `GraphPanel.tsx` (not exported). Switched the import to
+  `@/api/client` so the test depends on the public API types, not the
+  panel's internal surface.
+
+### Next-up
+- §13.3: template pages via attribute inheritance (`template:<page>`
+  attribute that propagates a template's attribute set to all pages
+  using it). The attribute infrastructure already exists; this slice
+  is the read-side resolution at page-render time.
+- §13.4: attribute-driven table / kanban views (saved views over a
+  set of pages rendered from promoted attributes).
+- §13.5: event-driven automation through the plugin engine (no raw
+  per-page scripting).
