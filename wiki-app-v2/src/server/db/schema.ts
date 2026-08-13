@@ -116,6 +116,35 @@ export const groupPermissions = sqliteTable("group_permissions", {
 });
 
 // ---------------------------------------------------------------------------
+// Page-redirect (alias) records — brief §12.2.
+//
+// When a page's canonical slug changes, internal wikilinks and share URLs
+// that referenced the old slug keep resolving by writing one row per
+// (spaceId, oldSlug) → pageId. The slug on `pages` is shared across every
+// placement of a page, so a single rename affects every space the page is
+// placed in; this table records the redirect per-space so two spaces that
+// never shared a slug still can't accidentally cross-resolve.
+//
+// Composite primary key (spaceId, oldSlug) — re-renaming a page to an old
+// slug of its own intentionally overwrites the redirect target back to the
+// live page (no stale alias lingers). Different pages both using the same
+// slug at different times each get their own row, distinguished by spaceId
+// and the live-branch check at resolve time (see page.service:resolveSlug).
+// ---------------------------------------------------------------------------
+export const pageRedirects = sqliteTable(
+  "page_redirects",
+  {
+    spaceId: text("space_id").notNull().references(() => spaces.id, { onDelete: "cascade" }),
+    oldSlug: text("old_slug").notNull(),
+    pageId: text("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
+    ...timestamps,
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.spaceId, table.oldSlug] }),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Comments - brief §7.6. Threads are anchored to a text range on a page;
 // individual replies live in the comments table. The range is stored as
 // {from, to} ProseMirror positions — the Comment extension stores these as

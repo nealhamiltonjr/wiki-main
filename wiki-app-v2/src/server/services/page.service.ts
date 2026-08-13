@@ -1,7 +1,7 @@
 import { eq, and, isNull, count } from "drizzle-orm";
 import { isDeepStrictEqual } from "node:util";
 import { getDb } from "../db/index.js";
-import { pages, branches } from "../db/schema.js";
+import { pages, branches, pageRedirects } from "../db/schema.js";
 import { ensureBlockIds, validateContent, type JSONBlock } from "../../shared/blockIds.js";
 import { getEnabledPluginNodeTypes, getEnabledPluginMarkTypes } from "./plugin.service.js";
 import { refreshBacklinks } from "./backlink.service.js";
@@ -224,12 +224,49 @@ export async function deletePageEverywhere(pageId: string): Promise<void> {
   unindexPageForSearch(pageId);
 }
 
-/** Renames a page (the slug lives on the page, shared by every placement). */
+/**
+ * Renames a page (the slug lives on the page, shared by every placement).
+ *
+ * Side effect (brief §12.2): for every space the page is currently placed
+ * in, record the OLD slug as a redirect to this pageId before overwriting
+ * it. The composite PK (spaceId, oldSlug) means a re-rename back to one of
+ * this page's own old slugs overwrites the redirect back to the live page —
+ * we never let a stale alias linger after a self-undo. The git queue
+ * receives the oldSlug separately so it can `git rm` the old file path
+ * (slice-10 invariant).
+ *
+ * Caller is responsible for the permission check (the rename route already
+ * gates on `minRole: "editor"` via the access middleware) and for enqueueing
+ * the git_commit with `oldSlug` in its payload.
+ */
 export async function renamePage(pageId: string, slug: string): Promise<boolean> {
   const { db } = getDb();
-  const result = await db.update(pages).set({ slug }).where(eq(pages.id, pageId));
-  const changes = (result as unknown as { changes: number }).changes;
-  return changes > 0;
+
+  const existing = await db.select({ slug: pages.slug }).from(pages).where(eq(pages.id, pageId)).limit(1);
+  const oldSlug = existing[0]?.slug;
+  if (!oldSlug) return false;
+  // No-op rename: don't write a redirect to itself or churn the timestamp.
+  if (oldSlug === slug) return true;
+
+  await db.transaction((tx) => {
+    const placements = tx
+      .select({ spaceId: branches.spaceId })
+      .from(branches)
+      .where(eq(branches.pageId, pageId))
+      .all();
+    for (const p of placements) {
+      tx.insert(pageRedirects)
+        .values({ spaceId: p.spaceId, oldSlug, pageId })
+        .onConflictDoUpdate({
+          target: [pageRedirects.spaceId, pageRedirects.oldSlug],
+          set: { pageId, createdAt: new Date() },
+        })
+        .run();
+    }
+    tx.update(pages).set({ slug }).where(eq(pages.id, pageId)).run();
+  });
+
+  return true;
 }
 
 /** Lists soft-deleted pages in a space, for the per-space Trash view. */
@@ -242,4 +279,98 @@ export async function listTrash(spaceId: string) {
     .where(and(eq(branches.spaceId, spaceId), eq(branches.isSystem, false)))
     .all()
     .filter((r) => r.deletedAt !== null);
+}
+
+export interface ResolvedSlug {
+  pageId: string;
+  branchId: string;
+  slug: string;
+  /** True when the slug wasn't found live and was resolved via an alias row. */
+  redirected: boolean;
+  /** The original slug the caller asked about (present iff `redirected`). */
+  oldSlug?: string;
+}
+
+/**
+ * Resolve `slug` in the given space: either the live page (with at least one
+ * non-system, non-trashed branch in this space) OR an alias row recorded by
+ * a prior `renamePage`. Returns null when neither exists.
+ *
+ * Brief §12.2: a redirect target is gated by the same permission check as
+ * the live page — see the `/api/spaces/:spaceId/resolve-slug` route, which
+ * re-walks the resolved branch through `resolveAccess` before returning the
+ * answer to the client. This service trusts its callers to do that gate.
+ */
+export async function resolveSlug(spaceId: string, slug: string): Promise<ResolvedSlug | null> {
+  const { db } = getDb();
+
+  const live = db
+    .select({ branchId: branches.id, pageId: pages.id, slug: pages.slug })
+    .from(branches)
+    .innerJoin(pages, eq(branches.pageId, pages.id))
+    .where(
+      and(
+        eq(branches.spaceId, spaceId),
+        eq(branches.isSystem, false),
+        eq(pages.slug, slug),
+        isNull(pages.deletedAt)
+      )
+    )
+    .orderBy(branches.position)
+    .limit(1)
+    .all();
+  if (live[0]) return { ...live[0], redirected: false };
+
+  const redirect = db
+    .select({
+      pageId: pageRedirects.pageId,
+      slug: pages.slug,
+      deletedAt: pages.deletedAt,
+    })
+    .from(pageRedirects)
+    .innerJoin(pages, eq(pages.id, pageRedirects.pageId))
+    .where(and(eq(pageRedirects.spaceId, spaceId), eq(pageRedirects.oldSlug, slug)))
+    .limit(1)
+    .all();
+  const r = redirect[0];
+  if (!r || r.deletedAt !== null) return null;
+
+  // The page still has at least one branch in this space? If it was removed
+  // from this space post-rename, the alias is dangling — treat as 404 so we
+  // don't surface a page the user can't open here.
+  const stillPlaced = db
+    .select({ branchId: branches.id })
+    .from(branches)
+    .where(
+      and(eq(branches.pageId, r.pageId), eq(branches.spaceId, spaceId), eq(branches.isSystem, false))
+    )
+    .limit(1)
+    .all();
+  if (!stillPlaced[0]) return null;
+
+  return {
+    pageId: r.pageId,
+    branchId: stillPlaced[0].branchId,
+    slug: r.slug,
+    redirected: true,
+    oldSlug: slug,
+  };
+}
+
+/** Active redirects that point AT a given page. Exposed for the read API
+ * so admin/maintenance views can see what aliases a page is currently
+ * serving under across every space. Filters out rows whose `oldSlug`
+ * matches the page's current slug — those are stale (the page was
+ * renamed back to one of its own previous aliases; the row is preserved
+ * for audit but is no longer a useful redirect). */
+export async function listRedirectsForPage(pageId: string) {
+  const { db } = getDb();
+  const current = await db.select({ slug: pages.slug }).from(pages).where(eq(pages.id, pageId)).limit(1);
+  const liveSlug = current[0]?.slug;
+  const rows = await db
+    .select({ spaceId: pageRedirects.spaceId, oldSlug: pageRedirects.oldSlug, createdAt: pageRedirects.createdAt })
+    .from(pageRedirects)
+    .where(eq(pageRedirects.pageId, pageId))
+    .all();
+  return liveSlug === undefined ? rows : rows.filter((r) => r.oldSlug !== liveSlug);
 }

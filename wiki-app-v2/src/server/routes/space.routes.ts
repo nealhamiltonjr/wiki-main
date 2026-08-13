@@ -4,7 +4,9 @@ import { z } from "zod";
 import { getDb } from "../db/index.js";
 import { spaces, spaceMembers, spaceGroupPermissions, users, groups } from "../db/schema.js";
 import { listGroups } from "../services/group.service.js";
-import { buildSpaceTree, resolveSpaceRole } from "../services/branch.service.js";
+import { buildSpaceTree, resolveSpaceRole, getBranchChain } from "../services/branch.service.js";
+import { resolveSlug } from "../services/page.service.js";
+import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
 
 const createSpaceBody = z.object({ name: z.string().min(1) });
@@ -221,6 +223,50 @@ export async function spaceRoutes(app: FastifyInstance) {
       const { db } = getDb();
       await db.update(spaces).set({ defaultRole: body.defaultRole }).where(eq(spaces.id, spaceId));
       return reply.send({ ok: true });
+    }
+  );
+
+  // -------------------------------------------------------------------------
+  // Slug resolver (brief §12.2). Returns the live page in this space for the
+  // given slug, OR a redirect target if the slug was retired by a rename.
+  // The ACL is re-walked on the resolved branch: a redirect to a page in a
+  // restricted space must not be usable to bypass that space's permission
+  // gate. Anyone who can read the resolved page can read the redirect.
+  //
+  // `access: "authenticated"` (not `spaceParam`) because we deliberately
+  // return 404 to a non-member rather than 403 — the existence of a
+  // redirected page in a space the caller can't read must not be a
+  // discoverable signal. The inline check below enforces the same gate as
+  // the live read path.
+  // -------------------------------------------------------------------------
+  app.get(
+    "/api/spaces/:spaceId/resolve-slug",
+    { config: { access: "authenticated" } },
+    async (request, reply) => {
+      const { spaceId } = request.params as { spaceId: string };
+      const q = z.object({ slug: z.string().min(1).max(120) }).parse(request.query);
+      const user = (request as any).userContext as UserContext;
+
+      const resolved = await resolveSlug(spaceId, q.slug);
+      if (!resolved) return reply.code(404).send({ error: "No page with that slug in this space" });
+
+      if (!user.isAdmin) {
+        const role = await resolveSpaceRole(user.id, spaceId, user.groupIds);
+        if (!role) return reply.code(404).send({ error: "No page with that slug in this space" });
+        const chain = await getBranchChain(resolved.branchId).catch(() => null);
+        if (!chain) return reply.code(404).send({ error: "No page with that slug in this space" });
+        if (resolveAccess(user, chain, role) === "none") {
+          return reply.code(404).send({ error: "No page with that slug in this space" });
+        }
+      }
+
+      return reply.send({
+        pageId: resolved.pageId,
+        branchId: resolved.branchId,
+        slug: resolved.slug,
+        redirected: resolved.redirected,
+        oldSlug: resolved.oldSlug ?? null,
+      });
     }
   );
 }

@@ -510,3 +510,98 @@ app and the only way to undelete a page is a SQL console.
   users don't need a trick to send pages to trash.
 - Trash retention indicator (e.g., "purged after N days") as a slideover.
 - Bulk-select on the trash list for batch restore or batch purge.
+
+## Slice-21 — page-redirect on rename (§12.2)
+
+### Why this slice exists
+
+Brief §12.2 says: "Whatever currently links to its old slug or path —
+internal wikilinks, and especially share links you may have already sent
+to someone — should keep resolving rather than 404ing." Slice-6 shipped
+rename/move but never recorded redirects, so this was a strict regression
+of the brief, not a new feature. Because no surface area currently
+navigates by slug (every route is `/api/branches/:branchId/...` or
+`/api/pages/:pageId/...`), the immediate user-facing blast radius is
+zero — but the data layer wasn't ready the first time the wiki grows
+a slug-typed URL or a wikilink node, and the brief was explicit that
+this should ship with rename, not after.
+
+### What landed
+
+- **Schema** — `page_redirects (spaceId, oldSlug, pageId, createdAt)` with
+  composite PK `(spaceId, oldSlug)`. Per-space rather than global: the
+  page's `slug` is shared across every placement, so a single rename
+  affects every space, but the redirect has to be discovered by the
+  caller's `(spaceId, slug)` lookup, which is per-space. Foreign keys
+  cascade on delete for both `pages` and `spaces`. Migration:
+  `drizzle/0004_nostalgic_champions.sql`.
+- **`renamePage` (service)** — looks up the live slug, writes one
+  redirect row per placement (spaceId) using `onConflictDoUpdate` so
+  re-renaming back to a slug the page itself previously used just
+  updates the existing row's target to the same pageId (no stale alias).
+  No-op renames (same slug) skip the write entirely. The git queue
+  already receives `oldSlug` in the rename route's payload, so the
+  truncating-rename delete-old-file path is unaffected.
+- **`resolveSlug(spaceId, slug)` (service)** — live first, then redirect.
+  Live candidate must be in this space, non-system, non-trashed. Redirect
+  candidate must (a) still point at a live page, (b) the page must still
+  have a non-system branch in this space (post-rename removal of the
+  page from this space dangles the alias — returns 404 instead of
+  surfacing a page the caller can't open here).
+- **`listRedirectsForPage(pageId)` (service)** — for the maintenance
+  view. Filters out rows where `oldSlug` equals the page's current slug
+  (the page was renamed back to its own previous alias; the row is
+  preserved for audit but isn't a useful redirect anymore).
+- **Route** — `GET /api/spaces/:spaceId/resolve-slug?slug=...` (in
+  `space.routes.ts`). Uses `access: "authenticated"` rather than
+  `spaceParam: "spaceId"` deliberately: the access middleware's
+  space-scoped routes return 403 to non-members, but the brief's
+  requirement is to make a redirect unproxiable as "page exists here,
+  just not for you" — so we re-walk the chain via `resolveSpaceRole`
+  + `resolveAccess` and return 404 on no access. The inline check
+  matches the live page's read-path semantics.
+- **Tests** — `src/server/__tests__/redirects.integration.test.ts` (11
+  cases): rename writes per-space rows, live slug wins over a redirect
+  to the same page, old slug resolves in both spaces, non-member gets
+  404 on a redirect target, non-member gets 404 on the live slug too,
+  re-rename forward updates the alias target, re-rename back to a slug
+  with an existing alias overwrites it to the live page, unknown slug
+  404s, `listRedirectsForPage` returns only active aliases.
+
+### Design notes
+
+- **Per-space, not global.** A redirect is the answer to "what page
+  does this slug point at *in this space*?". Two spaces that both
+  had a page named `todo` earlier and were renamed to different slugs
+  don't cross-resolve. The composite PK costs a `spaceId` column but
+  buys a tight, scope-correct answer.
+- **404, not 403, on no access.** A space-scoped route the access
+  middleware normally returns 403 for "non-member of this space", but
+  for the redirect resolver 404 is the correct signal. The brief's
+  §12.2 wording is explicit: "through the same permission check as
+  the live page, so a redirect can't be used to bypass access control."
+  The live page's read route returns 404 when access fails, so the
+  redirect does too.
+- **`onConflictDoUpdate` rather than `INSERT OR IGNORE`.** A rename
+  that targets a slug the page itself previously used (e.g., `todo`
+  → `tasks` → `todo`) would otherwise stack up redundant rows. The
+  update path consolidates them without losing history.
+- **No wikilink node yet.** The redirect resolver is built but unused
+  by the editor. When a future slice adds a Tiptap `wikilink` node,
+  it'll dispatch through `resolveSlug` to canonicalize the target.
+- **Trash + reinstated pages.** Trash soft-deletes on the page (sets
+  `deletedAt`); the resolver filters out `deletedAt !== null` on the
+  redirect target too. A page restored from trash at its old slug
+  re-resolves as live; the redirect row is unaffected but never
+  matched.
+
+### Follow-ups left for later
+
+- A Tiptap `wikilink` node that uses this resolver when a user
+  clicks a `[[slug]]` reference in the editor.
+- A `/s/<spaceSlug>/<pageSlug>` route the share-link endpoint can
+  redirect to the resolved branchId — so URLs you paste into chat
+  before renaming still work.
+- Visual indicator in the editor when an open page was hit through a
+  redirect (e.g., toast "Opened via alias `todo` — current slug is
+  `tasks`").
