@@ -138,10 +138,10 @@ export function CollabEditor({
           className={cn(
             "h-1.5 w-1.5 rounded-full",
             status === "connected" && isSynced
-              ? "bg-emerald-500"
+              ? "bg-success"
               : status === "connected"
-                ? "bg-amber-500"
-                : "bg-rose-500",
+                ? "bg-warning"
+                : "bg-danger",
           )}
           aria-hidden
         />

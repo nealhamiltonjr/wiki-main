@@ -16,18 +16,26 @@ export interface CollabUser {
   color: string;
 }
 
+// Caret colors live in tokens.css (--user-color-0..9). Identity colors — fixed
+// across themes — and reading them via getComputedStyle keeps the §5 rule
+// that every color value lives in one file.
+const USER_COLOR_VARS = Array.from({ length: 10 }, (_, i) => `--user-color-${i}`);
+
+function readUserColor(index: number): string {
+  if (typeof document === "undefined") return "";
+  const root = document.documentElement;
+  return getComputedStyle(root).getPropertyValue(USER_COLOR_VARS[index] ?? "").trim();
+}
+
 /**
  * Picks a deterministic caret color from a user id so a given person keeps
- * the same cursor color across sessions.
+ * the same cursor color across sessions. The palette is sourced from
+ * tokens.css at runtime — JS never holds a literal color.
  */
 export function userColor(userId: string): string {
-  const palette = [
-    "#f43f5e", "#f59e0b", "#10b981", "#06b6d4", "#6366f1",
-    "#a855f7", "#ec4899", "#84cc16", "#f97316", "#0ea5e9",
-  ];
   let hash = 0;
   for (let i = 0; i < userId.length; i += 1) hash = (hash * 31 + userId.charCodeAt(i)) >>> 0;
-  return palette[hash % palette.length]!;
+  return readUserColor(hash % USER_COLOR_VARS.length);
 }
 
 /**

@@ -83,7 +83,7 @@ function PluginSettingsPage() {
           {uploadStatus && <span className="ml-3 text-xs text-text-muted">{uploadStatus}</span>}
         </div>
 
-        {error && <div className="mb-3 text-sm text-rose-600">{error}</div>}
+        {error && <div className="mb-3 text-sm text-danger">{error}</div>}
 
         {loading ? (
           <div className="text-sm text-text-muted">Loading…</div>
@@ -105,7 +105,7 @@ function PluginSettingsPage() {
                   <td className="py-2 pr-4">{p.name} <span className="text-xs text-text-muted">({p.id})</span></td>
                   <td className="py-2 pr-4 text-text-muted">{p.version}</td>
                   <td className="py-2 pr-4">
-                    <span className={p.enabled ? "text-emerald-600" : "text-text-muted"}>
+                    <span className={p.enabled ? "text-success" : "text-text-muted"}>
                       {p.enabled ? "Enabled" : "Disabled"}
                     </span>
                   </td>
@@ -119,7 +119,7 @@ function PluginSettingsPage() {
                     </button>
                     <button
                       type="button"
-                      className="text-xs px-2 py-0.5 rounded border border-border text-rose-600 hover:bg-rose-50 transition-colors"
+                      className="text-xs px-2 py-0.5 rounded border border-border text-danger hover:bg-danger/10 transition-colors"
                       onClick={() => uninstall(p.id)}
                     >
                       Uninstall

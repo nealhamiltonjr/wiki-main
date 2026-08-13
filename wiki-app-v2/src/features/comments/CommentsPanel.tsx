@@ -155,7 +155,7 @@ function CommentsPanelBody({
                   data-testid="thread-resolve"
                   className={cn(
                     "flex h-6 w-6 items-center justify-center rounded transition-colors",
-                    t.resolvedAt ? "text-emerald-500 hover:bg-emerald-500/10" : "text-text-muted hover:bg-surface-hover"
+                    t.resolvedAt ? "text-success hover:bg-success/10" : "text-text-muted hover:bg-surface-hover"
                   )}
                 >
                   {t.resolvedAt ? <RotateCcw className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
@@ -163,7 +163,7 @@ function CommentsPanelBody({
               )}
             </div>
             {t.resolvedAt ? (
-              <p className="mt-1 text-[11px] text-emerald-600" data-testid="thread-resolved-label">Resolved</p>
+              <p className="mt-1 text-[11px] text-success" data-testid="thread-resolved-label">Resolved</p>
             ) : null}
             {t.comments.map((c) => (
               <div key={c.id} className="mt-2 rounded-md border border-border bg-surface px-2.5 py-2"

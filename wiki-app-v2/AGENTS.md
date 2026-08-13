@@ -145,6 +145,42 @@
   the editor mid-interaction (eats keystrokes/Enter). Any spec that needs a quiet
   editor should use the seeded "notes" page.
 
+## Slice-15 / theming architecture (§5)
+
+- **Single token source: `src/styles/tokens.css`.** Every color, radius, font,
+  shadow, and animation value the app renders is defined here under `:root`
+  (light defaults), `[data-theme="dark"]`, and `[data-theme="contrast"]`. No
+  other file holds a literal color (`#…`, `rgb(…)`, `hsl(…)`) or a Tailwind
+  named-color utility (`text-rose-600`, `bg-emerald-500/10`, etc.). The
+  `:root` block owns non-color tokens (typography, radii, shadows, timing,
+  borders widths, chrome dimensions) — themes override colors only.
+- **The `@theme inline { … }` block lives at the bottom of `tokens.css`.**
+  It aliases every canonical token into Tailwind's utility namespace
+  (`--color-primary: var(--primary)`, `--shadow-lg: var(--shadow-lg)` …),
+  so `bg-primary`, `text-danger`, `border-surface`, `shadow-md` etc.
+  resolve directly to the canonical var. `app.css` only contains
+  `@layer base` rules (shadcn var remapping, prose) — no `@theme`.
+- **Token budget:** ~70 colors (light/dark/contrast), 10-radius scale,
+  3 font stacks, 4 shadow levels, 3 timing tokens (`--duration-fast` /
+  `--duration-normal` / `--duration-slow`) + `--ease-default`,
+  chrome dimensions (`--topbar-height`, `--sidebar-width`,
+  `--settings-nav-width`, `--prose-width`).
+- **Caret colors (`--user-color-0` … `--user-color-9`) are defined per
+  theme** because they're identity colors — kept stable across themes on
+  purpose. JS reads them at runtime via `getComputedStyle(documentElement)`
+  in `useCollab.userColor()`; the palette array was deleted from the file,
+  no literal colors in JS.
+- **Component-code sweep:** `useCollab.ts`, `Editor.tsx`,
+  `FavoriteButton.tsx`, `CommentsPanel.tsx`, `extensions/MermaidRenderer.tsx`,
+  `routes/_authenticated/settings/plugins.tsx` were migrated off named-color
+  utilities onto the new `success` / `warning` / `danger` / `info` /
+  `text-muted` tokens.
+- **Enforcement test:** `src/styles/__tests__/theme.test.ts` has three
+  checks — (1) no literal colors outside `tokens.css`/`app.css`, (2) every
+  `var(--…)` reference resolves to a definition, (3) light/dark/contrast
+  define the same color-role set. Run as part of `npm test`; adds 3 tests
+  to the suite (211 total).
+
 ## Known limitations (accepted, not blocking)
 
 - **Deleted pages leave a stale file in the git tree.** `deletePageEverywhere`

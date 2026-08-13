@@ -60,7 +60,7 @@
   border: none;
   padding: 0;
   color: var(--color-text-secondary);
-  transition: transform 120ms ease;
+  transition: transform var(--duration-fast) var(--ease-default);
 }
 
 .tree-chevron.collapsed svg {
@@ -81,7 +81,7 @@
 }
 
 .tree-page-icon {
-  font-size: 14px;
+  font-size: var(--text-sm);
   line-height: 1;
 }
 
@@ -97,37 +97,10 @@
 /* Expose every canonical token to Tailwind's utility namespace. Utilities like
  * bg-background / text-foreground / border-border / bg-primary / bg-surface
  * resolve directly to the token vars (inline = reference, not copy).
+ *
+ * The full alias block lives in tokens.css alongside the canonical tokens so
+ * every look-and-feel value has a single source of truth (§5.3).
  */
-@theme inline {
-  --color-background: var(--background);
-  --color-surface: var(--surface);
-  --color-surface-hover: var(--surface-hover);
-  --color-surface-elevated: var(--surface-elevated);
-  --color-foreground: var(--foreground);
-  --color-text-secondary: var(--text-secondary);
-  --color-text-muted: var(--text-muted);
-  --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
-  --color-primary: var(--primary);
-  --color-primary-hover: var(--primary-hover);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-link: var(--link);
-  --color-danger: var(--danger);
-  --color-danger-hover: var(--danger-hover);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
-  --color-focus-ring: var(--focus-ring);
-  --color-selection: var(--selection);
-  --color-code-bg: var(--code-bg);
-  --color-code-text: var(--code-text);
-  --color-inline-code-bg: var(--inline-code-bg);
-  --color-inline-code-text: var(--inline-code-text);
-  --color-blockquote-bg: var(--blockquote-bg);
-  --color-blockquote-border: var(--blockquote-border);
-  --color-table-header-bg: var(--table-header-bg);
-  --color-highlight-bg: var(--highlight-bg);
-  --color-highlight-text: var(--highlight-text);
-}
 
 @layer base {
   /* shadcn/ui maps its own variable names onto the same tokens — no second
@@ -177,10 +150,11 @@
  * toolbar and bubble menu are siblings, never parents of the content.
  * ------------------------------------------------------------------------- */
 .editor-canvas {
-  border: 1px solid var(--border);
+  border: var(--border-width) solid var(--border);
   border-radius: var(--radius-md);
   background: var(--background);
-  transition: border-color 150ms ease, box-shadow 150ms ease;
+  transition: border-color var(--duration-normal) var(--ease-default),
+              box-shadow var(--duration-normal) var(--ease-default);
 }
 
 .editor-canvas:focus-within {
@@ -324,15 +298,16 @@
 }
 
 /* ---------------------------------------------------------------------------
- * Prism syntax highlighting (slice-5, §13.6) — One Dark color palette,
- * clamped to token vars so they read against the existing code-block bg.
+ * Prism syntax highlighting (slice-5, §13.6) — token-driven, no literal colors.
+ * Light/dark themes override these via tokens.css; the rule that any color
+ * change is a one-file edit holds.
  * ------------------------------------------------------------------------- */
 .wiki-prose .token.comment,
 .wiki-prose .token.prolog,
 .wiki-prose .token.doctype,
-.wiki-prose .token.cdata { color: var(--text-muted); }
+.wiki-prose .token.cdata { color: var(--code-comment); }
 
-.wiki-prose .token.punctuation { color: var(--text-secondary); }
+.wiki-prose .token.punctuation { color: var(--code-punctuation); }
 
 .wiki-prose .token.property,
 .wiki-prose .token.tag,
@@ -340,29 +315,29 @@
 .wiki-prose .token.number,
 .wiki-prose .token.constant,
 .wiki-prose .token.symbol,
-.wiki-prose .token.deleted { color: #e06c75; }
+.wiki-prose .token.deleted { color: var(--code-variable); }
 
 .wiki-prose .token.selector,
 .wiki-prose .token.attr-name,
 .wiki-prose .token.string,
 .wiki-prose .token.char,
 .wiki-prose .token.builtin,
-.wiki-prose .token.inserted { color: #98c379; }
+.wiki-prose .token.inserted { color: var(--code-string); }
 
 .wiki-prose .token.operator,
 .wiki-prose .token.entity,
-.wiki-prose .token.url { color: #56b6c2; }
+.wiki-prose .token.url { color: var(--code-operator); }
 
 .wiki-prose .token.atrule,
 .wiki-prose .token.attr-value,
-.wiki-prose .token.keyword { color: #c678dd; }
+.wiki-prose .token.keyword { color: var(--code-keyword); }
 
 .wiki-prose .token.function,
-.wiki-prose .token.class-name { color: #61afef; }
+.wiki-prose .token.class-name { color: var(--code-function); }
 
 .wiki-prose .token.regex,
 .wiki-prose .token.important,
-.wiki-prose .token.variable { color: #d19a66; }
+.wiki-prose .token.variable { color: var(--code-regex); }
 
 .wiki-prose .token.important,
 .wiki-prose .token.bold { font-weight: 700; }

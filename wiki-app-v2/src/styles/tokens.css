@@ -45,6 +45,33 @@
   /* --- Spacing base ------------------------------------------------------ */
   /* Tailwind v4 computes p-4/m-4/… as calc(var(--spacing) * n). */
   --spacing: 0.25rem;
+
+  /* --- Shadow / elevation scale ----------------------------------------- */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 4px -1px rgba(0, 0, 0, 0.08), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 16px -4px rgba(0, 0, 0, 0.10), 0 4px 8px -2px rgba(0, 0, 0, 0.06);
+  --shadow-overlay: 0 16px 48px -8px rgba(0, 0, 0, 0.20);
+
+  /* --- Z-index scale -----------------------------------------------------
+   * Keeps the layered UI (treetop dropdowns, slash menu, modals, toasts)
+   * deterministic and overridable from one place. Tailwind's `z-50` utility
+   * still works; these are the documented names for hand-written CSS.
+   */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-dropdown: 50;
+  --z-overlay: 100;
+  --z-modal: 150;
+  --z-toast: 200;
+
+  /* --- Animation timing -------------------------------------------------- */
+  --duration-fast: 120ms;
+  --duration-normal: 150ms;
+  --duration-slow: 240ms;
+  --ease-default: cubic-bezier(0.2, 0, 0, 1);
+
+  /* --- Border width ------------------------------------------------------ */
+  --border-width: 1px;
 }
 
 /* ----------------------------------------------------------------------------
@@ -92,6 +119,48 @@
   --table-header-bg: #f1f5f9;
   --highlight-bg: #fef9c3;
   --highlight-text: #1e293b;
+
+  /* Prism syntax highlighting palette (One Dark, light-tuned). Component code
+   * reads these; no literal hex values are allowed outside this file.
+   */
+  --code-comment: #94a3b8;
+  --code-punctuation: #475569;
+  --code-keyword: #c678dd;
+  --code-string: #98c379;
+  --code-number: #d19a66;
+  --code-function: #61afef;
+  --code-operator: #56b6c2;
+  --code-variable: #e06c75;
+  --code-regex: #d19a66;
+
+  /* Info accent (system page hints, non-error notifications). */
+  --info: #0284c7;
+  --info-hover: #0369a1;
+  --info-bg: #e0f2fe;
+  --info-border: #7dd3fc;
+
+  /* Overlay scrim (modal backdrops). */
+  --scrim: rgba(15, 23, 42, 0.5);
+
+  /* Chrome dimensions — every named chrome region reads from here. */
+  --topbar-height: 3rem;        /* 48px */
+  --sidebar-width: 16rem;       /* 256px */
+  --settings-nav-width: 13rem;  /* 208px */
+  --prose-max-width: 72ch;
+
+  /* Collab caret palette (fixed across themes — identity colors, not theme
+   * colors). userColor() in useCollab reads these via JS getComputedStyle().
+   */
+  --user-color-0: #f43f5e;
+  --user-color-1: #f59e0b;
+  --user-color-2: #10b981;
+  --user-color-3: #06b6d4;
+  --user-color-4: #6366f1;
+  --user-color-5: #a855f7;
+  --user-color-6: #ec4899;
+  --user-color-7: #84cc16;
+  --user-color-8: #f97316;
+  --user-color-9: #0ea5e9;
 
   /* Spacing scale for hand-written CSS (Tailwind utilities use --spacing) */
   --space-1: calc(var(--spacing) * 1);
@@ -143,6 +212,26 @@
   --table-header-bg: #1e293b;
   --highlight-bg: #422006;
   --highlight-text: #fef9c3;
+
+  /* Prism (One Dark, dark-tuned). */
+  --code-comment: #5c6370;
+  --code-punctuation: #abb2bf;
+  --code-keyword: #c678dd;
+  --code-string: #98c379;
+  --code-number: #d19a66;
+  --code-function: #61afef;
+  --code-operator: #56b6c2;
+  --code-variable: #e06c75;
+  --code-regex: #d19a66;
+
+  /* Info accent on dark backgrounds. */
+  --info: #38bdf8;
+  --info-hover: #0ea5e9;
+  --info-bg: #082f49;
+  --info-border: #0369a1;
+
+  /* Overlay scrim heavier on dark for legibility. */
+  --scrim: rgba(0, 0, 0, 0.6);
 }
 
 /* ----------------------------------------------------------------------------
@@ -160,12 +249,76 @@
   --border-strong: #737373;
   --primary: #4c8dff;
   --primary-hover: #3b82f6;
+  --primary-foreground: #000000;
   --link: #6ea8ff;
   --focus-ring: rgba(76, 141, 255, 0.6);
   --selection: rgba(76, 141, 255, 0.45);
   --danger: #ff6b6b;
+  --danger-hover: #ff5252;
   --success: #4ade80;
   --warning: #fbbf24;
+  --code-bg: #0a0a0a;
+  --code-text: #ffffff;
+  --inline-code-bg: #1a1a1a;
   --inline-code-text: #fda4af;
+  --blockquote-bg: #0a0a0a;
+  --blockquote-border: #737373;
+  --table-header-bg: #1a1a1a;
+  --highlight-bg: #422006;
+  --highlight-text: #fef9c3;
+  --info: #38bdf8;
+  --info-hover: #0ea5e9;
+  --info-bg: #082f49;
+  --info-border: #0369a1;
+  --scrim: rgba(0, 0, 0, 0.85);
   color-scheme: dark;
+}
+
+/* ----------------------------------------------------------------------------
+ * Tailwind utility namespace — every canonical token is aliased here so
+ * `bg-primary` / `text-foreground` / `border-danger` / `shadow-lg` etc.
+ * resolve to the token vars above. Tailwind v4 emits these as real CSS
+ * custom props on :root, so hand-written CSS can also use them.
+ * ---------------------------------------------------------------------------- */
+@theme inline {
+  /* Colors */
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-foreground: var(--foreground);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-link: var(--link);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-focus-ring: var(--focus-ring);
+  --color-selection: var(--selection);
+  --color-code-bg: var(--code-bg);
+  --color-code-text: var(--code-text);
+  --color-inline-code-bg: var(--inline-code-bg);
+  --color-inline-code-text: var(--inline-code-text);
+  --color-blockquote-bg: var(--blockquote-bg);
+  --color-blockquote-border: var(--blockquote-border);
+  --color-table-header-bg: var(--table-header-bg);
+  --color-highlight-bg: var(--highlight-bg);
+  --color-highlight-text: var(--highlight-text);
+  --color-info: var(--info);
+  --color-info-hover: var(--info-hover);
+  --color-info-bg: var(--info-bg);
+  --color-info-border: var(--info-border);
+  --color-scrim: var(--scrim);
+
+  /* Shadows — read by Tailwind's shadow-* utilities. */
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-overlay: var(--shadow-overlay);
 }

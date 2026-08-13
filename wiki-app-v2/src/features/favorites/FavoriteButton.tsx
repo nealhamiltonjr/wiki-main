@@ -34,7 +34,7 @@ export function FavoriteButton({ branchId, initiallyFavorited = false }: { branc
       data-testid="favorite-button"
       className={cn(
         "flex h-8 w-8 items-center justify-center rounded-md border border-border transition-colors",
-        favorited ? "bg-amber-500/10 text-amber-500 hover:bg-amber-500/20" : "text-text-secondary hover:bg-surface-hover"
+        favorited ? "bg-warning/10 text-warning hover:bg-warning/20" : "text-text-secondary hover:bg-surface-hover"
       )}
     >
       <Star className={cn("h-4 w-4", favorited && "fill-current")} />

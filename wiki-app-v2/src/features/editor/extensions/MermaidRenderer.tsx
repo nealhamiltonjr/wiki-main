@@ -39,7 +39,7 @@ export function MermaidRenderer({ source }: { source: string }) {
 
   if (error) {
     return (
-      <div className="my-4 rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+      <div className="my-4 rounded-md border border-danger/40 bg-danger/10 p-3 text-xs text-danger">
         <p className="font-semibold">Mermaid render error</p>
         <pre className="mt-1 whitespace-pre-wrap font-mono">{error}</pre>
       </div>

@@ -8,7 +8,8 @@ USER_CONTEXT: Continue building wiki-app-v2 following WIKI-REDESIGN-BRIEF-V2.md 
 - **slice-11 (Collab via Hocuspocus):** completed — root-cause bug fixed, all gate tests green, full manual lifecycle verified.
 - **slice-12 (Plugin engine):** completed — code + E2E gate green (10/10 e2e parallel, 176/176 unit/integration).
 - **slice-13 (First-party plugins — web clipper & Draw.io embed):** completed — code + gate green (12/12 e2e parallel, 195/195 unit/integration), incl. a real slash-menu bug fix. See SLICE-13 section.
-- **slice-14+ (Settings, theming, users/groups, regression):** not started.
+- **slice-14 (Settings consolidation + §7.2 audit comment):** completed — `d3dee0c`, `f37a89d`, docs `2d8f4db`. See slice-14 commits.
+- **slice-15 (Theming architecture — §5 single-token-layer):** completed — `src/styles/tokens.css` now owns every color/radius/font/shadow/animation value; `@theme inline` Tailwind alias block moved to `tokens.css`; component-code sweep across `useCollab.ts`, `Editor.tsx`, `FavoriteButton.tsx`, `CommentsPanel.tsx`, `extensions/MermaidRenderer.tsx`, `settings/plugins.tsx`; enforcement test in `src/styles/__tests__/theme.test.ts` (3 checks). 211/211 unit/integration green; typecheck clean; `vite build` succeeds.
 
 ## Slice-13 — first-party plugins
 
@@ -194,25 +195,94 @@ Command run: `npx vitest run src/server/__tests__/collab.integration.test.ts` �
   wiping `data/plugins` first. Seed user: `e2e@test.local` / `E2ePass-1234` (space
   "Demo Space", welcome tree, `isAdmin=true`).
 
-## Next up (slices 13+)
+## Slice-15 — theming architecture (§5)
 
-13. **First-party plugins** — web clipper and Draw.io embed, built as plugins (§4.6).
-14. **Settings consolidation** — full `/settings` IA (§7). The plugin engine already
-    exposes `useSettingsPanels`; the `/settings/plugins` page does not render plugin
-    panels yet — natural first task.
-15. **Theming polish pass** — full token set, light/dark, §5.3 acceptance test.
+### Gate status
+
+- `npm run typecheck` → exit 0.
+- `npm test` → **211/211 passed** (+3 from `src/styles/__tests__/theme.test.ts`).
+- `npm run build` → typecheck + vite build clean.
+
+### What was built
+
+1. **`src/styles/tokens.css` is now the single source of truth for every
+   look-and-feel value.** Three theme blocks (`:root` light defaults,
+   `[data-theme="dark"]`, `[data-theme="contrast"]`) cover ~70 color roles
+   (background, surface stack, foreground, text-secondary/muted, borders,
+   primary, link, success/warning/danger/info, focus-ring, selection,
+   code/inline-code, blockquote, table-header, highlight, scrim, plus
+   10 caret colors for collab). `:root` also owns non-color tokens:
+   typography (`--font-sans/serif/mono`), a 10-step radius scale, four
+   shadow levels, three timing tokens (`--duration-fast` 120ms /
+   `--duration-normal` 150ms / `--duration-slow` 250ms) +
+   `--ease-default`, `--border-width`, and chrome dimensions
+   (`--topbar-height`, `--sidebar-width`, `--settings-nav-width`,
+   `--prose-width`).
+2. **The `@theme inline { … }` Tailwind alias block moved from `app.css`
+   to the bottom of `tokens.css`.** This makes the single-file-change
+   rule (§5.3) literal: every Tailwind utility (`bg-primary`, `text-danger`,
+   `shadow-md`, `border-surface`, …) and every hand-written CSS variable
+   resolve to the same canonical token. `app.css` is now just `@layer base`
+   rules (shadcn var remapping, prose, slash menu, editor canvas).
+3. **`src/styles/__tests__/theme.test.ts` enforces the contract
+   mechanically** with three checks:
+   - **No literal colors outside the two whitelisted files** —
+     `HEX_COLOR_RE` / `RGB_COLOR_RE` / `HSL_COLOR_RE` / Tailwind named-color
+     utilities (`text-rose-600`, `bg-emerald-500/10`, etc.) are all banned
+     outside `tokens.css` and `app.css`. A violation lists every offending
+     file:line so a new contributor can't accidentally bypass the token
+     system.
+   - **Every `var(--…)` reference resolves** — `tokens.css` must define
+     every token name the rest of the app reads (typos, missing roles,
+     and orphans are caught at CI time).
+   - **Light/dark/contrast define the same color-role set** — non-color
+     tokens (typography, radii, shadow, timing) intentionally live in
+     `:root` only, but every color role must appear in all three themes
+     so a role referenced by a component always resolves to the active
+     theme's value (not a leaked light default).
+4. **Component-code sweep.** Six files had literal `text-rose-600` /
+   `bg-emerald-500/10` / `text-amber-500` / `bg-red-50` style utilities —
+   migrated to the new semantic tokens (`success`, `warning`, `danger`,
+   `info`, `text-muted`):
+   - `src/features/editor/useCollab.ts` — the JS caret palette
+     (`["#f43f5e", …]`) is now read from `--user-color-0…9` at runtime
+     via `getComputedStyle(document.documentElement)`. No literal color
+     in JS.
+   - `src/features/editor/Editor.tsx` — collab status dots.
+   - `src/features/favorites/FavoriteButton.tsx` — favorited star color.
+   - `src/features/comments/CommentsPanel.tsx` — resolve/unresolve
+     button + Resolved label.
+   - `src/features/editor/extensions/MermaidRenderer.tsx` — error state.
+   - `src/routes/_authenticated/settings/plugins.tsx` — error banner,
+     Enabled label, Uninstall button.
+
+### How to re-theme
+
+Open `src/styles/tokens.css`. Edit any value under `:root` (or any of the
+three theme blocks) and save — the change propagates to every component,
+every shadcn primitive, the editor prose, and the chrome without touching
+any other file. The test suite guarantees the contract stays intact:
+`npm test` will fail the moment someone reintroduces a literal color.
+
+## Next up (slices 16+)
+
 16. **Users/groups/admin UX polish.**
 17. **Full regression pass** — Vitest + Playwright + §9.4 manual checklist.
 
 ## Repo hygiene
 
-- Branch `rebuild-v2`; slice-11/12 code is committed up to `c699e33`
-  (feat: slice-12 plugin engine). The slice-12 gate-pass work below is **uncommitted**:
-  `src/server/services/plugin.service.ts` (EISDIR fix),
-  `src/server/__tests__/plugin.integration.test.ts` (+2 install tests),
-  `test-fixtures/hello-world-plugin/` + `.zip` (manifest fix), `e2e/plugins.spec.ts`
-  (gate spec + hardening), `playwright.config.ts` (rate-limit window),
-  `scripts/seed-e2e.ts`, `vite.config.ts`, `src/features/editor/SlashMenu.tsx`,
-  `src/routes/_authenticated.tsx`.
+- Branch `rebuild-v2`; latest commits `2d8f4db` (slice-14 docs), `d3dee0c`
+  (slice-14 settings), `fab8e03` (slice-13 first-party plugins).
+- Slice-15 theming work is **uncommitted** in the working tree:
+  - `src/styles/tokens.css` (canonical tokens + `@theme inline` aliases)
+  - `src/styles/app.css` (now only `@layer base`; alias block removed)
+  - `src/styles/__tests__/theme.test.ts` (new — 3 acceptance tests)
+  - `src/features/editor/useCollab.ts` (caret palette via CSS vars)
+  - `src/features/editor/Editor.tsx` (collab indicator dots)
+  - `src/features/favorites/FavoriteButton.tsx`
+  - `src/features/comments/CommentsPanel.tsx`
+  - `src/features/editor/extensions/MermaidRenderer.tsx`
+  - `src/routes/_authenticated/settings/plugins.tsx`
+  - `AGENTS.md` (slice-15 section), `PROJECT-OVERVIEW.md` (this file)
 - `tsconfig.tsbuildinfo` and `data/` are untracked build/local artifacts (data/ is
   gitignored at workspace level).
