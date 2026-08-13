@@ -10,6 +10,7 @@ USER_CONTEXT: Continue building wiki-app-v2 following WIKI-REDESIGN-BRIEF-V2.md 
 - **slice-13 (First-party plugins — web clipper & Draw.io embed):** completed — code + gate green (12/12 e2e parallel, 195/195 unit/integration), incl. a real slash-menu bug fix. See SLICE-13 section.
 - **slice-14 (Settings consolidation + §7.2 audit comment):** completed — `d3dee0c`, `f37a89d`, docs `2d8f4db`. See slice-14 commits.
 - **slice-15 (Theming architecture — §5 single-token-layer):** completed — `src/styles/tokens.css` now owns every color/radius/font/shadow/animation value; `@theme inline` Tailwind alias block moved to `tokens.css`; component-code sweep across `useCollab.ts`, `Editor.tsx`, `FavoriteButton.tsx`, `CommentsPanel.tsx`, `extensions/MermaidRenderer.tsx`, `settings/plugins.tsx`; enforcement test in `src/styles/__tests__/theme.test.ts` (3 checks). 211/211 unit/integration green; typecheck clean; `vite build` succeeds.
+- **slice-16 (users · groups · admin UX polish — §7.1):** completed — themed `ConfirmDialog` component on the native `<dialog>` element replacing `confirm()` for destructive actions on Users + Groups; capability-editing UI in `/settings/groups` (closed catalogue matching `CAPABILITY_ROUTE_MAP` + `create_permanent_links`); Users page search + last-admin guard + retry-able error banner + unverified-email marker; settings layout drops the redundant H1 (each sub-page owns its own). 24 files / 212 tests green; typecheck clean; build clean.
 
 ## Slice-13 — first-party plugins
 
@@ -264,9 +265,59 @@ every shadcn primitive, the editor prose, and the chrome without touching
 any other file. The test suite guarantees the contract stays intact:
 `npm test` will fail the moment someone reintroduces a literal color.
 
-## Next up (slices 16+)
+## Slice-16 — users · groups · admin UX polish (§7.1)
 
-16. **Users/groups/admin UX polish.**
+### Gate status
+
+- `npx vitest run` → 24 files, **212/212 passed** (was 211; +1 new
+  PATCH /api/groups/:id capability test).
+- `npm run typecheck` → clean.
+- `npm run build` → clean (pre-existing chunk-size warning only).
+
+### What was built
+
+1. **`ConfirmDialog` component** (`src/components/ui/confirm-dialog.tsx`) —
+   themed, accessible confirm dialog replacing native `confirm()`. Built on
+   the native `<dialog>` element so it gets `::backdrop`, focus trap, and
+   Esc-to-close for free — no Radix dialog dep added. Cancels when the
+   click lands outside the box (bounding-rect discrimination). Cancel
+   button receives focus on open so keyboard users get a safe default;
+   both actions disabled while `pending` to block double-clicks. Renders
+   via a portal into `document.body`.
+2. **`Button` now forwards refs** (`src/components/ui/button.tsx`) — wraps
+   the render in `React.forwardRef` so `ConfirmDialog` can focus the cancel
+   button via `cancelRef.current?.focus()`. No behaviour change for any
+   existing caller.
+3. **Users page polish** (`/settings/users`):
+   - Search input filtering by name, email, or role with "N of M" hint.
+   - Summary tiles: Total / Admins / Suspended.
+   - Last-admin guard disabling the "Remove admin" button on the only
+     remaining admin (prevents the only-admin lockout path that the
+     server's self-demotion guard didn't cover).
+   - Error banner with Retry (network/403 errors now offer recovery).
+   - Unverified-email marker on the email cell.
+4. **Groups page polish** (`/settings/groups`):
+   - Capability editing UI (closed `CAPABILITY_CATALOG` matching the
+     server's `CAPABILITY_ROUTE_MAP` + `create_permanent_links`). Drives
+     the existing `PATCH /api/groups/:id` endpoint that had no UI before.
+   - "via wildcard" badge on rows already covered by `admin.*`.
+   - Group-delete confirm describes the impact ("N membership(s) and every
+     permission grant issued through the group are removed").
+   - Summary tiles + retry-able error banner.
+5. **Settings layout** (`/settings`) — removed the redundant `Settings` H1;
+   each sub-page already owns its H2 ("Users", "Groups & Permissions", …).
+   The left-nav active state remains the orientation anchor.
+
+### How to test the dialog locally
+
+`/settings/users` — pick any non-self user → click "Suspend" → themed
+dialog with destructive styling and a working Esc/cancel.
+`/settings/groups` — open a group's capability checklist → toggle a few →
+"Save changes" → confirm the network request and the success state.
+Try `Delete` on a group with members to see the impact-confirm dialog.
+
+## Next up (slice 17+)
+
 17. **Full regression pass** — Vitest + Playwright + §9.4 manual checklist.
 
 ## Repo hygiene

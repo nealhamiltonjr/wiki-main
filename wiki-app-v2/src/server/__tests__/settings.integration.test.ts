@@ -186,6 +186,68 @@ describe("settings consolidation (slice-14) integration", () => {
     expect(res.statusCode).toBe(403);
   });
 
+  // ---- slice-16: capability editing UI drives this endpoint. The PATCH was
+  // already wired (slice-14) but had no UI and no direct test — the settings
+  // page now exposes it via the closed catalogue in groups.tsx.
+  it("updates a group's capabilities via PATCH and rejects non-admins", async () => {
+    const create = await app.inject({
+      method: "POST",
+      url: "/api/groups",
+      headers: { cookie: adminCookie },
+      payload: { name: "LinkManagers", capabilities: [] },
+    });
+    expect(create.statusCode).toBe(201);
+    const groupId = create.json().id as string;
+
+    const patch = await app.inject({
+      method: "PATCH",
+      url: `/api/groups/${groupId}`,
+      headers: { cookie: adminCookie },
+      payload: { capabilities: ["create_permanent_links", "admin.logs"] },
+    });
+    expect(patch.statusCode).toBe(200);
+    expect(patch.json().capabilities).toEqual(["create_permanent_links", "admin.logs"]);
+
+    // Persisted — GET /api/groups reflects the change for the next request.
+    const list = await app.inject({ method: "GET", url: "/api/groups", headers: { cookie: adminCookie } });
+    const row = list.json().find((g: { id: string }) => g.id === groupId);
+    expect(row.capabilities).toEqual(["create_permanent_links", "admin.logs"]);
+
+    // Replacing with the wildcard should overwrite the narrower caps.
+    const wildcard = await app.inject({
+      method: "PATCH",
+      url: `/api/groups/${groupId}`,
+      headers: { cookie: adminCookie },
+      payload: { capabilities: ["admin.*"] },
+    });
+    expect(wildcard.statusCode).toBe(200);
+    expect(wildcard.json().capabilities).toEqual(["admin.*"]);
+
+    // Renaming via PATCH is independent of capabilities.
+    const rename = await app.inject({
+      method: "PATCH",
+      url: `/api/groups/${groupId}`,
+      headers: { cookie: adminCookie },
+      payload: { name: "Link Managers" },
+    });
+    expect(rename.statusCode).toBe(200);
+    expect(rename.json().name).toBe("Link Managers");
+    expect(rename.json().capabilities).toEqual(["admin.*"]);
+
+    // Non-admin callers are rejected — the only-admin invariant holds for
+    // capability edits too, otherwise a non-admin could self-grant admin.*.
+    const denied = await app.inject({
+      method: "PATCH",
+      url: `/api/groups/${groupId}`,
+      headers: { cookie: memberCookie },
+      payload: { capabilities: ["admin.*"] },
+    });
+    expect(denied.statusCode).toBe(403);
+
+    // Cleanup.
+    await app.inject({ method: "DELETE", url: `/api/groups/${groupId}`, headers: { cookie: adminCookie } });
+  });
+
   // -------------------------------------------------------------------- users
 
   it("lets admins promote users and guards against self-demotion/suspension", async () => {

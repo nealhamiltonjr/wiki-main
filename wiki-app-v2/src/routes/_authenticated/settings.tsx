@@ -98,7 +98,6 @@ function SettingsLayout() {
         ))}
       </nav>
       <div className="min-w-0 flex-1 overflow-auto p-6">
-        <h1 className="mb-4 text-xl font-semibold">Settings</h1>
         <Outlet />
       </div>
     </div>

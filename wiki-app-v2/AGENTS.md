@@ -181,6 +181,57 @@
   define the same color-role set. Run as part of `npm test`; adds 3 tests
   to the suite (211 total).
 
+## Slice-16 / users · groups · admin UX polish (§7.1)
+
+- **Themed `ConfirmDialog` component (`src/components/ui/confirm-dialog.tsx`).**
+  Replaces native `confirm()` everywhere users/groups perform destructive
+  actions (group delete, member remove, suspend, demote). Built on the native
+  `<dialog>` element so it gets platform modal semantics for free —
+  `::backdrop`, focus trap, Esc-to-close, inert-when-closed — without adding a
+  Radix dialog dependency. Renders into a portal at `document.body`. Cancel
+  button is focused on open so keyboard users get a safe default; both
+  actions are disabled while `pending` to prevent double-clicks. Stops
+  clicks-on-backdrop from closing only when the click is inside the box
+  (uses bounding-rect discrimination).
+- **`Button` now forwards refs.** The change to `forwardRef` in
+  `button.tsx` is required so `ConfirmDialog` can focus its cancel button
+  via `cancelRef.current?.focus()`. No behaviour change for existing
+  callers.
+- **Users page (`/settings/users`)** — slice-16 polish:
+  - **Search by name / email / role.** Filter input + "N of M" hint.
+  - **Summary tiles:** Total / Admins / Suspended counts above the table.
+  - **Last-admin guard.** Disabling the "Remove admin" button on the only
+    remaining (non-suspended) admin. The server enforces self-demotion and
+    self-suspension already (slice-14); this prevents the only-admin
+    lockout via a different path. Tooltip explains why the button is off.
+  - **Error banner with retry.** Network/403 errors render in a styled
+    alert with a Retry button — the previous "Failed to load users"
+    string gave no recovery affordance.
+  - **Unverified-email marker.** Small `warning`-colored hint on the
+    email cell (this is the only use of `text-warning` outside tokens.css).
+- **Groups page (`/settings/groups`)** — slice-16 polish:
+  - **Capability editing UI.** The closed catalogue at the top of the
+    file (`CAPABILITY_CATALOG`) matches `CAPABILITY_ROUTE_MAP` in
+    `access.ts` plus `create_permanent_links` (the brief §3.10 "no
+    expiration grant group" capability, currently hardcoded to the
+    `link-managers` group in `token.service.ts`). Admins can toggle any
+    cap, see its description, and save via `PATCH /api/groups/:id`.
+    "via wildcard" badge appears on rows already covered by `admin.*`.
+  - **Group delete confirms the impact** ("N membership(s) and every
+    permission grant issued through the group are removed") instead of
+    the old one-liner.
+  - **Capability summary tile** (distinct-capabilities count) so an
+    admin can see how the system is shaped at a glance.
+  - **Error banner with retry.** Same shape as the Users page.
+- **Settings layout:** removed the redundant `Settings` H1 — each
+  sub-page owns its own H2 ("Users", "Groups & Permissions", etc.) so
+  the layout no longer duplicates it. The left-nav active state remains
+  the orientation anchor.
+- **New test:** `settings.integration.test.ts` "updates a group's
+  capabilities via PATCH and rejects non-admins" — covers persistence
+  (capabilities survive GET), wildcard overwrite, rename-independence,
+  and the admin-only guard. Suite is now 24 files / 212 tests (was 211).
+
 ## Known limitations (accepted, not blocking)
 
 - **Deleted pages leave a stale file in the git tree.** `deletePageEverywhere`
