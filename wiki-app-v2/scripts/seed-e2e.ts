@@ -84,7 +84,39 @@ export async function seedE2E(): Promise<void> {
   // the tree renders (slug + optional icon attribute).
   const rootA = await makePage(db, "welcome", "Welcome", userId, "🏠");
   const rootB = await makePage(db, "notes", "Notes", userId);
-  const child = await makePage(db, "getting-started", "Getting Started", userId, "🚀");
+  // Slice-19: give "Getting Started" a real multi-section body so the
+  // §12.6 in-page TOC has something to render in e2e. Each heading
+  // gets a stable id matching what the editor extension would assign
+  // (§7.12 block-id system) so TOC anchors actually resolve. Padding
+  // paragraphs after each section make the page tall enough that a
+  // small e2e viewport is forced to scroll when navigating between
+  // headings — without that, the click-scroll behaviour can't be
+  // observed deterministically.
+  const paddingParagraph = (n: number) => ({
+    type: "paragraph",
+    // Explicit id so §7.12's read-time auto-id assignment stays a no-op
+    // (otherwise the server logs `content-repair-read` warnings for
+    // every paragraph on every fetch — harmless but noisy).
+    attrs: { id: `gs-pad-${n}` },
+    content: [{ type: "text", text: `Padding paragraph ${n} so the page is long enough to force a scroll during e2e TOC navigation.`.repeat(2) }],
+  });
+  const gettingStartedContent = {
+    type: "doc",
+    content: [
+      { type: "heading", attrs: { level: 1, id: "gs-overview" }, content: [{ type: "text", text: "Overview" }] },
+      { type: "paragraph", attrs: { id: "gs-overview-lead" }, content: [{ type: "text", text: "Welcome to the wiki. This page is a quick orientation." }] },
+      paddingParagraph(1), paddingParagraph(2), paddingParagraph(3),
+      { type: "heading", attrs: { level: 2, id: "gs-install" }, content: [{ type: "text", text: "Installation" }] },
+      { type: "paragraph", attrs: { id: "gs-install-lead" }, content: [{ type: "text", text: "Run npm install and start the dev server." }] },
+      paddingParagraph(4), paddingParagraph(5), paddingParagraph(6),
+      { type: "heading", attrs: { level: 2, id: "gs-usage" }, content: [{ type: "text", text: "Daily usage" }] },
+      { type: "paragraph", attrs: { id: "gs-usage-lead" }, content: [{ type: "text", text: "Sign in, then create a space and start writing." }] },
+      paddingParagraph(7), paddingParagraph(8), paddingParagraph(9),
+      { type: "heading", attrs: { level: 3, id: "gs-usage-tips" }, content: [{ type: "text", text: "Tips" }] },
+      { type: "paragraph", attrs: { id: "gs-usage-tips-lead" }, content: [{ type: "text", text: "Use / for the slash menu and @ to mention teammates." }] },
+    ],
+  };
+  const child = await makePage(db, "getting-started", "Getting Started", userId, "🚀", gettingStartedContent);
   const grandchild = await makePage(db, "cli", "CLI Reference", userId);
 
   const rootBranchA = await makeBranch(db, spaceId, userId, rootA, null, 0);
@@ -109,14 +141,15 @@ async function makePage(
   slug: string,
   title: string,
   ownerId: string,
-  icon?: string
+  icon?: string,
+  content?: { type: "doc"; content: unknown[] }
 ): Promise<string> {
   const id = crypto.randomUUID();
   await db.insert(pages).values({
     id,
     slug,
     title,
-    content: { type: "doc", content: [{ type: "paragraph" }] },
+    content: content ?? { type: "doc", content: [{ type: "paragraph" }] },
     ownerId,
   });
   if (icon) {

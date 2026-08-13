@@ -9,6 +9,7 @@ import { useAutosave, saveStateLabel } from "@/features/editor/useAutosave";
 import { userColor, type CollabUser } from "@/features/editor/useCollab";
 import { useSession } from "@/api/authClient";
 import { ReadOnlyContent } from "@/features/editor/ReadOnlyContent";
+import { TableOfContents } from "@/features/editor/TableOfContents";
 import { CommentsPanel } from "@/features/comments/CommentsPanel";
 import { HistoryPanel } from "@/features/history/HistoryPanel";
 import { FavoriteButton } from "@/features/favorites/FavoriteButton";
@@ -159,7 +160,7 @@ function PageView() {
                   </div>
                 </div>
               </div>
-              {!showComments && <PageTOC content={content} />}
+              {!showComments && <TableOfContents content={content} />}
             </div>
           )}
         </div>
@@ -344,60 +345,4 @@ function EditableCanvas({ branchId, slug, content, updatedAt, collabOn, collabUs
       </div>
     </div>
   );
-}
-
-// ---------------------------------------------------------------------------
-// In-page table of contents (§12.6) — auto-generated from heading nodes in the
-// page JSON, sticky sidebar in read mode. Extracts headings from the Tiptap
-// doc tree (same source as ReadOnlyContent), anchors them via heading id attrs.
-// ---------------------------------------------------------------------------
-
-interface TocEntry { id: string; level: number; text: string }
-
-function PageTOC({ content }: { content: unknown }) {
-  const entries = useMemo(() => extractTocEntries(content), [content]);
-  if (entries.length < 2) return null; // Not enough headings to justify a TOC
-
-  return (
-    <nav className="sticky top-0 hidden w-52 shrink-0 overflow-auto border-l border-border px-3 py-6 lg:block" aria-label="In-page table of contents">
-      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-text-muted">On this page</h4>
-      <ul className="space-y-0.5">
-        {entries.map((e) => (
-          <li key={e.id}>
-            <a
-              href={`#${e.id}`}
-              className={cn(
-                "block rounded-sm py-0.5 text-xs text-text-secondary transition-colors hover:text-foreground",
-                e.level === 1 && "font-medium text-foreground",
-                e.level >= 3 && "pl-3"
-              )}
-            >
-              {e.text}
-            </a>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-}
-
-function extractTocEntries(content: unknown): TocEntry[] {
-  const entries: TocEntry[] = [];
-  const doc = content as { type: string; content?: Array<Record<string, unknown>> } | null;
-  if (!doc || doc.type !== "doc" || !Array.isArray(doc.content)) return entries;
-  for (const node of doc.content) {
-    if (node.type === "heading") {
-      const id = (node.attrs as Record<string, unknown> | undefined)?.id as string | undefined;
-      const level = (node.attrs as Record<string, unknown> | undefined)?.level as number ?? 2;
-      const text = extractText(node);
-      if (id && text) entries.push({ id, level, text });
-    }
-  }
-  return entries;
-}
-
-function extractText(node: Record<string, unknown>): string {
-  const children = node.content as Array<Record<string, unknown>> | undefined;
-  if (!Array.isArray(children)) return "";
-  return children.map((c) => (c.type === "text" ? (c.text as string) ?? "" : "")).join("");
 }
