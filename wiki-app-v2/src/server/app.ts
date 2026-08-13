@@ -21,6 +21,7 @@ import { groupRoutes } from "./routes/group.routes.js";
 import { userRoutes } from "./routes/user.routes.js";
 import { tokenRoutes } from "./routes/token.routes.js";
 import { lensRoutes } from "./routes/lens.routes.js";
+import { relationRoutes } from "./routes/relation.routes.js";
 import { registerPluginServerRoutes } from "./services/plugin.service.js";
 import multipart from "@fastify/multipart";
 
@@ -86,6 +87,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(userRoutes);
   await app.register(tokenRoutes);
   await app.register(lensRoutes);
+  await app.register(relationRoutes);
 
   // Register server routes for every enabled plugin that declares the
   // serverRoutes capability. A failing plugin is logged and skipped; it never

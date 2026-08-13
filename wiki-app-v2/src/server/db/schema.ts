@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, primaryKey } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, primaryKey, index } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 import { user, session, account, verification } from "./auth-schema.js";
 import type { PluginCapabilities } from "../../shared/pluginTypes.js";
@@ -341,15 +341,32 @@ export const userSettings = sqliteTable("user_settings", {
 // Attributes — label/value pairs on pages (Trilium-style promoted labels)
 // §7.12d.2 — isPromoted controls whether the attr surfaces in the editor sidebar.
 // ---------------------------------------------------------------------------
-export const attributes = sqliteTable("attributes", {
-  id: id(),
-  pageId: text("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  value: text("value").notNull().default(""),
-  isPromoted: integer("is_promoted", { mode: "boolean" }).notNull().default(false),
-  position: integer("position").notNull().default(0),
-  ...timestamps,
-});
+export const attributes = sqliteTable(
+  "attributes",
+  {
+    id: id(),
+    pageId: text("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Plain-text attribute value. Mutually meaningful with valuePageId:
+     *  - string attr  → value is non-empty (possibly ""), valuePageId is null
+     *  - relation attr → valuePageId is set, value is "" (used to stay
+     *    compatible with callers that haven't been relation-aware)
+     *  Enforced at the application layer (relation.service); SQLite CHECK
+     *  constraints can't reference another column without a trigger. */
+    value: text("value").notNull().default(""),
+    /** Slice-25 (§13.1): typed relation target. When set, this attribute is a
+     *  relation of `name` (the relation type) pointing at this page. */
+    valuePageId: text("value_page_id").references(() => pages.id, { onDelete: "cascade" }),
+    isPromoted: integer("is_promoted", { mode: "boolean" }).notNull().default(false),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => ({
+    /** Incoming-relation lookups: WHERE value_page_id = ? on the path of
+     *  "list every relation pointing at this page." */
+    valuePageIdIdx: index("attributes_value_page_id_idx").on(t.valuePageId),
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // Notifications (§7.12d.4) — in-app feed + optional email delivery
