@@ -255,3 +255,54 @@ Regression coverage: `src/server/__tests__/audit-fixes.integration.test.ts`
 ### Notable fixtures
 - `test-fixtures/hello-world-plugin/` — a minimal plugin exercising all
   PluginAPI methods. `test-fixtures/hello-world-plugin.zip` is pre-built.
+
+## Slice-14: Settings consolidation (completed, commit `d3dee0c`)
+
+### IA (§7.1)
+- `/settings` is the single entry point, visible to every signed-in user.
+- Sub-nav lists 10 sections; admin-only sections are filtered for non-admins
+  AND direct URL access to an admin URL bounces non-admins to `/settings/profile`
+  (effect in the layout, not during render — avoids flicker).
+- The topbar `Settings` link now points at `/settings/plugins` (the slice-12
+  e2e gate expects that exact URL).
+
+### Routes wired
+- `src/server/routes/settings.routes.ts` — global settings CRUD, secret masking
+  (`isSecret` rows never carry `value`), system-info (dbPath/repoRoot/pluginRoot,
+  node/platform/pid/uptime, SSO flags, private-clip-host flag), git-remote
+  round-trip.
+- `src/server/routes/group.routes.ts` — groups are the **sole permission-granting
+  mechanism** per §3.1; list returns `memberCount` so the UI can render counts
+  without N+1 calls.
+- `src/server/routes/user.routes.ts` — admin-only user list and patch; the
+  patch enforces "you cannot demote or suspend your own account" (§7.1) so a
+  sole admin can't lock themselves out through the UI.
+- `src/server/routes/token.routes.ts` — account-scoped tokens are user-writable;
+  space/branch-scoped tokens require admin. **No-expiration tokens** are gated
+  by `link-managers` group membership (§3.10) — the route translates the
+  service's `NO_EXPIRATION_NOT_PERMITTED` error into 403 (was 500 before).
+
+### Theme infrastructure
+- `src/features/settings/useTheme.ts` — reads/writes `data-theme` on `<html>`
+  and mirrors to `localStorage` (`wiki.theme`).
+- `index.html` has an **inline** `<script>` that applies the stored theme before
+  the first paint (the comment in the file explains why: prevents a white flash
+  for users on dark theme).
+
+### Tests
+- `src/server/__tests__/settings.integration.test.ts` — 13 tests, all green:
+  guards, system-info, secret masking, git-remote, groups CRUD + membership,
+  non-admin group rejection, user promotion + self-demote/suspend guard,
+  user list admin-only, account token create/revoke, no-expiration gating,
+  scoped-token widening blocked, admin scoped-token allowed.
+- Full suite: 23 files / 208 tests / 0 failures.
+- Full E2E: 12 specs / 0 failures.
+
+### Pitfalls
+- `SettingsPanelDef` (slice-12 contract) does not surface `pluginId` to the
+  host — the plugin settings panel can only render UI; the host renders the
+  plugin info table itself. Documented in `routes/_authenticated/settings/plugins.tsx`.
+- Test routes use `app.inject()` with the real auth flow (sign-up + sign-in +
+  cookie), and promote the test user to `isAdmin: true` directly in the DB
+  before admin requests — better-auth's session picks up the change because
+  the access middleware reads `isAdmin` fresh per request.
