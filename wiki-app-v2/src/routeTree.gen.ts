@@ -15,7 +15,17 @@ import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedHealthRouteImport } from './routes/_authenticated/health'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as PublicLoginRouteImport } from './routes/_public/login'
+import { Route as AuthenticatedSettingsIndexRouteImport } from './routes/_authenticated/settings/index'
+import { Route as AuthenticatedSettingsAppearanceRouteImport } from './routes/_authenticated/settings/appearance'
+import { Route as AuthenticatedSettingsDangerRouteImport } from './routes/_authenticated/settings/danger'
+import { Route as AuthenticatedSettingsGroupsRouteImport } from './routes/_authenticated/settings/groups'
+import { Route as AuthenticatedSettingsIntegrationsRouteImport } from './routes/_authenticated/settings/integrations'
 import { Route as AuthenticatedSettingsPluginsRouteImport } from './routes/_authenticated/settings/plugins'
+import { Route as AuthenticatedSettingsProfileRouteImport } from './routes/_authenticated/settings/profile'
+import { Route as AuthenticatedSettingsSpacesRouteImport } from './routes/_authenticated/settings/spaces'
+import { Route as AuthenticatedSettingsSystemRouteImport } from './routes/_authenticated/settings/system'
+import { Route as AuthenticatedSettingsTokensRouteImport } from './routes/_authenticated/settings/tokens'
+import { Route as AuthenticatedSettingsUsersRouteImport } from './routes/_authenticated/settings/users'
 import { Route as AuthenticatedWBranchIdRouteImport } from './routes/_authenticated/w/$branchId'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
@@ -46,10 +56,70 @@ const PublicLoginRoute = PublicLoginRouteImport.update({
   path: '/login',
   getParentRoute: () => PublicRoute,
 } as any)
+const AuthenticatedSettingsIndexRoute =
+  AuthenticatedSettingsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
+const AuthenticatedSettingsAppearanceRoute =
+  AuthenticatedSettingsAppearanceRouteImport.update({
+    id: '/appearance',
+    path: '/appearance',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
+const AuthenticatedSettingsDangerRoute =
+  AuthenticatedSettingsDangerRouteImport.update({
+    id: '/danger',
+    path: '/danger',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
+const AuthenticatedSettingsGroupsRoute =
+  AuthenticatedSettingsGroupsRouteImport.update({
+    id: '/groups',
+    path: '/groups',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
+const AuthenticatedSettingsIntegrationsRoute =
+  AuthenticatedSettingsIntegrationsRouteImport.update({
+    id: '/integrations',
+    path: '/integrations',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
 const AuthenticatedSettingsPluginsRoute =
   AuthenticatedSettingsPluginsRouteImport.update({
     id: '/plugins',
     path: '/plugins',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
+const AuthenticatedSettingsProfileRoute =
+  AuthenticatedSettingsProfileRouteImport.update({
+    id: '/profile',
+    path: '/profile',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
+const AuthenticatedSettingsSpacesRoute =
+  AuthenticatedSettingsSpacesRouteImport.update({
+    id: '/spaces',
+    path: '/spaces',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
+const AuthenticatedSettingsSystemRoute =
+  AuthenticatedSettingsSystemRouteImport.update({
+    id: '/system',
+    path: '/system',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
+const AuthenticatedSettingsTokensRoute =
+  AuthenticatedSettingsTokensRouteImport.update({
+    id: '/tokens',
+    path: '/tokens',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
+const AuthenticatedSettingsUsersRoute =
+  AuthenticatedSettingsUsersRouteImport.update({
+    id: '/users',
+    path: '/users',
     getParentRoute: () => AuthenticatedSettingsRoute,
   } as any)
 const AuthenticatedWBranchIdRoute = AuthenticatedWBranchIdRouteImport.update({
@@ -63,16 +133,35 @@ export interface FileRoutesByFullPath {
   '/health': typeof AuthenticatedHealthRoute
   '/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/login': typeof PublicLoginRoute
+  '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
+  '/settings/danger': typeof AuthenticatedSettingsDangerRoute
+  '/settings/groups': typeof AuthenticatedSettingsGroupsRoute
+  '/settings/integrations': typeof AuthenticatedSettingsIntegrationsRoute
   '/settings/plugins': typeof AuthenticatedSettingsPluginsRoute
+  '/settings/profile': typeof AuthenticatedSettingsProfileRoute
+  '/settings/spaces': typeof AuthenticatedSettingsSpacesRoute
+  '/settings/system': typeof AuthenticatedSettingsSystemRoute
+  '/settings/tokens': typeof AuthenticatedSettingsTokensRoute
+  '/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/settings/': typeof AuthenticatedSettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof AuthenticatedIndexRoute
   '/health': typeof AuthenticatedHealthRoute
-  '/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/login': typeof PublicLoginRoute
+  '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
+  '/settings/danger': typeof AuthenticatedSettingsDangerRoute
+  '/settings/groups': typeof AuthenticatedSettingsGroupsRoute
+  '/settings/integrations': typeof AuthenticatedSettingsIntegrationsRoute
   '/settings/plugins': typeof AuthenticatedSettingsPluginsRoute
+  '/settings/profile': typeof AuthenticatedSettingsProfileRoute
+  '/settings/spaces': typeof AuthenticatedSettingsSpacesRoute
+  '/settings/system': typeof AuthenticatedSettingsSystemRoute
+  '/settings/tokens': typeof AuthenticatedSettingsTokensRoute
+  '/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/settings': typeof AuthenticatedSettingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -82,8 +171,18 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/_public/login': typeof PublicLoginRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
+  '/_authenticated/settings/danger': typeof AuthenticatedSettingsDangerRoute
+  '/_authenticated/settings/groups': typeof AuthenticatedSettingsGroupsRoute
+  '/_authenticated/settings/integrations': typeof AuthenticatedSettingsIntegrationsRoute
   '/_authenticated/settings/plugins': typeof AuthenticatedSettingsPluginsRoute
+  '/_authenticated/settings/profile': typeof AuthenticatedSettingsProfileRoute
+  '/_authenticated/settings/spaces': typeof AuthenticatedSettingsSpacesRoute
+  '/_authenticated/settings/system': typeof AuthenticatedSettingsSystemRoute
+  '/_authenticated/settings/tokens': typeof AuthenticatedSettingsTokensRoute
+  '/_authenticated/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/_authenticated/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -92,16 +191,35 @@ export interface FileRouteTypes {
     | '/health'
     | '/settings'
     | '/login'
+    | '/settings/appearance'
+    | '/settings/danger'
+    | '/settings/groups'
+    | '/settings/integrations'
     | '/settings/plugins'
+    | '/settings/profile'
+    | '/settings/spaces'
+    | '/settings/system'
+    | '/settings/tokens'
+    | '/settings/users'
     | '/w/$branchId'
+    | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/health'
-    | '/settings'
     | '/login'
+    | '/settings/appearance'
+    | '/settings/danger'
+    | '/settings/groups'
+    | '/settings/integrations'
     | '/settings/plugins'
+    | '/settings/profile'
+    | '/settings/spaces'
+    | '/settings/system'
+    | '/settings/tokens'
+    | '/settings/users'
     | '/w/$branchId'
+    | '/settings'
   id:
     | '__root__'
     | '/_authenticated'
@@ -110,8 +228,18 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_public/login'
     | '/_authenticated/'
+    | '/_authenticated/settings/appearance'
+    | '/_authenticated/settings/danger'
+    | '/_authenticated/settings/groups'
+    | '/_authenticated/settings/integrations'
     | '/_authenticated/settings/plugins'
+    | '/_authenticated/settings/profile'
+    | '/_authenticated/settings/spaces'
+    | '/_authenticated/settings/system'
+    | '/_authenticated/settings/tokens'
+    | '/_authenticated/settings/users'
     | '/_authenticated/w/$branchId'
+    | '/_authenticated/settings/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -163,11 +291,81 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PublicLoginRouteImport
       parentRoute: typeof PublicRoute
     }
+    '/_authenticated/settings/': {
+      id: '/_authenticated/settings/'
+      path: '/'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof AuthenticatedSettingsIndexRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
+    '/_authenticated/settings/appearance': {
+      id: '/_authenticated/settings/appearance'
+      path: '/appearance'
+      fullPath: '/settings/appearance'
+      preLoaderRoute: typeof AuthenticatedSettingsAppearanceRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
+    '/_authenticated/settings/danger': {
+      id: '/_authenticated/settings/danger'
+      path: '/danger'
+      fullPath: '/settings/danger'
+      preLoaderRoute: typeof AuthenticatedSettingsDangerRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
+    '/_authenticated/settings/groups': {
+      id: '/_authenticated/settings/groups'
+      path: '/groups'
+      fullPath: '/settings/groups'
+      preLoaderRoute: typeof AuthenticatedSettingsGroupsRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
+    '/_authenticated/settings/integrations': {
+      id: '/_authenticated/settings/integrations'
+      path: '/integrations'
+      fullPath: '/settings/integrations'
+      preLoaderRoute: typeof AuthenticatedSettingsIntegrationsRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
     '/_authenticated/settings/plugins': {
       id: '/_authenticated/settings/plugins'
       path: '/plugins'
       fullPath: '/settings/plugins'
       preLoaderRoute: typeof AuthenticatedSettingsPluginsRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
+    '/_authenticated/settings/profile': {
+      id: '/_authenticated/settings/profile'
+      path: '/profile'
+      fullPath: '/settings/profile'
+      preLoaderRoute: typeof AuthenticatedSettingsProfileRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
+    '/_authenticated/settings/spaces': {
+      id: '/_authenticated/settings/spaces'
+      path: '/spaces'
+      fullPath: '/settings/spaces'
+      preLoaderRoute: typeof AuthenticatedSettingsSpacesRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
+    '/_authenticated/settings/system': {
+      id: '/_authenticated/settings/system'
+      path: '/system'
+      fullPath: '/settings/system'
+      preLoaderRoute: typeof AuthenticatedSettingsSystemRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
+    '/_authenticated/settings/tokens': {
+      id: '/_authenticated/settings/tokens'
+      path: '/tokens'
+      fullPath: '/settings/tokens'
+      preLoaderRoute: typeof AuthenticatedSettingsTokensRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
+    '/_authenticated/settings/users': {
+      id: '/_authenticated/settings/users'
+      path: '/users'
+      fullPath: '/settings/users'
+      preLoaderRoute: typeof AuthenticatedSettingsUsersRouteImport
       parentRoute: typeof AuthenticatedSettingsRoute
     }
     '/_authenticated/w/$branchId': {
@@ -181,11 +379,32 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedSettingsRouteChildren {
+  AuthenticatedSettingsAppearanceRoute: typeof AuthenticatedSettingsAppearanceRoute
+  AuthenticatedSettingsDangerRoute: typeof AuthenticatedSettingsDangerRoute
+  AuthenticatedSettingsGroupsRoute: typeof AuthenticatedSettingsGroupsRoute
+  AuthenticatedSettingsIntegrationsRoute: typeof AuthenticatedSettingsIntegrationsRoute
   AuthenticatedSettingsPluginsRoute: typeof AuthenticatedSettingsPluginsRoute
+  AuthenticatedSettingsProfileRoute: typeof AuthenticatedSettingsProfileRoute
+  AuthenticatedSettingsSpacesRoute: typeof AuthenticatedSettingsSpacesRoute
+  AuthenticatedSettingsSystemRoute: typeof AuthenticatedSettingsSystemRoute
+  AuthenticatedSettingsTokensRoute: typeof AuthenticatedSettingsTokensRoute
+  AuthenticatedSettingsUsersRoute: typeof AuthenticatedSettingsUsersRoute
+  AuthenticatedSettingsIndexRoute: typeof AuthenticatedSettingsIndexRoute
 }
 
 const AuthenticatedSettingsRouteChildren: AuthenticatedSettingsRouteChildren = {
+  AuthenticatedSettingsAppearanceRoute: AuthenticatedSettingsAppearanceRoute,
+  AuthenticatedSettingsDangerRoute: AuthenticatedSettingsDangerRoute,
+  AuthenticatedSettingsGroupsRoute: AuthenticatedSettingsGroupsRoute,
+  AuthenticatedSettingsIntegrationsRoute:
+    AuthenticatedSettingsIntegrationsRoute,
   AuthenticatedSettingsPluginsRoute: AuthenticatedSettingsPluginsRoute,
+  AuthenticatedSettingsProfileRoute: AuthenticatedSettingsProfileRoute,
+  AuthenticatedSettingsSpacesRoute: AuthenticatedSettingsSpacesRoute,
+  AuthenticatedSettingsSystemRoute: AuthenticatedSettingsSystemRoute,
+  AuthenticatedSettingsTokensRoute: AuthenticatedSettingsTokensRoute,
+  AuthenticatedSettingsUsersRoute: AuthenticatedSettingsUsersRoute,
+  AuthenticatedSettingsIndexRoute: AuthenticatedSettingsIndexRoute,
 }
 
 const AuthenticatedSettingsRouteWithChildren =

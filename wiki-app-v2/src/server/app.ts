@@ -16,6 +16,10 @@ import { favoriteRoutes } from "./routes/favorite.routes.js";
 import { notificationRoutes } from "./routes/notification.routes.js";
 import { gitRoutes } from "./routes/git.routes.js";
 import { pluginRoutes } from "./routes/plugin.routes.js";
+import { settingsRoutes } from "./routes/settings.routes.js";
+import { groupRoutes } from "./routes/group.routes.js";
+import { userRoutes } from "./routes/user.routes.js";
+import { tokenRoutes } from "./routes/token.routes.js";
 import { registerPluginServerRoutes } from "./services/plugin.service.js";
 import multipart from "@fastify/multipart";
 
@@ -76,6 +80,10 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(notificationRoutes);
   await app.register(gitRoutes);
   await app.register(pluginRoutes);
+  await app.register(settingsRoutes);
+  await app.register(groupRoutes);
+  await app.register(userRoutes);
+  await app.register(tokenRoutes);
 
   // Register server routes for every enabled plugin that declares the
   // serverRoutes capability. A failing plugin is logged and skipped; it never

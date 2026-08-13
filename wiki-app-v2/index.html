@@ -8,6 +8,17 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Apply the saved theme before first paint (slice-14 Appearance) so the
+      // wrong theme never flashes. localStorage is the only store; the
+      // useTheme hook and this script agree on the "wiki.theme" key.
+      (function () {
+        try {
+          var t = localStorage.getItem("wiki.theme");
+          if (t === "dark" || t === "contrast") document.documentElement.dataset.theme = t;
+        } catch (e) {}
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

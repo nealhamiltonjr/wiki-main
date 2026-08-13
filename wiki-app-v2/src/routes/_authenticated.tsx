@@ -53,9 +53,11 @@ function AuthenticatedLayout() {
         <header className="flex h-12 shrink-0 items-center justify-between border-b px-4" aria-label="Topbar">
           <Link to="/" className="text-sm font-medium hover:text-primary transition-colors">Knowledge Base</Link>
           <div className="flex items-center gap-3">
-            {session.user.isAdmin && (
-              <Link to="/settings/plugins" className="text-xs text-text-muted hover:text-foreground transition-colors">Settings</Link>
-            )}
+            {/* Every signed-in user reaches /settings; the left-hand sub-nav
+                hides admin-only sections (§7.1), and the settings layout
+                redirects non-admins away from admin URLs. The server enforces
+                admin access on those APIs regardless. */}
+            <Link to="/settings/plugins" className="text-xs text-text-muted hover:text-foreground transition-colors">Settings</Link>
             <NotificationBell />
           </div>
         </header>

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { request } from "@/api/client";
+import { useSettingsPanels } from "@/plugins/registry";
 import type { PluginInfo } from "@/shared/pluginTypes";
 
 export const Route = createFileRoute("/_authenticated/settings/plugins")({
@@ -12,6 +13,9 @@ function PluginSettingsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [uploadStatus, setUploadStatus] = useState("");
+  // §7.1 — plugin settings panels registered via registerSettingsPanel render
+  // HERE, inside /settings/plugins, not as floating panels elsewhere.
+  const settingsPanels = useSettingsPanels();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,7 +75,6 @@ function PluginSettingsPage() {
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-medium mb-2">Installed Plugins</h2>
-
         <div className="mb-4">
           <label className="inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-md border border-border bg-surface-hover hover:bg-surface-elevated cursor-pointer transition-colors">
             Upload plugin (.zip)
@@ -128,6 +131,25 @@ function PluginSettingsPage() {
           </table>
         )}
       </div>
+
+      {settingsPanels.length > 0 && (
+        <div>
+          <h2 className="text-lg font-medium mb-2">Plugin settings</h2>
+          <div className="space-y-4">
+            {settingsPanels.map((panel) => (
+              <section key={panel.id} className="rounded-md border border-border p-4">
+                <h3 className="text-sm font-medium mb-2">{panel.label}</h3>
+                {/* SettingsPanelDef.render receives { pluginId }, but the def
+                    doesn't carry its owning plugin's id (registerSettingsPanel
+                    doesn't capture it) — pass an empty string until the def
+                    contract grows an owner id. Panels render HERE either way,
+                    which is the §7.2 rule. */}
+                {panel.render({ pluginId: "" })}
+              </section>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
