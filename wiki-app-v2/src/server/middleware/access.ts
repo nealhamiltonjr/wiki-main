@@ -6,6 +6,7 @@ import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import { getUserContext, getUserContextById } from "../services/auth.service.js";
 import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
 import { resolveToken, checkTokenPassword, type ResolvedToken } from "../services/token.service.js";
+import { InMemoryRateLimiter } from "../lib/rate-limit.js";
 import type { AccessResult, BranchContext, SpaceRole, TokenPermission, UserContext } from "../../shared/types.js";
 
 /**
@@ -31,6 +32,13 @@ declare module "fastify" {
   }
 }
 
+// Brute-force protection for password-protected share links (brief §9.4 item
+// 10): brute-forcing a short link password through the public read path must
+// be unviable. Per-process limiter is fine — a restart resets the window and
+// just lets the attacker's prior bad attempts "off the hook", which is safe.
+const SHARE_LINK_PASSWORD_LIMITER = new InMemoryRateLimiter({ windowMs: 5 * 60 * 1000, max: 10 });
+const SHARE_LINK_PASSWORD_SWEEP_INTERVAL = 60 * 1000;
+
 export async function registerPermissionMiddleware(app: FastifyInstance) {
   // Validated at REGISTRATION time, not guessed at request time: any /api/
   // route (other than /api/auth/*, which establishes identity rather than
@@ -50,6 +58,11 @@ export async function registerPermissionMiddleware(app: FastifyInstance) {
         `Route ${JSON.stringify(routeOptions.method)} ${url} does not declare config.access - every /api/ route must (see middleware/access.ts)`
       );
     }
+  });
+
+  app.addHook("onReady", () => {
+    const interval = setInterval(() => SHARE_LINK_PASSWORD_LIMITER.sweep(), SHARE_LINK_PASSWORD_SWEEP_INTERVAL);
+    interval.unref();
   });
 
   app.addHook("preHandler", async (request: FastifyRequest, reply: FastifyReply) => {
@@ -146,6 +159,9 @@ export async function registerPermissionMiddleware(app: FastifyInstance) {
         if (token && token.type === "share_link") {
           if (token.passwordHash) {
             const pw = query?.sharePassword;
+            if (!SHARE_LINK_PASSWORD_LIMITER.check(`share-pw:${request.ip}`)) {
+              return reply.code(429).send({ error: "Too many attempts. Try again later." });
+            }
             if (!checkTokenPassword(token, typeof pw === "string" ? pw : undefined)) {
               return reply.code(401).send({ error: "Password required" });
             }

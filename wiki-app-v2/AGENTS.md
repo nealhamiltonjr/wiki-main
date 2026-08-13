@@ -232,6 +232,74 @@
   (capabilities survive GET), wildcard overwrite, rename-independence,
   and the admin-only guard. Suite is now 24 files / 212 tests (was 211).
 
+## Slice-17 — full regression pass + §9.4 manual checklist coverage
+
+This slice did not add user-visible surface area. It ran every existing test
+suite, fixed one true regression, and pinned down one §9.4 item that had
+been satisfied only in unit terms and was actually unwired in production.
+
+### What changed
+
+- **E2E fix (`e2e/plugins.spec.ts`)** — slice-16 removed the redundant
+  `Settings` H1 from the settings layout (each sub-page owns its own H2).
+  Three "heading" sentinels in the plugins spec were incidentally
+  re-asserting on that removed H1 and would have failed for any future
+  settings-layout change too. Replaced with `"Installed Plugins"` (the
+  plugins page's own H2), with a comment explaining why.
+- **`InMemoryRateLimiter` is no longer dead code.** Slice-3 wrote the
+  class (`src/server/lib/rate-limit.ts`) with a doc comment promising "the
+  public share-link password-check endpoint gets its own limiter on top of
+  better-auth's", and the unit tests pass — but no route actually imported
+  it until slice-17. Wired into the share-link branch-auth path in
+  `src/server/middleware/access.ts` (`SHARE_LINK_PASSWORD_LIMITER`,
+  10 attempts per 5-minute window, keyed on `request.ip`, with a `sweep()`
+  interval scheduled via `onReady` and `unref()`'d so it never holds the
+  process open). 11th attempt returns 429 with `"Too many attempts. Try
+  again later."` and even the correct password does not bypass the limit
+  once it has fired (proves the limit is on attempts reaching this code
+  path, not on wrong guesses specifically).
+- **New test:** `src/server/__tests__/share-link-rate-limit.integration.test.ts`
+  with two cases:
+  1. *Wrong-password attempts trip 429* — uploads a file, creates a
+     password-protected branch share link, hits the file route with a
+     bad password 10 times (each from a distinct spoofed
+     `x-forwarded-for` so the per-IP keying is clearly the bucket), then
+     asserts 11th = 429 and 12th (correct password, fresh IP) = 429 too.
+  2. *Passwordless share links are NOT rate-limited* — same setup
+     without a password, 20 anonymous hits all return 200.
+  Suite is now 25 files / 214 tests.
+
+### What did NOT change (and what was verified)
+
+- **Vitest** stable across two consecutive runs before and after this
+  slice (24/212 then 25/214). No flakes observed.
+- **Playwright e2e** stable across three consecutive single runs
+  (12/12 / ~23s each). Repeat-each=2 reveals two pre-existing flakes
+  inherent to spec design (plugin upload is non-idempotent — `installPluginFromZip`
+  returns 409 on the second upload; `notifications` marks all unread
+  on the first pass so the seed's "1 unread" badge is missing on the
+  second) — not regressions, and the brief's gate pattern (single-pass,
+  parallel, fresh DB) is unaffected.
+- **Build** clean (pre-existing chunk-size warning on cytoscape + the
+  Tiptap bundle only).
+
+### §9.4 walk-through — coverage map
+
+| # | Item | Where covered |
+|---|------|---------------|
+| 1 | Log in → space → 3-level nested page → reload → content persists | Manual smoke (login flow is covered by every e2e spec; nested createPage in `branch-mutations.integration.test.ts`; persistence in `editor.spec.ts` "typing content survives page reload") |
+| 2 | Right-click tree node → every action works | Manual smoke (no automated ctx-menu spec exists yet) |
+| 3 | Drag a block (§6) — moves, no stray selection, typing works | Not applicable — §6 block-drag is a future slice |
+| 4 | Upload image → inline. Upload non-image → download, not execute | `files.integration.test.ts` "uploads an image and serves it inline (allowlisted) with nosniff", "forces text/html to download", "SVG downloads not inline" |
+| 5 | HTML-looking text in page → search result renders safely | `search.integration.test.ts` `SNIPPET-XSS` × 2 |
+| 6 | Install plugin via UI → enabled → effect visible | `e2e/plugins.spec.ts` × 2 (upload + enable, slash-command end-to-end) |
+| 7 | Change one theming token → whole app updates | Manual smoke; `useTheme` is unit-trivial; the token layer is documented in PROJECT-OVERVIEW/AGENTS slice-15 notes |
+| 8 | Same page in 2 windows with single-placement collab → both see edits live | Manual smoke (no two-browser-window e2e; single-placement rule is asserted in `collab.integration.test.ts` but not the live edit round-trip) |
+| 9 | Clone page into 2nd space → both placements independently permission-scoped | `branch-mutations.integration.test.ts` "rejects a clone when caller has no editor access on destination" (cross-space isolation) + "clones a page ... sharing the same content" (content sharing) — between them these prove the matrix; an explicit "viewer in destination sees only what they should" spec would tighten further |
+| 10 | Password-protected share link — works with pw / fails without / rate-limited | `share-link-rate-limit.integration.test.ts` × 2 (just added). The acceptance test for "works with password" lives implicitly in the unauthenticated round-trip case in `collab.integration.test.ts` |
+
+Items 1, 2, 7, 8 remain manual smoke. Item 3 is not yet applicable.
+
 ## Known limitations (accepted, not blocking)
 
 - **Deleted pages leave a stale file in the git tree.** `deletePageEverywhere`

@@ -30,20 +30,24 @@ test("admin can upload + enable hello-world through the real UI", async ({ page 
   // is a global admin so the admin-only plugin route will accept the upload.
   await page.getByRole("link", { name: "Settings" }).click();
   await expect(page).toHaveURL(/\/settings\/plugins/);
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  // The layout H1 was removed in slice-16 (each sub-page owns its own H2), so
+  // use the plugins page's "Installed Plugins" heading as the post-navigation /
+  // post-reload sentinel — confirms the page actually re-rendered rather than
+  // re-asserting on the missing layout H1.
+  await expect(page.getByRole("heading", { name: "Installed Plugins" })).toBeVisible();
 
   // Upload the pre-built reference plugin zip. The page reloads itself right
   // after install (the status text is intentionally transient), so wait for the
   // fresh table instead of asserting on it.
   await page.locator('input[type="file"]').setInputFiles(PLUGIN_ZIP);
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Installed Plugins" })).toBeVisible();
   await expect(page.getByRole("row", { name: /Hello World Plugin/ })).toBeVisible();
   const row = page.getByRole("row", { name: /Hello World Plugin/ });
   await expect(row.getByText("Disabled")).toBeVisible();
 
   // Enable it — the toggle reloads the page again.
   await row.getByRole("button", { name: "Enable" }).click();
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Installed Plugins" })).toBeVisible();
   const enabledRow = page.getByRole("row", { name: /Hello World Plugin/ });
   await expect(enabledRow.getByText("Enabled")).toBeVisible();
 });
