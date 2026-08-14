@@ -1,8 +1,15 @@
-import { randomBytes, createHash } from "node:crypto";
+import { randomBytes, createHash, scryptSync, timingSafeEqual } from "node:crypto";
 import { eq, and, isNull } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { tokens, userGroups, groups } from "../db/schema.js";
 import type { TokenType, TokenScopeType } from "../../shared/types.js";
+
+const SCRYPT_KEY_LEN = 64;
+const SCRYPT_SALT_LEN = 16;
+// OWASP "Password Storage Cheat Sheet" minimum: N=2^14, r=8, p=1. The brief
+// keeps interactions snappy (a single share-link password check per request)
+// but the work factor is still >>10x a SHA-256 round, which is the goal.
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 } as const;
 
 function generateRawToken(prefix: string): string {
   return `${prefix}_${randomBytes(24).toString("hex")}`;
@@ -10,6 +17,42 @@ function generateRawToken(prefix: string): string {
 
 function hashToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
+}
+
+/**
+ * Hash a share-link password with scrypt + a per-row random salt. The
+ * resulting string has the form `scrypt$<salt-hex>$<derived-key-hex>` so
+ * checkShareLinkPassword can re-derive the same key and compare in constant
+ * time. SHA-256 was the prior format (slice-56 upgrade) — it's not
+ * brute-force-safe for a leak of the DB, scrypt is.
+ *
+ * Sync derivation is fine here: N=2^14 single-threaded is ~10-30ms, the
+ * brief's interactive UI tolerates that, and we need the result before the
+ * surrounding INSERT can persist it (so swapping in async scrypt would
+ * require restructuring the caller).
+ */
+function hashShareLinkPassword(password: string): string {
+  const salt = randomBytes(SCRYPT_SALT_LEN);
+  const derived = scryptSync(password, salt, SCRYPT_KEY_LEN, SCRYPT_PARAMS);
+  return `scrypt$${salt.toString("hex")}$${derived.toString("hex")}`;
+}
+
+function checkShareLinkPassword(stored: string, supplied: string | undefined): boolean {
+  const parts = stored.split("$");
+  if (parts.length !== 3 || parts[0] !== "scrypt") return false;
+  const saltHex = parts[1]!;
+  const expectedHex = parts[2]!;
+  let salt: Buffer;
+  let expected: Buffer;
+  try {
+    salt = Buffer.from(saltHex, "hex");
+    expected = Buffer.from(expectedHex, "hex");
+  } catch {
+    return false;
+  }
+  if (expected.length !== SCRYPT_KEY_LEN) return false;
+  const derived = scryptSync(supplied ?? "", salt, SCRYPT_KEY_LEN, SCRYPT_PARAMS);
+  return derived.length === expected.length && timingSafeEqual(derived, expected);
 }
 
 /**
@@ -58,7 +101,7 @@ export async function createShareLink(opts: {
     scopeType: opts.scopeType,
     scopeId: opts.branchOrSpaceId,
     permission: opts.permission,
-    passwordHash: opts.password ? hashToken(opts.password) : null,
+    passwordHash: opts.password ? hashShareLinkPassword(opts.password) : null,
     expiresAt: opts.expiresAt,
     warningCount: 0,
   });
@@ -142,7 +185,10 @@ export async function resolveToken(rawToken: string): Promise<ResolvedToken | nu
 export function checkTokenPassword(token: ResolvedToken, suppliedPassword: string | undefined): boolean {
   if (!token.passwordHash) return true; // not password-protected
   if (!suppliedPassword) return false;
-  return hashToken(suppliedPassword) === token.passwordHash;
+  // Slice-56: passwords are now stored as scrypt$<salt-hex>$<key-hex>; the
+  // old SHA-256 hex form is rejected (handled by the format check inside
+  // checkShareLinkPassword returning false on any unrecognised format).
+  return checkShareLinkPassword(token.passwordHash, suppliedPassword);
 }
 
 // ---------------------------------------------------------------------------
