@@ -8,7 +8,8 @@ import { api, type PinnedEntry } from "@/api/client";
  * for offline reading. Shown at `/pinned`. The list is purely a UX
  * convenience — the actual offline behaviour is owned by public/sw.js,
  * which gets the same data via the `/api/pinned` endpoint and the
- * in-memory `pinnedBranches` set seeded by `registerOfflineServiceWorker`.
+ * in-memory `pinnedBranches` set seeded by `seedOfflinePinCache`
+ * (called from the authenticated layout once the session resolves).
  */
 export function OfflinePanel() {
   const [pins, setPins] = useState<PinnedEntry[] | null>(null);

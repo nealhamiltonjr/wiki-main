@@ -4,7 +4,7 @@ import { RouterProvider } from "@tanstack/react-router";
 
 import { router } from "./router";
 import "./styles/app.css";
-import { registerOfflineServiceWorker } from "./features/offline/register-sw";
+import { registerOfflineServiceWorker } from "./features/offline/sw-bridge";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root element missing from index.html");

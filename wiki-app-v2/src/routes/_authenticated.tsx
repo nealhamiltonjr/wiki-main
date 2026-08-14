@@ -6,6 +6,7 @@ import { Tree } from "@/features/tree/Tree";
 import { NotificationBell } from "@/features/notifications/NotificationBell";
 import { loadPlugins } from "@/plugins/loader";
 import { usePluginsLoaded } from "@/plugins/registry";
+import { seedOfflinePinCache } from "@/features/offline/sw-bridge";
 
 // Pathless authenticated layout: the single chrome shell (sidebar + topbar)
 // that wraps every page a signed-in user can reach. The session gate redirects
@@ -24,6 +25,15 @@ function AuthenticatedLayout() {
   // the plugin list fetch carries the auth cookie. loadPlugins is idempotent.
   useEffect(() => {
     if (session) void loadPlugins();
+  }, [session]);
+
+  // Brief §12.5 — seed the SW's pin cache once we know the user is
+  // signed in. We deliberately do NOT fire this at app startup: an
+  // unauthenticated visitor would otherwise log a 401 from /api/pinned
+  // to the console. Done here, after `useSession`, the fetch always
+  // carries the auth cookie.
+  useEffect(() => {
+    if (session) void seedOfflinePinCache();
   }, [session]);
 
   if (isPending) {
