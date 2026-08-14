@@ -1,4 +1,6 @@
 import { eq, and, isNull, count } from "drizzle-orm";
+import { rm } from "node:fs/promises";
+import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { getDb } from "../db/index.js";
 import { pages, branches, pageRedirects } from "../db/schema.js";
@@ -9,6 +11,7 @@ import { getEnabledPluginNodeTypes, getEnabledPluginMarkTypes } from "./plugin.s
 import { refreshBacklinks } from "./backlink.service.js";
 import { indexPageForSearch, unindexPageForSearch } from "./search.service.js";
 import { enqueueJob } from "./queue.service.js";
+import { FILES_ROOT } from "./file.service.js";
 
 /** Fresh page content with every block id'd (§7.12d-1). */
 export function newPageContent(initial?: unknown): JSONBlock {
@@ -349,6 +352,30 @@ export async function purgePage(pageId: string): Promise<void> {
   }
   await db.delete(pages).where(eq(pages.id, pageId));
   unindexPageForSearch(pageId);
+
+  // Slice-53: remove the page's on-disk file directory. The DB cascade on
+  // files.pageId already deleted the row, but the bytes under
+  // FILES_ROOT/<pageId>/ are now unreachable from the schema. Without
+  // this sweep every purge leaks the entire per-page directory; after a
+  // few years of trash cycling, data/files would grow without bound.
+  // Best-effort: a failed rm is logged but doesn't unwind the purge
+  // (the DB rows are already gone, the user has already confirmed).
+  const pageDir = path.join(FILES_ROOT, pageId);
+  try {
+    // Defense-in-depth: assert the resolved path stays inside FILES_ROOT
+    // so a future bug that drops a `..` segment into pageId doesn't
+    // escalate to an arbitrary-directory rm. The slug schema already
+    // rejects `..`, but the outer bracket guards against regressions
+    // here.
+    const resolved = path.resolve(pageDir);
+    const root = path.resolve(FILES_ROOT) + path.sep;
+    if (resolved.startsWith(root)) {
+      await rm(resolved, { recursive: true, force: true });
+    }
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[purge] file cleanup failed:", { pageId, err: String(err) });
+  }
 }
 
 /** Soft-deletes a page EVERYWHERE: removes every placement, then trashes the page. */
