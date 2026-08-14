@@ -10,7 +10,6 @@ let renamePage: typeof import("../page.service.js").renamePage;
 let getDb: typeof import("../../db/index.js").getDb;
 let users: typeof import("../../db/schema.js").users;
 let spaces: typeof import("../../db/schema.js").spaces;
-let branches: typeof import("../../db/schema.js").branches;
 let pages: typeof import("../../db/schema.js").pages;
 let pageRedirects: typeof import("../../db/schema.js").pageRedirects;
 let db: ReturnType<typeof getDb>["db"];
@@ -26,7 +25,7 @@ beforeAll(async () => {
   }
   ({ getDb } = await import("../../db/index.js"));
   db = getDb().db;
-  ({ users, spaces, branches, pages, pageRedirects } = await import("../../db/schema.js"));
+  ({ users, spaces, pages, pageRedirects } = await import("../../db/schema.js"));
   ({ createPage, renamePage } = await import("../page.service.js"));
 
   await db.insert(users).values({ id: "u-sc", name: "SC", email: "sc@example.com", isAdmin: true });

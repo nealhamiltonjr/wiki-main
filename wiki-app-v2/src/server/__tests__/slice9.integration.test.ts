@@ -337,6 +337,17 @@ describe("notifications (§9)", () => {
     const u2 = await signup(`nt-mark2-${randomBytes(4).toString("hex")}@example.com`);
 
     const spaceId = await createSpace(u2.cookie, "Mention Space");
+    // Slice-55: mentions only deliver to users in the same space as the page,
+    // so add u1 as a member before the save (matches the production flow —
+    // @-mention suggestions are drawn from space members).
+    const addRes = await app.inject({
+      method: "POST",
+      url: `/api/spaces/${spaceId}/members`,
+      headers: { cookie: u2.cookie },
+      payload: { userId: u1.userId, role: "editor" },
+    });
+    expect(addRes.statusCode).toBe(201);
+
     const page = await createPage(u2.cookie, spaceId, "mention-test");
 
     await savePage(u2.cookie, page.branchId, {
@@ -368,6 +379,15 @@ describe("notifications (§9)", () => {
     const u2 = await signup(`nt-node2-${randomBytes(4).toString("hex")}@example.com`);
 
     const spaceId = await createSpace(u2.cookie, "Mention Node Space");
+    // Slice-55: see the per-space membership gate in the MARK-shape test above.
+    const addRes = await app.inject({
+      method: "POST",
+      url: `/api/spaces/${spaceId}/members`,
+      headers: { cookie: u2.cookie },
+      payload: { userId: u1.userId, role: "editor" },
+    });
+    expect(addRes.statusCode).toBe(201);
+
     const page = await createPage(u2.cookie, spaceId, "mention-node-test");
 
     await savePage(u2.cookie, page.branchId, {
