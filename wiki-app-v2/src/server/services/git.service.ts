@@ -96,6 +96,7 @@ export async function commitPageChange(pageId: string, branchId: string, oldSlug
   // Commit scoped to THESE paths: an unrelated file left staged by a previously
   // failed job must never ride along inside another page's commit.
   await git.commit(`page:${page.id}: Update - ${page.slug}`, commitPaths);
+  await recordSuccessfulGitFlush();
 }
 
 /**
@@ -136,6 +137,7 @@ export async function commitManualSnapshot(pageId: string, message: string, user
   const staged = await git.raw(["diff", "--cached", "--name-only", "--", relPath]);
   if (!staged.trim()) return;
   await git.commit(`Snapshot: page:${pageId}: ${message}`, [relPath], { "--author": authorString });
+  await recordSuccessfulGitFlush();
 }
 
 /**
@@ -244,4 +246,37 @@ async function dirSize(dir: string): Promise<number> {
 
 function slugify(s: string): string {
   return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+// ---------------------------------------------------------------------------
+// §11.4 — last-successful-git-flush bookkeeping
+// ---------------------------------------------------------------------------
+
+/**
+ * Stamp the system-settings key the admin System Health page reads.
+ * Called from both `commitPageChange` (auto-save) and
+ * `commitManualSnapshot` so any successful commit updates the
+ * "last git-flush time" badge. Idempotent and best-effort — the
+ * commit itself is the source of truth, this is just a summary.
+ */
+async function recordSuccessfulGitFlush(): Promise<void> {
+  try {
+    const { db } = getDb();
+    const { systemSettings } = await import("../db/schema.js");
+    await db
+      .insert(systemSettings)
+      .values({
+        key: "last_git_flush_at",
+        value: new Date().toISOString(),
+        isSecret: false,
+        updatedBy: null,
+      })
+      .onConflictDoUpdate({
+        target: systemSettings.key,
+        set: { value: new Date().toISOString(), updatedAt: new Date() },
+      });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("[git] failed to record last_git_flush_at:", err);
+  }
 }

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { getDb } from "../db/index.js";
 import { systemSettings } from "../db/schema.js";
+import { getSystemHealth } from "../services/system-health.service.js";
 
 // Slice-14 settings surface (§7.1 System / Integrations). `systemSettings`
 // (brief §3.9) is admin-only config; secret values are written through
@@ -100,4 +101,19 @@ export async function settingsRoutes(app: FastifyInstance) {
     await setSystemSetting("git.remoteBranch", branch, false, user.id);
     return reply.send({ url: body.url.trim(), branch });
   });
+
+  // §11.4 admin observability surface. Aggregated snapshot of recent
+  // server errors, last git flush, collab queue depths, DB file size
+  // + WAL mode, and any plugin currently in a failure streak. The
+  // endpoint is intentionally read-only — admin UI is informational,
+  // recovery actions (re-enable plugin, retry queue, prune logs)
+  // live on their own dedicated routes.
+  app.get(
+    "/api/settings/system-health",
+    { config: { access: "admin" } },
+    async (_request, reply) => {
+      const report = await getSystemHealth();
+      return reply.send(report);
+    }
+  );
 }

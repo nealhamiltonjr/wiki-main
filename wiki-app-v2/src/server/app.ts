@@ -24,6 +24,7 @@ import { lensRoutes } from "./routes/lens.routes.js";
 import { relationRoutes } from "./routes/relation.routes.js";
 import { graphRoutes } from "./routes/graph.routes.js";
 import { registerPluginServerRoutes, registerPluginHookHandlers, installPluginFailureHook } from "./services/plugin.service.js";
+import { recordSystemLog } from "./services/system-logger.service.js";
 import multipart from "@fastify/multipart";
 
 /**
@@ -64,6 +65,20 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     }
 
     request.log.error(error);
+    // §11.4 observability: persist a compact summary row so the admin
+    // System Health page has something to render. Best-effort — if the
+    // system_logs write itself fails, the request still gets a 500
+    // response (the in-memory logger line above is the source of truth).
+    void recordSystemLog({
+      level: "error",
+      source: `http:${request.method}`,
+      message: error.message || "Internal server error",
+      meta: {
+        url: request.url,
+        method: request.method,
+        statusCode: error.statusCode ?? 500,
+      },
+    });
     return reply.code(500).send({ error: "Internal server error" });
   });
 
