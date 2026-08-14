@@ -2330,3 +2330,55 @@ returned a target.
   +9 tests). Typecheck clean, build clean (existing large-chunk
   warning only, unrelated to this change).
 
+## Slice-48 — comment threads: transactional integrity + per-page cap
+
+The slice-47 bootstrap-recovery work was the last must-have on the
+broad-bug-recheck pass; this slice adds one more required
+admin-tunable cap (per-page thread count) and hardens the comment
+write paths that the audit flagged as having stale-read races.
+
+### What's here
+
+- **Per-page comment thread cap** (default 1000, Confluence tier) is a
+  new admin-tunable setting, `limits.commentThreadsPerPageMax`,
+  read on every POST and clamped to `[1, 50_000]`. A 409 is returned
+  once a page hits the cap. Default 1000 matches Confluence;
+  Notion-style "unlimited" was rejected because the comments panel
+  becomes unscrollable at thousands and a single page becomes a
+  write-amplification hot spot on every refetch.
+- **Atomic thread creation.** The create-thread handler used to do
+  `insert(thread); insert(firstComment)` as two separate awaits. An
+  interrupted request (process kill mid-handler, client cancel after
+  the thread insert but before the comment insert) would leave an
+  orphan thread with no first comment — visible in the UI as a
+  thread with no messages. The two inserts now live inside a single
+  `db.transaction` so either both commit or neither does.
+- **Atomic delete cleanup.** The delete-comment handler used to do
+  `delete(comment); select(remaining); maybe-delete(thread)` as three
+  separate awaits. A concurrent reply racing the select could make
+  `remaining.length === 0` stale — the thread would then be deleted
+  underneath the newly-arrived reply. The three ops now live inside
+  one `db.transaction` so the reply either lands before or after the
+  cleanup, not between.
+
+### Files
+
+- `src/server/routes/comment.routes.ts` — read cap + two tx wraps.
+- `src/server/__tests__/comment-threads.integration.test.ts` — new;
+  4 tests (atomic create, cap rejection on (cap+1)th, garbage-cap
+  fallback to default, last-comment deletion cascades to thread).
+
+### Non-goals
+
+- No upper bound on replies-per-thread (Discord tier; unbounded and
+  human-rare). The cap on per-page thread count covers the worst case.
+- No soft delete. Hard delete keeps the schema simpler; the
+  `onDelete: cascade` on `comments.threadId` is the only delete path.
+- No rate limiting. That's a separate slice if needed.
+
+### Test counts
+
+- Full suite after slice-48: **73 files / 586 tests** (+1 file,
+  +4 tests). Typecheck clean, build clean (existing large-chunk
+  warning only, unrelated to this change).
+

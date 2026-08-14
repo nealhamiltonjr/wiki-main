@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { eq, and, desc, inArray } from "drizzle-orm";
+import { eq, and, desc, inArray, count } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { branches, commentThreads, comments, users } from "../db/schema.js";
 import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
@@ -46,6 +46,27 @@ async function commentBodySchema() {
   return z.string().min(1).max(cap, {
     message: `Comment body exceeds the configured limit (${cap} characters)`,
   });
+}
+
+/**
+ * Slice-48: admin-tunable per-page thread cap. Default of 1000 matches
+ * Confluence's per-page limit; Notion is effectively unlimited and
+ * Discourse papers at ~1000 too. A single long page with thousands of
+ * threads is a UX disaster (the panel becomes unscrollable) and a
+ * write-amplification source on every refetch. The cap is re-read on
+ * every request and the count + insert run inside a single tx so two
+ * concurrent creates can't both see "below limit" and both insert.
+ */
+const THREADS_PER_PAGE_MIN = 1;
+const THREADS_PER_PAGE_MAX = 50_000;
+const THREADS_PER_PAGE_DEFAULT = 1000;
+
+async function readThreadsPerPageCap(): Promise<number> {
+  const v = await getSystemSetting<unknown>("limits.commentThreadsPerPageMax", THREADS_PER_PAGE_DEFAULT);
+  if (typeof v !== "number" || !Number.isFinite(v) || v < THREADS_PER_PAGE_MIN || v > THREADS_PER_PAGE_MAX) {
+    return THREADS_PER_PAGE_DEFAULT;
+  }
+  return Math.floor(v);
 }
 
 const createThreadBody = z.object({
@@ -187,24 +208,44 @@ export async function commentRoutes(app: FastifyInstance) {
       const pageId = await getPageId(branchId);
       if (!pageId) return reply.code(404).send({ error: "Branch not found" });
 
+      // Slice-48: count + insert + first-comment must all happen in one tx.
+      // (a) Two awaits between thread-insert and comment-insert meant an
+      //     interrupted request could leave an orphan thread with no first
+      //     comment. (b) Without the tx, two concurrent creates could each
+      //     read "N-1 < cap" and both insert, overshooting the cap by 1. The
+      //     better-sqlite3 BEGIN blocks the second caller on the write lock
+      //     so it sees the first's commit and bails out.
+      const cap = await readThreadsPerPageCap();
       const { db } = getDb();
       const threadId = crypto.randomUUID();
-      db.insert(commentThreads).values({
-        id: threadId,
-        pageId,
-        blockId: body.blockId ?? null,
-        rangeFrom: body.rangeFrom,
-        rangeTo: body.rangeTo,
-        selection: body.selection ?? null,
-        createdBy: user.id,
-      }).run();
+      db.transaction((tx) => {
+        const [row] = tx
+          .select({ n: count() })
+          .from(commentThreads)
+          .where(eq(commentThreads.pageId, pageId))
+          .all();
+        const current = row?.n ?? 0;
+        if (current >= cap) {
+          throw Object.assign(new Error(`This page already has the maximum number of comment threads (${cap})`), { statusCode: 409 });
+        }
 
-      db.insert(comments).values({
-        id: crypto.randomUUID(),
-        threadId,
-        body: body.body,
-        userId: user.id,
-      }).run();
+        tx.insert(commentThreads).values({
+          id: threadId,
+          pageId,
+          blockId: body.blockId ?? null,
+          rangeFrom: body.rangeFrom,
+          rangeTo: body.rangeTo,
+          selection: body.selection ?? null,
+          createdBy: user.id,
+        }).run();
+
+        tx.insert(comments).values({
+          id: crypto.randomUUID(),
+          threadId,
+          body: body.body,
+          userId: user.id,
+        }).run();
+      });
 
       return reply.code(201).send({ threadId });
     }
@@ -305,16 +346,26 @@ export async function commentRoutes(app: FastifyInstance) {
       const thread = await checkThreadAccess(comment.threadId, user, "editor");
       if (!thread) return reply.code(403).send({ error: "Insufficient permissions" });
 
-      await db.delete(comments).where(eq(comments.id, commentId));
+      // Slice-48: delete + remaining-count check + thread cleanup in one tx.
+      // Previously a concurrent reply could land between the comment delete
+      // and the remaining-count read, making "remaining.length === 0"
+      // stale — we'd then delete the thread that the new reply just landed
+      // in (a no-op visually since cascade kicks in, but a confusing write
+      // race). The tx collapses those three ops into a single critical
+      // section so the reply either lands before or after the cleanup, not
+      // between.
+      db.transaction((tx) => {
+        tx.delete(comments).where(eq(comments.id, commentId)).run();
 
-      // If this was the last comment, delete the thread too.
-      const remaining = await db
-        .select()
-        .from(comments)
-        .where(eq(comments.threadId, comment.threadId));
-      if (remaining.length === 0) {
-        await db.delete(commentThreads).where(eq(commentThreads.id, comment.threadId));
-      }
+        const remaining = tx
+          .select({ id: comments.id })
+          .from(comments)
+          .where(eq(comments.threadId, comment.threadId))
+          .all();
+        if (remaining.length === 0) {
+          tx.delete(commentThreads).where(eq(commentThreads.id, comment.threadId)).run();
+        }
+      });
 
       return reply.send({ ok: true });
     }
