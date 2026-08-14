@@ -2225,3 +2225,108 @@ diagram"`, `keywords: ["diagram", "chart", "flow", "graph",
   warning only, unrelated to this change).
 
 
+## Slice-47 — first-boot landing + recovery command
+
+### Why this slice exists
+
+Two related defects came out of the §11.6 bootstrap re-verification:
+
+1. **No recovery command for an unseeded install.** Slice-18's
+   `databaseHooks.user.create.{before,after}` auto-seeds the Welcome
+   space inside better-auth's create-user path. The bootstrap comment
+   in `src/server/auth/config.ts` also says "the next-boot sweep
+   (manual `npm run seed-welcome`) can repair an empty install" — but
+   no such command existed. An install with a user (e.g. from a direct
+   SQL insert or a future non-better-auth provider) but no Welcome
+   space had no documented fix.
+
+2. **First user never actually saw the seed.** Before this slice,
+   `/` (`src/routes/_authenticated/index.tsx`) rendered a slice-1
+   "Knowledge Base" placeholder. The Welcome space was correctly in
+   the DB, but the first admin had to manually click around to find
+   it — directly contradicting the slice-18 promise "Land in a
+   working wiki with the §11.6 fixture."
+
+Both defects were uncovered by the re-verification pass; this slice
+fixes both.
+
+### What changed
+
+- **new** `scripts/seed-welcome.ts` + `package.json` `"seed-welcome":
+  "tsx scripts/seed-welcome.ts"`. The recovery command:
+  - Opens the configured DB (`DB_PATH` env, same as the server).
+  - Errors non-zero with a clear message if there are no users.
+  - Picks the most recent admin (falls back to the first user) as
+    the seed target.
+  - Calls the existing `seedWelcomeSpace(ownerId)`. Idempotent:
+    exits 0 with "already exists" when any space is present.
+- **`src/routes/_authenticated/index.tsx`** — replaced the slice-1
+  stub with a real landing page:
+  - Fetches `/api/spaces` once on mount.
+  - If exactly 1 space and its tree loads, auto-redirects to
+    `/w/$branchId` of the first branch (the Welcome page after a
+    fresh install).
+  - If 2+ spaces, renders a list and lets the user choose.
+  - If 0 spaces, renders an empty state with a button to
+    `/settings/spaces` to create the first space.
+- **new** `src/features/home/homeRedirect.ts` + companion tests —
+  the redirect decision lives in a pure helper so it stays unit-
+  testable without a DOM. The route just asks the helper "should I
+  redirect, and where?" and acts accordingly.
+
+### Why extract the helper
+
+The route uses `useQuery` + `useNavigate` (TanStack Router) +
+`useEffect` — all DOM- and router-bound. To keep the branch-decision
+logic unit-testable without booting a DOM (the project's Vitest
+config is `environment: "node"`), the rules live in
+`homeRedirectTarget(spaces, tree) → { branchId } | null`. The route
+calls it once both queries have resolved and navigates if it
+returned a target.
+
+### Tests
+
+- **new** `src/features/home/__tests__/homeRedirect.test.ts` — 6
+  tests:
+  - redirects with exactly one space + non-empty tree
+  - null with zero spaces (empty state) — three sub-cases (`[]`,
+    `null`, `undefined`)
+  - null with 2+ spaces (list view)
+  - null when the only space has an empty tree (avoids 404)
+  - returns the FIRST top-level branch, not the last
+  - null with both `undefined` (initial loading state)
+- **new** `src/server/__tests__/seed-welcome-cli.test.ts` — 3 tests
+  driven via `child_process.execFileSync("npx tsx scripts/seed-welcome.ts")`:
+  - exits non-zero with the "no users in DB" message when the DB
+    is empty
+  - seeds the §11.6 fixture when a user exists but no Welcome
+    space does (the actual recovery scenario)
+  - is idempotent: re-running reports "already exists" without
+    duplicating the space
+- Existing `src/server/__tests__/bootstrap.integration.test.ts`
+  (4 tests, including the slice-41 race regression) and
+  `src/server/__tests__/auth.integration.test.ts` (5 tests) still
+  pass — the §11.6 bootstrap path itself was already correct; this
+  slice only addresses the operator recovery story and the user-
+  visible landing behavior.
+
+### Files touched
+
+- **new** `src/features/home/homeRedirect.ts`
+- **new** `src/features/home/__tests__/homeRedirect.test.ts` (6 tests)
+- **new** `scripts/seed-welcome.ts`
+- **new** `src/server/__tests__/seed-welcome-cli.test.ts` (3 tests)
+- `src/routes/_authenticated/index.tsx` — replaced slice-1 stub
+  with the real landing page that uses the new helper.
+- `package.json` — added `"seed-welcome": "tsx scripts/seed-welcome.ts"`
+  to match the comment in `src/server/auth/config.ts`.
+- `AGENTS.md` — this slice entry.
+
+### No external deps
+
+### Test counts
+
+- Full suite after slice-47: **72 files / 582 tests** (+2 files,
+  +9 tests). Typecheck clean, build clean (existing large-chunk
+  warning only, unrelated to this change).
+

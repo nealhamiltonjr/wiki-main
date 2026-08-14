@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "seed-welcome": "tsx scripts/seed-welcome.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
