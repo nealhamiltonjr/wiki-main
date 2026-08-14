@@ -913,6 +913,158 @@ over title, owner=self, owner=group.
 - Per-lens bookmarks / starred-lenses, if user feedback says
   the public + unlisted list is hard to navigate.
 
+## Slice-30 — plugin hooks engine (§13.5)
+
+### Why this slice exists
+
+Brief §13.5 — give plugins first-class access to the event stream
+so they can react to user actions (load, save, attribute change)
+without the host code knowing anything about their internals. The
+hook API is the foundation everything else in §13.5 builds on.
+
+### What changed
+
+- **`src/shared/pluginTypes.ts`** — added `hooks: boolean` to the
+  capability union; `PluginCapabilities` now has the same shape the
+  manifest validator accepts and the loader writes into the DB.
+- **`src/server/hookTypes.ts` (new)** — single `HookEvent` union
+  with three members (`PageLoadEvent`, `PageSaveEvent`,
+  `AttributeChangeEvent`). Action strings on `AttributeChangeEvent`
+  are the literal `"set"` / `"delete"` — kept as a typed string
+  union, not a bare string, so plugin authors see autocomplete.
+- **`src/server/hooks.ts` (new)** — the registry. Three exported
+  calls plus one test-only reset hook:
+  - `registerHook(pluginId, event, handler)` returns an
+    `unregister` closure that idempotently removes that one
+    subscription.
+  - `unregisterPluginHooks(pluginId)` clears *every* subscription
+    owned by `pluginId` across all events. Called on disable /
+    uninstall.
+  - `dispatchHook(event)` snapshots the subscriber list, then
+    awaits each handler in order. A throwing handler is logged via
+    `console.error` and never blocks the others, so a misbehaving
+    plugin can't break the host request.
+  - `totalHookSubscriptionCount()` and `__resetHookRegistry()` are
+    test-only helpers (note the underscore; not part of the
+    public API surface).
+- **`src/server/services/plugin.service.ts`** — wired hooks into
+  the plugin lifecycle:
+  - `_registeredHookPlugins: Set<string>` tracks which plugin ids
+    currently have at least one live subscription.
+  - `registerPluginHookHandlers()` iterates every row with
+    `capabilities.hooks === true` and `enabled === true`, dynamic-
+    imports `<pluginDir>/server/index.js`, and calls the default
+    export with `{ pluginId, registerHook }`. The function can
+    register one handler or many; the loop does not impose a limit.
+  - `loadPluginHookModule(...)` is the per-plugin workhorse. If
+    the module has no default export it logs and skips — the host
+    never crashes because a plugin is missing the `export default`
+    line.
+  - `setPluginEnabled(id, false, ...)` now calls
+    `unregisterPluginHooks(id)` before flipping the DB row, and
+    `(id, true, ...)` calls `loadPluginHookModule` after.
+  - `uninstallPlugin(id, ...)` unregisters as part of teardown so
+    the registry stays consistent with disk + DB.
+  - `registerPluginServerRoutes` was the existing "boot loader"
+    for `serverRoutes`. The new hook loader runs alongside it in
+    `app.ts`.
+- **`src/server/app.ts`** — after the existing
+  `registerPluginServerRoutes(...)` call, the boot path now also
+  calls `registerPluginHookHandlers(...)` so enabled plugins get
+  their hook handlers bound at startup, not on first event.
+- **`src/server/routes/page.routes.ts`** —
+  - `GET /api/branches/:branchId/page`: after the response object
+    is built but *before* `return reply.send(...)`, dispatches a
+    `pageLoad` event with `{ actorUserId, pageId, branchId }`.
+    Dispatch is fire-and-forget (`void dispatchHook(...)`); the
+    user-facing response is never gated on a slow plugin handler.
+  - `PUT /api/branches/:branchId/page/content`: dispatches a
+    `pageSave` event after a successful save, with the same
+    fire-and-forget shape. Failed saves (422 / 409) do NOT emit —
+    the event fires only on the success branch.
+- **`src/server/routes/relation.routes.ts`** —
+  - `POST /api/pages/:pageId/relations`: dispatches
+    `attributeChange` / `set` with
+    `{ name, valuePageId }`. Validation failure (400) does not
+    emit.
+  - `DELETE /api/pages/:pageId/relations/:attrId`: dispatches
+    `attributeChange` / `delete`. Required changing
+    `removeRelation()` in `relation.service.ts` to return the
+    deleted row's `{ pageId, name, valuePageId }` so the route can
+    fill in the relation's user-defined `name` (the `type` string
+    in the brief) instead of just `attributeId`. Backward
+    compatible — `removeRelation` was previously `Promise<void>`,
+    which is the same shape as a Promise that resolves to an object
+    nobody reads.
+
+### Design notes
+
+- **Dispatch is fire-and-forget on purpose.** The host request must
+  not be slowed down by a plugin handler, especially the read path
+  (every page GET fires a `pageLoad`). `void dispatchHook(...)`
+  returns the promise to the event loop and the route handler
+  proceeds; the handler errors are caught and logged inside
+  `dispatchHook` itself.
+- **Snapshot-before-iterate.** `dispatchHook` reads the subscriber
+  list into a local array before iterating so a handler that calls
+  `unregister` mid-flight doesn't corrupt iteration. Test
+  `snapshot slicing lets a handler unregister mid-dispatch without
+  corrupting iteration` exercises this.
+- **Capability flag, not file existence.** Plugins without a
+  default-export function on `server/index.js` are skipped, but
+  plugins without the `hooks` capability are *not even loaded*
+  (let alone crash). The manifest is the source of truth.
+- **One registry, many events.** A single per-process object holds
+  the subscriber map for every event name. Per-event iteration is
+  O(subscribers for that event) — no cross-event work, no leaks.
+- **`removeRelation` now returns the deleted row.** The brief's
+  `attributeChange/delete` hook needs the relation's `name`
+  (user-defined type string) for downstream filtering. The new
+  return type is additive; existing callers that ignored the
+  return value still compile.
+
+### Tests
+
+- `src/server/__tests__/hooks.test.ts` — 11 unit tests for the
+  registry itself: no subscribers returns 0; single handler is
+  invoked; multi-plugin independence; per-event isolation; throwing
+  handler doesn't kill siblings; `unregister` closure works and is
+  idempotent; `unregisterPluginHooks` removes every event owned by
+  a plugin; mid-dispatch `unregister` is safe; async handlers are
+  awaited; `attributeChange` payload shape round-trips.
+- `src/server/__tests__/hooks.integration.test.ts` — 5
+  integration tests against the real DB and plugin loader:
+  capabilities.on loads + dispatches; capabilities.off is ignored;
+  `setPluginEnabled(false)` tears down; `setPluginEnabled(true)`
+  re-loads; plugin modules without a default export are skipped;
+  `uninstallPlugin` removes every subscription.
+- `src/server/__tests__/hooks.events.test.ts` — 5 route-level
+  integration tests using `app.inject` + `randomBytes` page ids:
+  `pageLoad` fires after a successful GET; `pageSave` fires after
+  a successful content PUT (with expectedUpdatedAt flow); both
+  `attributeChange/set` and `attributeChange/delete` fire from the
+  relation routes with the correct `name` attached; a throwing
+  handler does NOT break the host request.
+- Full suite after slice-30: 49 files / 399 tests, typecheck
+  clean.
+
+### Follow-ups left for later
+
+- More events: `spaceCreate`, `branchMove`, `permissionGrant`,
+  `userInvite`, etc. Adding a new event is now just two lines
+  (one type in `hookTypes.ts`, one dispatch site in a route).
+- Handler execution timeout. Today a misbehaving async handler
+  could hang the snapshot for that dispatch. A per-handler
+  `Promise.race([handler, timeout])` is the obvious follow-up.
+- Hook metrics / observability — counters per event per plugin
+  for the admin dashboard. The registry already has the data.
+- Persisted hook subscriptions (so a plugin can be enabled
+  *before* its module is on disk and still pick up its handlers
+  when installed later). Today, install + enable is the only path.
+- Admin UI: "last 100 hook events" view to help plugin authors
+  debug. The data isn't captured yet but the dispatcher is the
+  only place that would need to log it.
+
 ### Why this slice exists
 
 Brief §13.3 — a page can declare a template via `template:<pageId>`

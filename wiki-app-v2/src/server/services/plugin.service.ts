@@ -10,6 +10,8 @@ import type { FastifyInstance } from "fastify";
 import { getDb } from "../db/index.js";
 import { plugins, auditLog } from "../db/schema.js";
 import type { PluginInfo, PluginCapabilities } from "../../shared/pluginTypes.js";
+import { registerHook, unregisterPluginHooks } from "../hooks.js";
+import type { HookEventName, HookHandler } from "../hookTypes.js";
 
 // ---------------------------------------------------------------------------
 // Plugin root — mirrors file.service.ts's 3-hop resolution.
@@ -35,6 +37,7 @@ const capabilitySchema = z.object({
   settingsPanel: z.boolean().default(false),
   embedTypes: z.boolean().default(false),
   serverRoutes: z.boolean().default(false),
+  hooks: z.boolean().default(false),
 });
 
 const contentModelSchema = z.object({
@@ -205,6 +208,9 @@ export async function installPluginFromZip(zipBuffer: Buffer, actorUserId: strin
   if (manifest.capabilities.serverRoutes && !hasServer) {
     throw Object.assign(new Error("Manifest declares serverRoutes but no server/index.js found in zip"), { statusCode: 400 });
   }
+  if (manifest.capabilities.hooks && !hasServer) {
+    throw Object.assign(new Error("Manifest declares hooks but no server/index.js found in zip"), { statusCode: 400 });
+  }
 
   // 7. Extract to a temp dir, validate, then rename into place (atomic-ish)
   const destDir = getPluginDir(manifest.id);
@@ -274,6 +280,19 @@ export async function setPluginEnabled(pluginId: string, enabled: boolean, actor
     targetId: pluginId,
   });
 
+  // Hooks are NOT covered by the boot-time enabled-guard: a disable
+  // toggles immediately by removing every subscription this plugin
+  // owns. Re-enabling loads the module again on demand so a fresh
+  // boot isn't required (unlike serverRoutes, which Fastify locks at
+  // boot — that's why boot already registered every serverRoutes
+  // plugin; hooks don't share that constraint).
+  if (enabled) {
+    await loadPluginHookModule(pluginId);
+  } else {
+    unregisterPluginHooks(pluginId);
+    _registeredHookPlugins.delete(pluginId);
+  }
+
   // No route registration here: Fastify cannot add routes after boot, so every
   // installed serverRoutes plugin is registered at boot behind a per-request
   // enabled-guard (registerPluginServerRoutes). Flipping `enabled` is what makes
@@ -289,6 +308,8 @@ export async function uninstallPlugin(pluginId: string, actorUserId: string): Pr
 
   await db.delete(plugins).where(eq(plugins.id, pluginId));
   await rm(getPluginDir(pluginId), { recursive: true, force: true });
+  unregisterPluginHooks(pluginId);
+  _registeredHookPlugins.delete(pluginId);
 
   await db.insert(auditLog).values({
     actorUserId,
@@ -319,6 +340,59 @@ export async function registerPluginServerRoutes(app: FastifyInstance): Promise<
   const installed = await listPlugins({ disabledToo: true });
   for (const plugin of installed) {
     if (plugin.capabilities.serverRoutes) await registerPluginServerRoutesIfNeeded(app, plugin);
+  }
+}
+
+/**
+ * Brief §13.5: load every enabled plugin that declared `hooks`
+ * capability and give it a chance to subscribe via registerHook.
+ * Unlike server routes, hooks can be re-registered at runtime:
+ * install / enable / disable / uninstall all just call this and
+ * its sibling `unregisterPluginHooks`. The plugin server module
+ * shape is identical to the serverRoutes case — default-export
+ * a Fastify plugin function that calls `registerHook`.
+ */
+export async function registerPluginHookHandlers(): Promise<void> {
+  const installed = await listPlugins({ disabledToo: true });
+  for (const plugin of installed) {
+    if (plugin.capabilities.hooks && plugin.enabled) {
+      await loadPluginHookModule(plugin.id);
+    }
+  }
+}
+
+/**
+ * Same dynamic import + try/catch contract as
+ * `registerPluginServerRoutesIfNeeded`, but with a thinner shape:
+ * the module's default export is called with the per-plugin hook
+ * API (a closure over registerHook). No Fastify register call.
+ */
+async function loadPluginHookModule(pluginId: string): Promise<void> {
+  if (_registeredHookPlugins.has(pluginId)) return;
+  try {
+    const mod: {
+      default?: (api: { registerHook: (event: HookEventName, handler: HookHandler) => void }) => void;
+    } = await import(/* @vite-ignore */`${getPluginDir(pluginId)}/server/index.js`);
+    if (!mod || typeof mod.default !== "function") {
+      // eslint-disable-next-line no-console
+      console.warn(`[hooks] plugin "${pluginId}" server module does not default-export a function; skipping hook registration`);
+      return;
+    }
+    // Build a tiny per-plugin API surface. The plugin can ONLY
+    // call registerHook through this — no access to the global
+    // registry or any other capability.
+    const api = {
+      registerHook(event: HookEventName, handler: HookHandler) {
+        registerHook(pluginId, event, handler);
+      },
+    };
+    mod.default(api);
+    _registeredHookPlugins.add(pluginId);
+    // eslint-disable-next-line no-console
+    console.log(`[hooks] Loaded hook handlers for plugin "${pluginId}"`);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error(`[hooks] Failed to load hook handlers for plugin "${pluginId}":`, err);
   }
 }
 
@@ -362,3 +436,6 @@ async function registerPluginServerRoutesIfNeeded(app: FastifyInstance, plugin: 
 
 /** Plugin server modules this process has already registered (see above). */
 const _registeredServerPlugins = new Set<string>();
+
+/** Plugin hook modules this process has already loaded. Brief §13.5. */
+const _registeredHookPlugins = new Set<string>();

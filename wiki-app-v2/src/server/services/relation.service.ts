@@ -241,10 +241,17 @@ export async function addRelation(input: CreateRelationInput, caller: UserContex
 
 /** Remove a relation by its attribute id. Caller can edit the source
  *  page OR is admin. */
-export async function removeRelation(attributeId: string, caller: UserContext): Promise<void> {
+export async function removeRelation(
+  attributeId: string,
+  caller: UserContext,
+): Promise<{ pageId: string; name: string; valuePageId: string }> {
   const { db } = getDb();
   const [row] = await db
-    .select({ pageId: attributes.pageId, valuePageId: attributes.valuePageId })
+    .select({
+      pageId: attributes.pageId,
+      valuePageId: attributes.valuePageId,
+      name: attributes.name,
+    })
     .from(attributes)
     .where(eq(attributes.id, attributeId))
     .limit(1);
@@ -255,6 +262,10 @@ export async function removeRelation(attributeId: string, caller: UserContext): 
     throw new RelationValidationError("no edit access to source page");
   }
   await db.delete(attributes).where(eq(attributes.id, attributeId));
+  // Brief §13.5: return the deleted relation's identifying fields so
+  // the route handler can emit an attributeChange/delete hook with the
+  // relation name attached.
+  return { pageId: row.pageId, name: row.name, valuePageId: row.valuePageId };
 }
 
 /** List relations declared by `pageId` (i.e. this page points outward).

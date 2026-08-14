@@ -13,6 +13,7 @@ export const PLUGIN_CAPABILITY_KEYS = [
   "settingsPanel",
   "embedTypes",
   "serverRoutes",
+  "hooks",
 ] as const;
 
 export type PluginCapabilityKey = (typeof PLUGIN_CAPABILITY_KEYS)[number];
@@ -24,6 +25,8 @@ export interface PluginCapabilities {
   settingsPanel: boolean;
   embedTypes: boolean;
   serverRoutes: boolean;
+  /** Brief §13.5: server-side event hooks (pageLoad/pageSave/attributeChange). */
+  hooks: boolean;
 }
 
 export interface PluginManifest {

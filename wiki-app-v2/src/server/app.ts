@@ -23,7 +23,7 @@ import { tokenRoutes } from "./routes/token.routes.js";
 import { lensRoutes } from "./routes/lens.routes.js";
 import { relationRoutes } from "./routes/relation.routes.js";
 import { graphRoutes } from "./routes/graph.routes.js";
-import { registerPluginServerRoutes } from "./services/plugin.service.js";
+import { registerPluginServerRoutes, registerPluginHookHandlers } from "./services/plugin.service.js";
 import multipart from "@fastify/multipart";
 
 /**
@@ -95,6 +95,12 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // serverRoutes capability. A failing plugin is logged and skipped; it never
   // takes down the whole instance.
   await registerPluginServerRoutes(app);
+
+  // Brief §13.5: load hook handlers for every enabled plugin that
+  // declares the `hooks` capability. Hooks are NOT subject to the
+  // boot-only constraint (Fastify's route table is sealed after
+  // ready(); the hook registry is plain memory).
+  await registerPluginHookHandlers();
 
   app.get("/api/health", { config: { access: "public" } }, async () => ({
     status: "ok",

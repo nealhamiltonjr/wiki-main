@@ -13,6 +13,7 @@ import {
   removeRelation,
 } from "../services/relation.service.js";
 import type { UserContext } from "../../shared/types.js";
+import { dispatchHook } from "../hooks.js";
 
 const createSchema = z.object({
   type: z.string().min(1).max(64),
@@ -84,6 +85,23 @@ export async function relationRoutes(app: FastifyInstance) {
           },
           u,
         );
+
+        // Brief §13.5: attributeChange hook. The relation's type lives
+        // in `rel.type` and the target page is `rel.target?.id`. Note
+        // we dispatch AFTER the reply is built but BEFORE we send it
+        // because `rel` is fully populated only by addRelation's return.
+        void dispatchHook({
+          event: "attributeChange",
+          at: new Date().toISOString(),
+          actorUserId: u.id,
+          pageId: request.params.pageId,
+          action: "set",
+          attribute: {
+            name: rel.type,
+            value: rel.target?.title ?? undefined,
+            valuePageId: rel.target?.id ?? undefined,
+          },
+        });
         return reply.code(201).send(rel);
       } catch (err) {
         if (err instanceof RelationValidationError) {
@@ -117,7 +135,20 @@ export async function relationRoutes(app: FastifyInstance) {
         return reply.code(403).send({ error: "no edit access to source page" });
       }
       try {
-        await removeRelation(request.params.attributeId, u);
+        const removed = await removeRelation(request.params.attributeId, u);
+        // Brief §13.5: attributeChange/delete hook. The relation's
+        // name is in `removed.name` (the user-defined type string).
+        void dispatchHook({
+          event: "attributeChange",
+          at: new Date().toISOString(),
+          actorUserId: u.id,
+          pageId: removed.pageId,
+          action: "delete",
+          attribute: {
+            name: removed.name,
+            valuePageId: removed.valuePageId,
+          },
+        });
         return reply.code(204).send();
       } catch (err) {
         if (err instanceof RelationValidationError) {

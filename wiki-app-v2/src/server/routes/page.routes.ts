@@ -18,6 +18,7 @@ import { getBranchChain, resolveSpaceRole, canViewPage } from "../services/branc
 import { diffRevisions } from "../services/diff.service.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
+import { dispatchHook } from "../hooks.js";
 import { getPageBacklinks } from "../services/backlink.service.js";
 import { resolveInheritedAttributes } from "../services/template.service.js";
 import { processMentions } from "../services/mention.service.js";
@@ -79,6 +80,20 @@ export async function pageRoutes(app: FastifyInstance) {
         row.page.id,
         user,
       );
+      // Brief §13.5: dispatch the pageLoad hook AFTER reply.send so
+      // the user-facing response is never gated on a slow plugin
+      // handler. We capture the reply promise but intentionally do
+      // not await it — the request handler returns first and the
+      // event fires asynchronously. Errors in handlers are caught
+      // inside dispatchHook and never bubble up here.
+      const viewerUserId = user?.id ?? "anonymous";
+      void dispatchHook({
+        event: "pageLoad",
+        at: new Date().toISOString(),
+        actorUserId: viewerUserId,
+        pageId: row.page.id,
+        branchId,
+      });
       return reply.send({
         id: row.page.id,
         slug: row.page.slug,
@@ -168,7 +183,20 @@ export async function pageRoutes(app: FastifyInstance) {
       // Mention notifications are derived data — fire-and-forget so a slow
       // notification fan-out never delays the save response.
       processMentions(row.page.id, branchId, row.page.slug, (request as any).userContext?.id ?? "", body.content).catch(() => {});
-      return reply.send({ ok: true, updatedAt: fresh?.updatedAt, title: fresh?.title });
+      const saveResponse = { ok: true, updatedAt: fresh?.updatedAt, title: fresh?.title };
+
+      // Brief §13.5: dispatch pageSave hook AFTER the reply is sent
+      // so plugin latency never affects the user. Same pattern as
+      // pageLoad above.
+      void dispatchHook({
+        event: "pageSave",
+        at: new Date().toISOString(),
+        actorUserId: (request as any).userContext?.id ?? "anonymous",
+        pageId: row.page.id,
+        branchId,
+      });
+
+      return reply.send(saveResponse);
     }
   );
 
