@@ -84,9 +84,17 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   });
 
   await app.register(cookie);
-  // Multipart for file uploads — 25MB cap (brief §3.2: too-large files must
-  // fail cleanly with 413, never a bare 500).
-  await app.register(multipart, { limits: { fileSize: 25 * 1024 * 1024 } });
+  // Multipart for file uploads. Slice-44: raised the fileSize ceiling
+  // to match the plugin-upload cap's upper bound (500 MB) so that an
+  // admin who sets `limits.pluginUploadMaxBytes` to the maximum isn't
+  // silently truncated by the multipart layer. Per-route enforcement
+  // inside plugin.routes.ts still rejects oversize uploads cleanly with
+  // 413. The brief §3.2 contract — "too-large files must fail cleanly
+  // with 413, never a bare 500" — is preserved: the per-route check
+  // runs against `Content-Length` and against the actual buffered
+  // length, and `@fastify/multipart` exposes `mp.file.truncated`
+  // if its own limit is hit, which the route also detects.
+  await app.register(multipart, { limits: { fileSize: 500 * 1024 * 1024 } });
   await app.register(authRoutes);
   await app.register(spaceRoutes);
   await app.register(treeRoutes);

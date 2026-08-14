@@ -5,7 +5,48 @@ import { getDb } from "../db/index.js";
 import { branches, commentThreads, comments, users } from "../db/schema.js";
 import { getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
+import { getSystemSetting } from "./settings.routes.js";
 import type { UserContext } from "../../shared/types.js";
+
+/**
+ * Slice-44: admin-tunable comment body cap.
+ *
+ * Default of 32768 bytes (32 KB) matches Discourse's per-post cap and
+ * sits comfortably between Slack's 40 KB and GitHub's 64 KB. Limits are
+ * per-route on a body that is intentionally user-supplied free text;
+ * unlimited bodies are a classic DoS surface — a single authenticated
+ * user can otherwise POST 1 GB of text and balloon the SQLite file.
+ *
+ * Admin can override the value live via PUT /api/settings/:key with key
+ * `limits.commentBodyMaxBytes`. The cap is re-read on every request so
+ * changes take effect without a redeploy. The clamp range (1 KB .. 1 MB)
+ * prevents pathological values like 0 (locks everyone out) or 4 GB
+ * (defeats the point).
+ */
+const COMMENT_BODY_MIN = 1024;
+const COMMENT_BODY_MAX = 1_048_576;
+const COMMENT_BODY_DEFAULT = 32768;
+
+async function readCommentBodyCap(): Promise<number> {
+  const v = await getSystemSetting<unknown>("limits.commentBodyMaxBytes", COMMENT_BODY_DEFAULT);
+  if (typeof v !== "number" || !Number.isFinite(v) || v < COMMENT_BODY_MIN || v > COMMENT_BODY_MAX) {
+    return COMMENT_BODY_DEFAULT;
+  }
+  return Math.floor(v);
+}
+
+/**
+ * Build the comment-body zod schema with the live cap. We construct it
+ * per request rather than cache it because the admin-tunable cap can
+ * change between requests; zod construction cost is negligible vs the
+ * SQLite read we're already doing.
+ */
+async function commentBodySchema() {
+  const cap = await readCommentBodyCap();
+  return z.string().min(1).max(cap, {
+    message: `Comment body exceeds the configured limit (${cap} characters)`,
+  });
+}
 
 const createThreadBody = z.object({
   rangeFrom: z.number().int().min(0),
@@ -14,16 +55,16 @@ const createThreadBody = z.object({
   // so the highlight can be re-anchored to the block when earlier edits shift
   // the character range.
   blockId: z.string().max(64).optional(),
-  body: z.string().min(1),
+  body: z.string().min(1), // size-enforced inside the route via commentBodySchema
   selection: z.string().max(2000).optional(),
 });
 
 const addReplyBody = z.object({
-  body: z.string().min(1),
+  body: z.string().min(1), // size-enforced inside the route
 });
 
 const updateBody = z.object({
-  body: z.string().min(1),
+  body: z.string().min(1), // size-enforced inside the route
 });
 
 // ---- helpers ----
@@ -135,6 +176,13 @@ export async function commentRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { branchId } = request.params as { branchId: string };
       const body = createThreadBody.parse(request.body);
+      // Slice-44: re-parse the body field through the size-capped schema so
+      // oversize comment bodies are rejected with a clear 400 message even
+      // when the cached schema hasn't been rebuilt.
+      {
+        const r = await (await commentBodySchema()).safeParseAsync(body.body);
+        if (!r.success) return reply.code(400).send({ error: r.error.issues[0]?.message ?? "Body too long" });
+      }
       const user = (request as any).userContext as UserContext;
       const pageId = await getPageId(branchId);
       if (!pageId) return reply.code(404).send({ error: "Branch not found" });
@@ -169,6 +217,10 @@ export async function commentRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { branchId, threadId } = request.params as { branchId: string; threadId: string };
       const body = addReplyBody.parse(request.body);
+      {
+        const r = await (await commentBodySchema()).safeParseAsync(body.body);
+        if (!r.success) return reply.code(400).send({ error: r.error.issues[0]?.message ?? "Body too long" });
+      }
       const user = (request as any).userContext as UserContext;
       const pageId = await getPageId(branchId);
       if (!pageId) return reply.code(404).send({ error: "Branch not found" });
@@ -210,6 +262,10 @@ export async function commentRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { commentId } = request.params as { commentId: string };
       const body = updateBody.parse(request.body);
+      {
+        const r = await (await commentBodySchema()).safeParseAsync(body.body);
+        if (!r.success) return reply.code(400).send({ error: r.error.issues[0]?.message ?? "Body too long" });
+      }
       const user = (request as any).userContext as UserContext;
 
       const { db } = getDb();

@@ -3,6 +3,26 @@ import { getDb } from "../db/index.js";
 import { branches } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { storeFile, getFileForBranch, isInlineSafeMime } from "../services/file.service.js";
+import { getSystemSetting } from "./settings.routes.js";
+
+/**
+ * Slice-44: admin-tunable per-route file upload cap. Default 25 MB
+ * matches the pre-slice-44 behavior (which came from the multipart
+ * fileSize ceiling in app.ts). We now enforce the cap inside this
+ * route so the multipart ceiling in app.ts can be raised independently
+ * to support larger plugin uploads. Clamp range 1 KB .. 500 MB.
+ */
+const FILE_UPLOAD_MIN = 1024;
+const FILE_UPLOAD_MAX = 500 * 1024 * 1024;
+const FILE_UPLOAD_DEFAULT = 25 * 1024 * 1024;
+
+async function readFileUploadCap(): Promise<number> {
+  const v = await getSystemSetting<unknown>("limits.fileUploadMaxBytes", FILE_UPLOAD_DEFAULT);
+  if (typeof v !== "number" || !Number.isFinite(v) || v < FILE_UPLOAD_MIN || v > FILE_UPLOAD_MAX) {
+    return FILE_UPLOAD_DEFAULT;
+  }
+  return Math.floor(v);
+}
 
 /**
  * File upload + serving (brief §3.2 file-hardening, §3.13a branch-context).
@@ -27,7 +47,23 @@ export async function fileRoutes(app: FastifyInstance) {
       const [branch] = await db.select().from(branches).where(eq(branches.id, branchId));
       if (!branch) return reply.code(404).send({ error: "Branch not found" });
 
+      // Slice-44: per-route file upload cap. Content-Length pre-check
+      // before we ask @fastify/multipart to buffer the body into RAM,
+      // then a final length check on the buffered payload in case the
+      // client lied about Content-Length.
+      const cap = await readFileUploadCap();
+      const declaredLen = Number(request.headers["content-length"]);
+      if (Number.isFinite(declaredLen) && declaredLen > cap) {
+        return reply.code(413).send({ error: "File too large" });
+      }
+
       const data = await mp.toBuffer();
+      if (mp.file?.truncated) {
+        return reply.code(413).send({ error: "File too large" });
+      }
+      if (data.length > cap) {
+        return reply.code(413).send({ error: "File too large" });
+      }
       const id = await storeFile({
         pageId: branch.pageId,
         filename: mp.filename,

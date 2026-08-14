@@ -34,6 +34,36 @@ export async function setSystemSetting(
     });
 }
 
+/**
+ * Read a system setting with a typed default. Used by route/service code
+ * that needs to consult an admin-tunable cap or threshold without paying
+ * the cost of (a) seeding every default into the table on first boot, or
+ * (b) threading the default through every callsite. The cast is on the
+ * caller — JSON `value` could be anything the admin wrote; consumers
+ * must validate the shape (see the limit validators in comment.routes.ts
+ * and plugin.routes.ts, which clamp and reject out-of-range values).
+ *
+ * Slice-44 addition.
+ */
+export async function getSystemSetting<T = unknown>(
+  key: string,
+  fallback: T,
+): Promise<T> {
+  const { sqlite } = getDb();
+  // Use the raw sqlite handle so we can read the parsed value with one
+  // `.get()` instead of Drizzle's row-mapping overhead. The Drizzle
+  // schema stores `value` as JSON text, so JSON.parse it here.
+  const row = sqlite
+    .prepare("SELECT value FROM system_settings WHERE key = ?")
+    .get(key) as { value: string } | undefined;
+  if (!row) return fallback;
+  try {
+    return JSON.parse(row.value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function settingsRoutes(app: FastifyInstance) {
   // §7.1 System — read-only diagnostics. Paths are resolved from the same env
   // vars the services use (no secrets, no file contents — just configuration).

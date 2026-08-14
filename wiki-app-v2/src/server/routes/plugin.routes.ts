@@ -2,6 +2,34 @@ import type { FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { listPlugins, installPluginFromZip, setPluginEnabled, uninstallPlugin, getPluginDir } from "../services/plugin.service.js";
+import { getSystemSetting } from "./settings.routes.js";
+
+/**
+ * Slice-44: admin-tunable plugin upload size cap.
+ *
+ * Default of 52428800 bytes (50 MB) matches WordPress plugin limits and
+ * the npm registry's recommended package size — large enough to fit any
+ * sensible plugin bundle (manifest + JS + assets) without making the
+ * server a free file-storage service. Pre-flighted against
+ * `Content-Length` so we never call `mp.toBuffer()` on a payload that's
+ * already known to be too big (which would silently buffer the entire
+ * upload into memory before we reject it).
+ *
+ * Admin can override via PUT /api/settings/:key with key
+ * `limits.pluginUploadMaxBytes`. Clamp range 1 MB .. 500 MB prevents
+ * pathological values; the upper bound is well above any real plugin.
+ */
+const PLUGIN_UPLOAD_MIN = 1024 * 1024;
+const PLUGIN_UPLOAD_MAX = 500 * 1024 * 1024;
+const PLUGIN_UPLOAD_DEFAULT = 50 * 1024 * 1024;
+
+async function readPluginUploadCap(): Promise<number> {
+  const v = await getSystemSetting<unknown>("limits.pluginUploadMaxBytes", PLUGIN_UPLOAD_DEFAULT);
+  if (typeof v !== "number" || !Number.isFinite(v) || v < PLUGIN_UPLOAD_MIN || v > PLUGIN_UPLOAD_MAX) {
+    return PLUGIN_UPLOAD_DEFAULT;
+  }
+  return Math.floor(v);
+}
 
 export async function pluginRoutes(app: FastifyInstance) {
   // List installed plugins. Non-admins see only enabled ones (the client needs
@@ -22,7 +50,41 @@ export async function pluginRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: "Only .zip files are accepted" });
     }
 
+    // Pre-flight Content-Length against the live cap. Cheap O(1) check
+    // that runs before we ask @fastify/multipart to buffer the body into
+    // memory. mp.file.truncated tells us if the underlying stream hit
+    // @fastify/multipart's own limits (defaults to 1 MB or whatever the
+    // route is configured with); if so we reject with 413 immediately
+    // regardless of the cap.
+    const cap = await readPluginUploadCap();
+    const declaredLen = Number(request.headers["content-length"]);
+    if (Number.isFinite(declaredLen) && declaredLen > cap) {
+      return reply.code(413).send({
+        error: `Plugin upload exceeds the configured limit of ${cap} bytes`,
+        declaredBytes: declaredLen,
+        limitBytes: cap,
+      });
+    }
+
     const zipBuffer = await mp.toBuffer();
+    // Detect truncation by @fastify/multipart's fileSize limit so we can
+    // give a clean 413 instead of letting the install fail downstream
+    // with a corrupt-zip error. The multipart limit (500 MB, app.ts)
+    // matches the cap's max, so truncation here implies the cap was
+    // raised above the multipart ceiling — direct the admin to fix it.
+    if (mp.file?.truncated) {
+      return reply.code(413).send({
+        error: `Plugin upload truncated by server upload limit; raise multipart fileSize in app.ts`,
+        limitBytes: cap,
+      });
+    }
+    if (zipBuffer.length > cap) {
+      return reply.code(413).send({
+        error: `Plugin upload exceeds the configured limit of ${cap} bytes`,
+        actualBytes: zipBuffer.length,
+        limitBytes: cap,
+      });
+    }
     const info = await installPluginFromZip(zipBuffer, user.id);
     return reply.code(201).send(info);
   });

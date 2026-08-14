@@ -1651,3 +1651,361 @@ space" state.
   typecheck clean, `npm run build` clean.
 - (Slice-37 baseline was 63 files / 449 tests + 20/20 e2e.)
 
+## Slice-41 — first-signup bootstrap race fix (post-build audit pass)
+
+While inspecting the bootstrap service during the §9.4 / §7.2 audit
+follow-up, the comment in `src/server/auth/config.ts` claimed that
+`seedWelcomeSpace` was "race-safe — concurrent first sign-ups will not
+duplicate the tree". The implementation contradicted the comment: the
+idempotency check read `spaces.count` *outside* a transaction, then did
+several non-transactional inserts. With `journal_mode = WAL` and
+better-sqlite3's read-doesn't-block-read semantics, two concurrent first
+sign-ups could both observe `count = 0` and both insert a "Welcome"
+space. The post-build `.after` hook is awaited per sign-up, so a fresh
+install hit by two simultaneous sign-ups (e.g. two operators clicking
+sign-up at once on a freshly-deployed LAN host) ends up with two Welcome
+spaces and two admins — the bootstrap "is idempotent" promise is a lie.
+
+### Fix
+
+Wrap the entire idempotency check + seed body in `db.transaction((tx) =>
+…)` (`src/server/services/bootstrap.service.ts`). better-sqlite3
+acquires the write lock at BEGIN and holds it for the duration, so a
+second concurrent caller blocks on BEGIN until the first commits; by
+then the count check inside the second transaction sees 1 and returns
+null. Inlined the previously-async `makePage`/`makeBranch` helpers into
+the transaction body (sync `.run()` calls on the `tx` object) so the
+whole seed is one atomic unit.
+
+### Regression test
+
+`src/server/__tests__/bootstrap.integration.test.ts` now ends with a
+test that fires two `seedWelcomeSpace(ownerId)` calls in `Promise.all`
+against a hermetic fresh DB and asserts:
+
+- exactly one returned a non-null `SeededSpace` (the other observed
+  count=1 inside the transaction and returned null),
+- `db.select().from(spaces)` has length 1.
+
+Without the fix this test reliably produces `inserted.length === 2` (the
+race is trivially reproducible — better-sqlite3 + WAL + an awaited-async
+caller is enough). With the fix it consistently passes.
+
+### Comment fix
+
+`src/server/auth/config.ts`'s `.after` hook comment previously paraphrased
+"the brief calls it acceptable to have two admins" — that paraphrase was
+incorrect (the brief expects exactly one Welcome space), and the race
+window is real, not theoretical. Updated to describe the actual
+serialization mechanism (sync `db.transaction` + write lock).
+
+### Test counts
+
+- Full suite after slice-41: **65 files / 461 tests** (one new
+  race-regression test; no other count delta). Typecheck clean,
+  `npm run build` clean.
+
+## Slice-42 — ReDoS defense for lens `titleRegex` (post-build audit pass)
+
+The §12.4 lens feature lets a user persist `criteria.titleRegex`, which is
+then evaluated against every page title by the JS-side SQLite REGEXP
+function registered in `src/server/db/index.ts`. That function calls
+`new RegExp(pattern).test(value)` synchronously per row inside
+`runLens` / `runLensWithAttributes` — and `better-sqlite3` is single-
+threaded, so a single pathological pattern freezes every other request
+on the worker until the regex engine returns. Any authenticated user can
+create a lens; any holder of an unlisted lens's share token can hit
+`GET /api/lenses/:id/results` to trigger it. A fresh install that exposes
+the lens routes is one POST away from a DoS.
+
+### Vulnerability — reproduced
+
+`^(a+)+$` (the canonical catastrophic-backtracking shape) is 9 chars;
+running it against 28 `a`s + `X` under V8 took 13.7s in a quick
+standalone test. Worse, page titles are unbounded, and lens patterns can
+be up to 256 chars (the zod `max(256)`). There was no defense at any
+layer — the comment in `db/index.ts` said "expected to be from a trusted
+user (lens owner), but treat untrusted usage defensively" but the code
+itself just compiled and ran whatever pattern it received.
+
+### Fix — three independent gates
+
+The defense is layered so a single regression can't reopen the hole:
+
+1. **Route-level write gate** — `src/server/routes/lens.routes.ts`
+   adds `safeRegexSchema = z.string().min(1).max(256).superRefine(...)`
+   using `assertSafeRegex` from `src/server/utils/regex-safety.ts`.
+   Applied to `criteriaSchema.titleRegex` in both `createSchema` and
+   `patchSchema`. An unsafe pattern at create or patch returns **400**
+   with `unsafe regex: <reason> (pattern: <pattern>)` in the zod error
+   payload.
+
+2. **Service-level run-time gate** — `src/server/services/lens.service.ts`
+   declares `UnsafeLensRegexError` and the top of `runLens` re-checks
+   `criteria.titleRegex` before touching SQLite. This catches legacy
+   rows written before the route gate existed (imports, raw DB writes,
+   future regressions). The route maps the thrown error to **400**.
+
+3. **SQL function last line of defense** — `src/server/db/index.ts`'s
+   registered `regexp` function re-checks the pattern per invocation
+   before calling `new RegExp(pattern).test(value)`. Even if both
+   higher layers are bypassed, the SQL function throws and the query
+   fails loudly instead of hanging the worker.
+
+### `assertSafeRegex` heuristic
+
+Star-height–based bound plus a few sharper rejections. Star height = the
+maximum nesting depth of quantifiers in the parsed AST; values > 1 are
+the structural signature of catastrophic backtracking.
+
+- `MAX_PATTERN_LENGTH = 256` (matches the zod cap).
+- `MAX_QUANTIFIERS = 4` (well over any sane title matcher, well under
+  any linear-but-long pattern that could cost noticeable time).
+- Reject `(...)+` where `...` already contains a quantifier — the
+  canonical `(a+)+` shape.
+- Reject adjacent quantifiers `++`, `+*`, `*?`, etc.
+- Reject backreferences `\1`…`\9` — they interact with outer-group
+  repetitions in ways the star-height walk doesn't track, and title
+  matching never legitimately needs them.
+- Final `new RegExp(pattern)` compile to surface any syntax error the
+  walker ignores.
+
+Worst case the heuristic runs in O(n) over the pattern and rejects
+`^(a+)+$` (verified by the unit tests). It is not a proof of safety
+against all polynomial-time pathologies, but it makes the common
+ReDoS shapes unwriteable while leaving ordinary title patterns
+(`^meeting-\d+$`, `^(TODO|DONE)\b`, `[a-z]+`) intact.
+
+### Tests
+
+- `src/server/__tests__/regex-safety.test.ts` — **33 unit tests** over
+  `assertSafeRegex` itself: every safe shape in the brief is accepted,
+  every canonical ReDoS shape (`(a+)+$`, `(a+)+\1`, `(a*)*`, `(a+|b)+`,
+  `++`, `+*`, `*?`, too many quantifiers, backreferences, empty / too-
+  long / non-string / unclosed-group inputs) is rejected with a
+  meaningful `reason`. Plus a sanity-check that the canonical `(a+)+$`
+  actually backtracks under V8 (small input, fast test).
+- `src/server/__tests__/lens.integration.test.ts` — added a
+  `slice-42: titleRegex ReDoS gate` describe block:
+  - 8 hostile patterns rejected at **POST /api/lenses** with 400.
+  - 1 hostile pattern rejected at **PATCH /api/lenses/:id** with 400.
+  - Defense-in-depth: a legacy row written via `createLens` with a
+    hostile regex still throws `UnsafeLensRegexError` from `runLens`.
+  - The SQLite `regexp` function itself throws `unsafe regex pattern`
+    when invoked with a hostile pattern, and still returns 1 for a
+    safe pattern (`^hello` against `hello world`).
+
+### Files touched
+
+- **new** `src/server/utils/regex-safety.ts` — `assertSafeRegex` helper
+  + doc comment.
+- **new** `src/server/__tests__/regex-safety.test.ts` — 33 unit tests.
+- `src/server/db/index.ts` — import `assertSafeRegex`, gate the SQL
+  REGEXP function, update doc comment.
+- `src/server/services/lens.service.ts` — `UnsafeLensRegexError`
+  exported; `runLens` re-checks before any DB I/O.
+- `src/server/routes/lens.routes.ts` — `safeRegexSchema` wired into
+  `criteriaSchema`; both results endpoints catch
+  `UnsafeLensRegexError` and map to 400.
+- `src/server/__tests__/lens.integration.test.ts` — slice-42 describe
+  block with route + service + SQL-function coverage.
+- `AGENTS.md` — this section.
+
+### Test counts
+
+- Full suite after slice-42: **66 files / 506 tests** (+1 file, +45
+  tests: 33 regex-safety unit tests + 12 ReDoS gate integration tests
+  over the lens route / service / SQL function). Typecheck clean,
+  `npm run build` clean (only the pre-existing chunk-size warning).
+
+## Slice-43 — admin-demote lockout race guard (deep-dive)
+
+### Bug
+
+`PATCH /api/users/:id` only checks self-lockout. Two admins can race:
+A PATCHes B → admin demote; B PATCHes A → admin demote. Both pass
+self-lockout (different targets). Without further guards, both can
+succeed — depending on Node's event-loop interleaving — leaving **zero
+active admins**. Recovering requires a direct DB surgery that the
+brief explicitly does not want to require.
+
+### Fix
+
+Inside the route's PATCH handler, when the patch would *reduce the
+active-admin count* (`isAdmin:false` or `suspended:true` on a target
+who is currently `is_admin=1 AND suspended=0`):
+
+1. Run `SELECT COUNT(*) FROM user WHERE is_admin=1 AND suspended=0`
+   inside a `sqlite.transaction(...).immediate()` (BEGIN IMMEDIATE).
+2. If the count is exactly `1`, the only remaining active admin is the
+   actor (we just haven't been able to commit our patch to remove the
+   target yet — the second writer of a race lands here). Throw a
+   `LastAdminError` sentinel, mapped to **409 Conflict** in the route.
+   The self-lockout guard (400) still covers the simple self-demote
+   case.
+3. Otherwise, the route's `UPDATE` proceeds.
+
+Two subtle gotchas the inline comment captures:
+
+- **Subtracting the target from the count looks correct but isn't.**
+  A excludes B → sees 1 (itself), proceeds; B excludes A → sees 1
+  (itself), proceeds; both commit, 0 admins remain. The right
+  invariant is "would my commit leave zero?" — and "exactly 1 active
+  admin" is the only pre-commit state from which any successful
+  demote produces zero.
+- **Default `BEGIN DEFERRED` is wrong here.** Our guard body is
+  read-only (a `COUNT(*)`), so a deferred BEGIN acquires no write
+  lock at all; both writers' count reads see the pre-race state.
+  `BEGIN IMMEDIATE` (`sqlite.transaction(fn).immediate()`) grabs the
+  lock at BEGIN so the second writer blocks until the first commits,
+  then re-reads against the post-commit snapshot.
+
+The race is also partially defended by the access middleware itself:
+the suspended-user check (access.ts) re-reads the user table on every
+request, so if A's commit lands before B's middleware runs, B's
+middleware sees B as non-admin and rejects with 403 before reaching
+the route. The 409 guard is the second line of defense for the case
+where both middleware reads happen before either commit lands (a real
+window in WAL mode + concurrent inject()).
+
+### Files touched
+
+- `src/server/routes/user.routes.ts` — added the
+  `willRemoveActiveAdmin` short-circuit, `BEGIN IMMEDIATE` transaction
+  with the count check, `LastAdminError` sentinel, 409 mapping, and
+  the long inline rationale.
+- **new** `src/server/__tests__/user.integration.test.ts` — 6 tests:
+  bootstrap admin auto-promotion; self-demote 400; self-suspend 400;
+  the new "does NOT false-positive on suspended-target demote" 200
+  case; the safe-demote-when-other-admin-exists 200 case; the
+  concurrent-race test that asserts at least one of `[200,403]`,
+  `[200,409]`, `[409,403]` holds (never `[200,200]`) and that the
+  post-race active-admin count is ≥ 1.
+
+### Test counts
+
+- Full suite after slice-43: **67 files / 512 tests** (+1 file, +6
+  tests). Typecheck clean, build clean.
+
+## Slice-44 — admin-tunable comment, plugin, and file upload caps
+
+### Requirement
+
+A common wiki app (Notion, Confluence, MediaWiki, DokuWiki, etc.) lets
+an admin cap the size of comment bodies and plugin uploads so that
+one runaway message can't OOM the server. The brief had
+`commentBody` zod schemas pinned to a fixed ceiling and the @fastify
+multipart `fileSize` ceiling at 25 MB (which buried both the file
+upload cap and the plugin upload cap behind a single shared knob).
+Slice-44 promotes all three to per-route, admin-tunable caps read
+from `system_settings`, defaults chosen to match the pre-slice-44
+behavior where applicable.
+
+### Defaults
+
+| Setting                       | Default | Clamp range        |
+| ----------------------------- | ------- | ------------------ |
+| `limits.commentBodyMaxBytes`  | 32 KB   | 1 KB .. 1 MB       |
+| `limits.pluginUploadMaxBytes` | 50 MB   | 1 MB .. 500 MB     |
+| `limits.fileUploadMaxBytes`   | 25 MB   | 1 KB .. 500 MB     |
+
+The clamp ranges protect against admin typos (e.g. `value: 0` would
+lock every comment to zero-width). Bogus values (`"not a number"`,
+`null`, `{ weird: "shape" }`) silently fall back to the default.
+
+### Wiring
+
+`settings.routes.ts` exports a typed `getSystemSetting<T>(key,
+fallback)` helper that reads the JSON-stored value and is shared
+across all three routes. Each route then does its own narrow
+numeric-clamp check before consuming the value, so the clamp range
+is documented in the route (not in the generic settings helper).
+
+- **comment.routes.ts** — `commentBodySchema()` is now `async` and
+  reads the cap per request. `createThreadBody`, `addReplyBody`,
+  and `editCommentBody` parse through the static schema first, then
+  re-parse the `body` field through the size-capped schema so the
+  custom 400 message reads
+  `Comment body exceeds the configured limit (N characters)`.
+- **plugin.routes.ts** — `POST /api/plugins` does a Content-Length
+  pre-check before asking @fastify/multipart to buffer the body, then
+  checks `mp.file.truncated` and the actual byte length after
+  buffering, returning **413 Payload Too Large** with
+  `{ error, declaredBytes, limitBytes }`.
+- **file.routes.ts** — same pattern as the plugin route, default
+  25 MB preserves the pre-slice-44 file upload cap exactly.
+- **app.ts** — `@fastify/multipart` `fileSize` raised to 500 MB so
+  the per-route plugin cap (which can go up to 500 MB) isn't blocked
+  by the parser. The parser's ceiling is now an outer safety net, not
+  the policy.
+
+### Why also tweak files
+
+Raising the multipart ceiling for the plugin cap broke the file
+upload cap test (30 MB > 25 MB no longer 413'd). The clean fix is
+parallel structure: a per-route file cap with the same default.
+This is also more honest — a file is user content with a reasonable
+ceiling, a plugin is admin-uploaded and can be larger.
+
+### Tests
+
+- **new** `src/server/__tests__/limits.integration.test.ts` — 17
+  tests across three `describe` blocks:
+  - **comment body cap** (9 tests): rejects oversize on thread /
+    reply / edit; accepts exactly-at-cap; admin can lower the cap
+    to 2 KB and the new oversize is rejected with the new cap in
+    the message; bogus stored values (string, sub-clamp, super-
+    clamp) are ignored and the default applies.
+  - **plugin upload cap** (4 tests): small zip accepted (downstream
+    rejects fake bytes, not 413); oversized Content-Length rejected
+    with 413 and the response carries `limitBytes`; bogus values
+    fall back to default.
+  - **file upload cap** (4 tests): 30 MB rejected at the default 25
+    MB cap; small file accepted; admin can raise the cap to accept
+    30 MB; bogus stored value falls back to default.
+
+Two test-environment gotchas the file's inline comments capture:
+
+- **Module-level DB singleton.** `getDb()` returns a cached
+  `state` object; the env-var dance in `freshDbPath()` only takes
+  effect on the first import. Across `describe` blocks in this file
+  the DB is shared, so the only auto-promoted user is the very
+  first signup. Each subsequent describe promotes its own user
+  via `db.update(users).set({ isAdmin: true, suspended: false })`
+  before exercising admin routes.
+- **Multipart needs a real boundary.** Sending raw bytes with
+  `content-type: application/zip` is rejected by @fastify/multipart
+  with 415 before the route runs. The test builder concatenates a
+  proper multipart envelope (see `plugin.integration.test.ts` for
+  the original pattern).
+
+### Files touched
+
+- `src/server/routes/settings.routes.ts` — exported the
+  `getSystemSetting<T>(key, fallback)` helper.
+- `src/server/routes/comment.routes.ts` — `commentBodySchema` is
+  async; all three comment endpoints re-validate the body field
+  through the dynamic cap.
+- `src/server/routes/plugin.routes.ts` — `POST /api/plugins` enforces
+  the configured plugin cap with Content-Length pre-check +
+  post-buffer check + `mp.file.truncated` handling.
+- `src/server/routes/file.routes.ts` — same pattern as
+  plugin.routes.ts, default 25 MB.
+- `src/server/app.ts` — raised the @fastify/multipart `fileSize`
+  ceiling to 500 MB so the plugin cap can go that high.
+- **new** `src/server/__tests__/limits.integration.test.ts` — 17
+  tests.
+- `AGENTS.md` — this slice entry.
+
+### No external deps
+
+`getSystemSetting` is built on the existing `system_settings` table
+and the existing `drizzle` read; no new packages.
+
+### Test counts
+
+- Full suite after slice-44: **68 files / 529 tests** (+1 file,
+  +17 tests). Typecheck clean, build clean. Only the pre-existing
+  large-chunk-size warning remains.
+
+
