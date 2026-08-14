@@ -1362,8 +1362,111 @@ much harder. Landed here as its own future slice.
 
 ### Follow-ups left for later (within §13.6)
 
-- Dedicated code page type — see slice-32 prep notes above.
+- Dedicated code page type — landed in slice-32 (below).
 - If we add more slash-menu items, sort them by recency or
   category (Right now the slash menu shows them in registration
   order.)
+
+
+## Slice-32 — dedicated code page type (§13.6, code-pages portion)
+
+### Why this slice exists
+
+Slice-31 finished the Mermaid half of §13.6. This slice finishes the
+other half: a **code page** whose whole body is a single
+syntax-highlighted source/config file, distinct from a code block
+embedded in a rich-text page. Useful for full shell scripts and config
+files where the surrounding wiki page is unnecessary overhead.
+
+### Architecture decisions
+
+- **One column, two content kinds.** `pages.page_type` is `"wiki"` or
+  `"code"`; `pages.language` is the syntax language (null for wiki).
+  Code pages store the raw source as a JSON string in the existing
+  `pages.content` column (`drizzle` `mode:"json"` round-trips a plain
+  JS string) rather than adding a parallel column — the row stays
+  self-contained and no content-kind join is needed.
+- **String-only OCC save.** `savePageOCC` checks `pageType` first; for
+  code pages it rejects non-string bodies and routes to
+  `saveCodePageOCC`, which skips block-id repair and backlink scanning
+  (code has no wiki links) but still reindexes search and enqueues a
+  git commit.
+- **Git export as real source files.** Code pages export to
+  `<space>/<slug>.<ext>` with no YAML frontmatter (readable diffs for
+  scripts/configs); snapshots use `_snapshots/<id>.<ext>`.
+  `getFileContentAtCommit` matches by page-id prefix because the
+  extension varies by language. Restore returns code content verbatim
+  instead of round-tripping markdown→Tiptap.
+- **Shared language metadata.** `src/shared/codeLanguages.ts` is the
+  single source of truth mapping aliases → Prism grammar id, UI label,
+  and git file extension. Both server (git) and client (highlight/UI)
+  use it so a filename and a language tag can never disagree.
+- **Shared highlighter.** `src/features/editor/codeHighlight.ts` wraps
+  Prism for both inline code blocks and whole-page code views, so the
+  alias map + component loading live in exactly one place.
+- **Editor is a plain textarea, not ProseMirror.** Syntax highlighting
+  happens in read view; edit mode is a real text editor so undo/paste
+  stay native. No collab for code pages (Yjs/Tiptap collab is
+  rich-text only).
+
+### What changed
+
+- **`src/server/db/schema.ts` + `drizzle/0007`** — `pages.page_type`
+  (default `'wiki'`) and nullable `pages.language`.
+- **`src/shared/codeLanguages.ts` (new)** — `resolveCodeLanguage` and
+  `codeLanguageExtension`.
+- **`src/shared/types.ts`** — `PageType`.
+- **`src/server/services/page.service.ts`** — `createPage` carries the
+  type/language; `newCodeContent`; code branch in `getPageByBranchId`;
+  `saveCodePageOCC`.
+- **`src/server/routes/page.routes.ts`** — create/get/restore carry
+  pageType/language; restore branches on pageType.
+- **`src/server/services/git.service.ts`** — code raw export + raw
+  snapshots + prefix-based file lookup.
+- **`src/server/services/search.service.ts`** — `docToText` returns raw
+  strings unchanged (indexes code text).
+- **`src/features/editor/codeHighlight.ts` (new)** + refactor
+  `ReadOnlyContent.tsx` to use it.
+- **`src/features/editor/CodePageReadOnly.tsx` (new)** — Prism file
+  view with language + extension header.
+- **`src/features/editor/CodePageEditor.tsx` (new)** — controlled
+  monospace textarea.
+- **`src/routes/_authenticated/w/$branchId.tsx`** — mounts code
+  read/edit views for `pageType === "code"`.
+- **`src/api/client.ts`** — `PageData` and `createPage` carry
+  pageType/language.
+
+### Bug found by the e2e (and fixed before commit)
+
+The code editor's autosave initially snapshotted `getContent()` from the
+pre-render React closure, so a debounced save could persist the previous
+(empty) text. Fixed by reading a ref that `handleChange` updates
+synchronously before `scheduleSave()` — the same reason the Tiptap
+editor reads `editorRef.current` at event time.
+
+### Tests added
+
+- **`src/server/__tests__/code-page.integration.test.ts` (4 tests)** —
+  create with pageType/language; string body round-trip; non-string
+  body → 422; raw text indexed for search.
+- **`src/server/services/__tests__/git-service.test.ts` (+3)** — raw
+  source export (no frontmatter) under the language extension; raw
+  `getFileContentAtCommit` round-trip; raw snapshot export.
+- **`src/shared/__tests__/codeLanguages.test.ts` (4)** — alias/canonical
+  resolution + extension mapping + fallback.
+- **`src/features/editor/__tests__/codeHighlight.test.ts` (3)** —
+  tokenized output, null without language, source text escaping.
+- **`e2e/codepage.spec.ts` (1)** — API create → read shell → edit →
+  autosave → reload round-trip.
+
+### Test counts
+
+- Full suite after slice-32: **54 files / 419 tests**, typecheck clean,
+  **e2e 20/20 green**, `npm run build` clean.
+- (Slice-31 baseline was 51 files / 405 tests.)
+
+### §13.6 remaining follow-ups
+
+- Slash-menu ordering (recency/category) is a minor polish item, not
+  core to §13.6 — left for a future UX pass.
 
