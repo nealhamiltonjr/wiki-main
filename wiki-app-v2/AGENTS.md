@@ -2115,4 +2115,113 @@ visible as a styled link, click is a no-op.
 - Full suite after slice-45: **69 files / 554 tests** (+1 file,
   +25 tests). Typecheck clean, build clean.
 
+## Slice-46 — plugin command engine injection audit (deep-dive)
+
+### Findings
+
+The plugin loader, dispatcher, and server-route guards were already
+strong (hooks dispatch is per-handler try/catch, plugin failures
+auto-disable past the threshold, server routes mount under the
+on-route `config.access` fail-closed check, plugin id is regex-
+bounded, install extracts to a tmp dir with `..` segment rejection
+and a per-zip total-size cap). What was missing was **client-side
+registry validation**: every `register*()` accepted any input.
+
+| Vector | Pre-fix behaviour | Risk |
+| ------ | ------------------ | ---- |
+| `registerEmbedType({ name: "image" })` (or any other core node that falls through to the `default:` branch in `BlockNode`) | Renderer fires for every instance of that type across every page. EmbedMap is keyed by name. | **High** — full takeover of image / table / taskList / details\* rendering. |
+| `registerEmbedType({ name: "X" })` then again from a second plugin | Both pushed to `embedTypes` array; the map only retains the last `Map.set` entry. | **Medium** — silent overwrite, neither plugin author sees the bug. |
+| `registerSlashCommand({ name: ... })` ditto for toolbar / settings ids | Same silent overwrite pattern for slash menu filtering. | **Medium** — confusing UX, not a privilege issue (plugins can't escalate each other). |
+| Unbounded `label` / `icon` / `keywords` | A plugin could push MBs through the registry into the slash menu's `<span>` and toolbar button label. | **Low** — React renders text safely, but the data path is unbounded. |
+| `run(editor)` / `onPress(editor)` callbacks | Plugin gets the live editor; this is the design intent (extension point). | **Not a vector** — plugins are the trust boundary; admins choose what to install. |
+
+The path-traversal surface through `getPluginDir(pluginId)` was
+also re-audited but found safe — every public entry point
+(`installPluginFromZip`, `setPluginEnabled`, `uninstallPlugin`,
+`registerPluginServerRoutes`, `registerPluginHookHandlers`, the
+`/plugins/:id/client/index.js` static serve, the `loadPluginHookModule`
+re-load) either validates the id against the manifest regex at
+install time or looks up the row in the `plugins` table before any
+filesystem operation. Re-enabling protection by validating the slug
+at every entry point is documented as defense-in-depth but not
+implemented in this slice — the database row IS the gate.
+
+### Fix — client-side registry validation (§src/plugins/registry.ts)
+
+Every `registerSlashCommand` / `registerToolbarItem` /
+`registerSettingsPanel` / `registerEmbedType` now:
+
+1. Rejects a name / id that doesn't match its identifier shape
+   (`/^[a-z][a-z0-9-]{0,31}$/` for slash commands; `/^[a-zA-Z][a-zA-Z0-9-_]{0,63}$/`
+   for the rest). Throws a clear error.
+2. Rejects a name that collides with `KNOWN_BLOCK_TYPES ∪ KNOWN_INLINE_TYPES`.
+   `registerEmbedType` is the highest-impact one because of the
+   embed-name lookup in the read-only renderer. Slash commands also
+   guard against collisions for the lowercase single-word cores
+   (`paragraph`, `blockquote`, `image`, `table`, `details`, `text`,
+   `mention`).
+3. Rejects duplicates with a loud `"… is already registered"` throw
+   instead of letting `Map.set` silently overwrite. Loud > silent for
+   plugin interop errors.
+4. Caps `label` length at 80 chars; `keywords` count at 16 and each
+   keyword at 32 chars.
+
+`coreCommands.ts` now swallows the "already registered" throw for the
+mermaid command when called a second time in the same page-load so
+tests can drive boot twice without a regression — production's
+`if (_loaded) return;` guard in `loadPlugins` already prevents double
+calls, but the per-command guard is the robust fallback for HMR /
+MPA-style re-init scenarios.
+
+`registerTiptapExtension` is left unvalidated — Tiptap itself
+rejects extensions whose schema collides with an existing one during
+editor construction, and the `AnyExtension` shape is opaque to us.
+
+A test-only `resetRegistryForTests` export wipes the registry arrays
+so describe blocks can pin a clean slate. Production never calls it.
+
+### Tests
+
+- **new** `src/plugins/__tests__/registry-validation.test.ts` —
+  19 tests across five `describe` blocks:
+  - `registerEmbedType` (6) — every KNOWN_BLOCK_TYPES / KNOWN_INLINE_TYPES
+    name rejected; valid names accepted; duplicates rejected;
+    malformed / oversized names rejected; label cap enforced.
+  - `registerSlashCommand` (4) — collision (filtered to names that
+    also pass the slash-command shape, e.g. `image` / `table` /
+    `paragraph` / `details` / `text` / `mention`) rejected;
+    duplicates rejected; malformed names rejected; keyword count and
+    length caps enforced.
+  - `registerToolbarItem` (3) — duplicates rejected; malformed ids
+    rejected; label caps enforced; multiple distinct items accepted.
+  - `registerSettingsPanel` (3) — duplicates rejected; malformed
+    ids rejected; multiple distinct panels accepted.
+  - First-party mermaid command still passes (3) — `registerCoreCommands`
+    idempotent across two consecutive calls.
+
+The existing `coreCommands.test.ts` (3 tests) still passes — the
+mermaid command metadata (`name: "mermaid"`, `label: "Mermaid
+diagram"`, `keywords: ["diagram", "chart", "flow", "graph",
+"sequence"]`) is all within the new caps.
+
+### Files touched
+
+- `src/plugins/registry.ts` — added `SLASH_NAME_RE`, `IDENT_RE`,
+  `RESERVED_NAMES`, `assertShape`, `assertLabel`, `assertKeywords`,
+  wired into the four `register*` functions. Added
+  `resetRegistryForTests` test-only export.
+- `src/plugins/coreCommands.ts` — wraps the mermaid registration in
+  a try/catch that swallows only the "already registered" error.
+- **new** `src/plugins/__tests__/registry-validation.test.ts` — 19
+  tests.
+- `AGENTS.md` — this slice entry.
+
+### No external deps
+
+### Test counts
+
+- Full suite after slice-46: **70 files / 573 tests** (+1 file,
+  +19 tests). Typecheck clean, build clean (existing large-chunk
+  warning only, unrelated to this change).
+
 
