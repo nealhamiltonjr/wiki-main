@@ -19,6 +19,7 @@ import {
   getLensByToken,
   listLensesForUser,
   runLens,
+  runLensWithAttributes,
   updateLens,
   type LensCriteria,
 } from "../services/lens.service.js";
@@ -173,7 +174,7 @@ export async function lensRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------------
   // Run lens by id
   // -------------------------------------------------------------------------
-  app.get<{ Params: { id: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { include?: string } }>(
     "/api/lenses/:id/results",
     { config: { access: "authenticated" } },
     async (request, reply) => {
@@ -182,7 +183,13 @@ export async function lensRoutes(app: FastifyInstance) {
       if (!lens) return reply.code(404).send({ error: "lens not found" });
       if (!canReadLens(lens, u)) return reply.code(403).send({ error: "forbidden" });
       if (!u) return reply.code(401).send({ error: "unauthenticated" });
-      const hits = await runLens(lens, u);
+      // §13.4 — when the caller asks for `?include=attributes`, return
+      // each hit's promoted attributes (own + inherited via §13.3). The
+      // list-only path stays light; the enriched path is opt-in.
+      const wantAttributes = request.query.include === "attributes";
+      const hits = wantAttributes
+        ? await runLensWithAttributes(lens, u)
+        : await runLens(lens, u);
       return { lens, hits };
     },
   );
@@ -202,7 +209,7 @@ export async function lensRoutes(app: FastifyInstance) {
     },
   );
 
-  app.get<{ Params: { token: string } }>(
+  app.get<{ Params: { token: string }; Querystring: { include?: string } }>(
     "/api/lenses/by-token/:token/results",
     { config: { access: "authenticated" } },
     async (request, reply) => {
@@ -210,7 +217,10 @@ export async function lensRoutes(app: FastifyInstance) {
       const lens = await getLensByToken(request.params.token);
       if (!lens) return reply.code(404).send({ error: "lens not found" });
       if (!u) return reply.code(401).send({ error: "unauthenticated" });
-      const hits = await runLens(lens, u);
+      const wantAttributes = request.query.include === "attributes";
+      const hits = wantAttributes
+        ? await runLensWithAttributes(lens, u)
+        : await runLens(lens, u);
       return { lens, hits };
     },
   );

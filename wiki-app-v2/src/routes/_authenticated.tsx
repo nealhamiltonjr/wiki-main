@@ -58,6 +58,7 @@ function AuthenticatedLayout() {
                 redirects non-admins away from admin URLs. The server enforces
                 admin access on those APIs regardless. */}
             <Link to="/settings/plugins" className="text-xs text-text-muted hover:text-foreground transition-colors">Settings</Link>
+            <Link to="/lenses" className="text-xs text-text-muted hover:text-foreground transition-colors">Saved views</Link>
             <NotificationBell />
           </div>
         </header>

@@ -15,6 +15,8 @@ import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedHealthRouteImport } from './routes/_authenticated/health'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as PublicLoginRouteImport } from './routes/_public/login'
+import { Route as AuthenticatedLensesIndexRouteImport } from './routes/_authenticated/lenses/index'
+import { Route as AuthenticatedLensesLensIdRouteImport } from './routes/_authenticated/lenses/$lensId'
 import { Route as AuthenticatedSettingsIndexRouteImport } from './routes/_authenticated/settings/index'
 import { Route as AuthenticatedSettingsAppearanceRouteImport } from './routes/_authenticated/settings/appearance'
 import { Route as AuthenticatedSettingsDangerRouteImport } from './routes/_authenticated/settings/danger'
@@ -57,6 +59,18 @@ const PublicLoginRoute = PublicLoginRouteImport.update({
   path: '/login',
   getParentRoute: () => PublicRoute,
 } as any)
+const AuthenticatedLensesIndexRoute =
+  AuthenticatedLensesIndexRouteImport.update({
+    id: '/lenses/',
+    path: '/lenses/',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedLensesLensIdRoute =
+  AuthenticatedLensesLensIdRouteImport.update({
+    id: '/lenses/$lensId',
+    path: '/lenses/$lensId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedSettingsIndexRoute =
   AuthenticatedSettingsIndexRouteImport.update({
     id: '/',
@@ -140,6 +154,7 @@ export interface FileRoutesByFullPath {
   '/health': typeof AuthenticatedHealthRoute
   '/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/login': typeof PublicLoginRoute
+  '/lenses/$lensId': typeof AuthenticatedLensesLensIdRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/settings/danger': typeof AuthenticatedSettingsDangerRoute
   '/settings/groups': typeof AuthenticatedSettingsGroupsRoute
@@ -152,12 +167,14 @@ export interface FileRoutesByFullPath {
   '/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/lenses/': typeof AuthenticatedLensesIndexRoute
   '/settings/': typeof AuthenticatedSettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof AuthenticatedIndexRoute
   '/health': typeof AuthenticatedHealthRoute
   '/login': typeof PublicLoginRoute
+  '/lenses/$lensId': typeof AuthenticatedLensesLensIdRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/settings/danger': typeof AuthenticatedSettingsDangerRoute
   '/settings/groups': typeof AuthenticatedSettingsGroupsRoute
@@ -170,6 +187,7 @@ export interface FileRoutesByTo {
   '/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/lenses': typeof AuthenticatedLensesIndexRoute
   '/settings': typeof AuthenticatedSettingsIndexRoute
 }
 export interface FileRoutesById {
@@ -180,6 +198,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/_public/login': typeof PublicLoginRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/lenses/$lensId': typeof AuthenticatedLensesLensIdRoute
   '/_authenticated/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
   '/_authenticated/settings/danger': typeof AuthenticatedSettingsDangerRoute
   '/_authenticated/settings/groups': typeof AuthenticatedSettingsGroupsRoute
@@ -192,6 +211,7 @@ export interface FileRoutesById {
   '/_authenticated/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/_authenticated/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/_authenticated/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/_authenticated/lenses/': typeof AuthenticatedLensesIndexRoute
   '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
 }
 export interface FileRouteTypes {
@@ -201,6 +221,7 @@ export interface FileRouteTypes {
     | '/health'
     | '/settings'
     | '/login'
+    | '/lenses/$lensId'
     | '/settings/appearance'
     | '/settings/danger'
     | '/settings/groups'
@@ -213,12 +234,14 @@ export interface FileRouteTypes {
     | '/settings/users'
     | '/trash/$spaceId'
     | '/w/$branchId'
+    | '/lenses/'
     | '/settings/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/health'
     | '/login'
+    | '/lenses/$lensId'
     | '/settings/appearance'
     | '/settings/danger'
     | '/settings/groups'
@@ -231,6 +254,7 @@ export interface FileRouteTypes {
     | '/settings/users'
     | '/trash/$spaceId'
     | '/w/$branchId'
+    | '/lenses'
     | '/settings'
   id:
     | '__root__'
@@ -240,6 +264,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_public/login'
     | '/_authenticated/'
+    | '/_authenticated/lenses/$lensId'
     | '/_authenticated/settings/appearance'
     | '/_authenticated/settings/danger'
     | '/_authenticated/settings/groups'
@@ -252,6 +277,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings/users'
     | '/_authenticated/trash/$spaceId'
     | '/_authenticated/w/$branchId'
+    | '/_authenticated/lenses/'
     | '/_authenticated/settings/'
   fileRoutesById: FileRoutesById
 }
@@ -303,6 +329,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/login'
       preLoaderRoute: typeof PublicLoginRouteImport
       parentRoute: typeof PublicRoute
+    }
+    '/_authenticated/lenses/': {
+      id: '/_authenticated/lenses/'
+      path: '/lenses'
+      fullPath: '/lenses/'
+      preLoaderRoute: typeof AuthenticatedLensesIndexRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/lenses/$lensId': {
+      id: '/_authenticated/lenses/$lensId'
+      path: '/lenses/$lensId'
+      fullPath: '/lenses/$lensId'
+      preLoaderRoute: typeof AuthenticatedLensesLensIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/settings/': {
       id: '/_authenticated/settings/'
@@ -436,16 +476,20 @@ interface AuthenticatedRouteChildren {
   AuthenticatedHealthRoute: typeof AuthenticatedHealthRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRouteWithChildren
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedLensesLensIdRoute: typeof AuthenticatedLensesLensIdRoute
   AuthenticatedTrashSpaceIdRoute: typeof AuthenticatedTrashSpaceIdRoute
   AuthenticatedWBranchIdRoute: typeof AuthenticatedWBranchIdRoute
+  AuthenticatedLensesIndexRoute: typeof AuthenticatedLensesIndexRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedHealthRoute: AuthenticatedHealthRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRouteWithChildren,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedLensesLensIdRoute: AuthenticatedLensesLensIdRoute,
   AuthenticatedTrashSpaceIdRoute: AuthenticatedTrashSpaceIdRoute,
   AuthenticatedWBranchIdRoute: AuthenticatedWBranchIdRoute,
+  AuthenticatedLensesIndexRoute: AuthenticatedLensesIndexRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

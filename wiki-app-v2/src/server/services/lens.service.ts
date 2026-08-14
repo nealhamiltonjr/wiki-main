@@ -33,6 +33,7 @@ import {
   savedFilters,
   spaces,
 } from "../db/schema.js";
+import { resolveInheritedAttributes } from "./template.service.js";
 import type { UserContext } from "../../shared/types.js";
 
 // ---------------------------------------------------------------------------
@@ -360,6 +361,105 @@ export async function runLens(lens: Lens, caller: UserContext): Promise<LensHit[
     branchId: r.branchId,
     isTrashed: r.deletedAt !== null,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Attribute enrichment — brief §13.4.
+//
+// `runLens` returns page-level rows. For table & board views we need each
+// hit's promoted attributes, merged with the inherited promoted attributes
+// from any template(s) the page declares (§13.3). This module adds that
+// enrichment on top of `runLens` without changing its signature or its
+// existing tests.
+//
+// Performance note: the template walk happens per hit. For the lens-size
+// datasets the product targets (tens to a few hundred hits) this is fine.
+// If a profile shows it hot, the right next step is to memoize the
+// resolver by (pageId, userId) and to batch the per-template attribute
+// lookups into a single IN-list query.
+// ---------------------------------------------------------------------------
+
+/** One promoted attribute on a lens hit, with provenance so the UI can
+ *  distinguish own vs. inherited (and the template that sourced it). */
+export interface LensHitAttribute {
+  name: string;
+  value: string;
+  /** `true` if this attribute was set directly on the page; `false`
+   *  if it was inherited from a template via the §13.3 chain. */
+  own: boolean;
+  /** Title of the template the attribute was inherited from, when
+   *  `own === false`. Undefined on own attributes. */
+  fromTitle?: string;
+}
+
+/** A lens hit enriched with promoted attributes (own + inherited). */
+export interface EnrichedLensHit extends LensHit {
+  /** Promoted attributes only (those with `is_promoted = true` on the
+   *  page or any template ancestor). Sorted by `name` for stable column
+   *  ordering. Empty array when the hit has no promoted attributes. */
+  promotedAttributes: LensHitAttribute[];
+}
+
+/** Run the lens and attach promoted attributes to each hit. Wraps
+ *  `runLens`; returns enriched hits in the same order. Permissions are
+ *  applied per-template inside `resolveInheritedAttributes` (no
+ *  existence leak). */
+export async function runLensWithAttributes(
+  lens: Lens,
+  caller: UserContext,
+): Promise<EnrichedLensHit[]> {
+  const hits = await runLens(lens, caller);
+  if (hits.length === 0) return [];
+
+  // Resolve own + inherited promoted attributes for every hit. The
+  // resolver is permission-filtered, so any template the caller can't
+  // read is silently dropped (same rule as graph/backlinks/relations).
+  const enriched: EnrichedLensHit[] = [];
+  for (const hit of hits) {
+    enriched.push(await enrichOneHit(hit, caller));
+  }
+  return enriched;
+}
+
+/** Enrich one lens hit with its promoted attributes (own + inherited).
+ *  Own promoted attributes come from a direct query on the `attributes`
+ *  table. Inherited promoted attributes come from `resolveInheritedAttributes`,
+ *  whose `inheritedAttributes` field already excludes the page's own
+ *  attributes and tags each entry with `templateTitle` for provenance. */
+async function enrichOneHit(hit: LensHit, caller: UserContext): Promise<EnrichedLensHit> {
+  const { db } = getDb();
+
+  // Own promoted: one query per page.
+  const ownPromoted = await db
+    .select({
+      name: attributes.name,
+      value: attributes.value,
+      isPromoted: attributes.isPromoted,
+    })
+    .from(attributes)
+    .where(and(eq(attributes.pageId, hit.pageId), eq(attributes.isPromoted, true)));
+
+  // Inherited: the resolver returns the merged set with provenance;
+  // filter to promoted only.
+  const { inheritedAttributes } = await resolveInheritedAttributes(hit.pageId, caller);
+  const inheritedPromoted = inheritedAttributes.filter((a) => a.isPromoted);
+
+  // Own wins on collision: seed Map from inherited, then overwrite with own.
+  const byName = new Map<string, LensHitAttribute>();
+  for (const a of inheritedPromoted) {
+    byName.set(a.name, {
+      name: a.name,
+      value: a.value,
+      own: false,
+      fromTitle: a.templateTitle,
+    });
+  }
+  for (const a of ownPromoted) {
+    byName.set(a.name, { name: a.name, value: a.value, own: true });
+  }
+
+  const merged = [...byName.values()].sort((x, y) => x.name.localeCompare(y.name));
+  return { ...hit, promotedAttributes: merged };
 }
 
 // ---------------------------------------------------------------------------

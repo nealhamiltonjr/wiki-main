@@ -170,6 +170,58 @@ export interface PageGraphResponse {
   edges: GraphEdge[];
 }
 
+// ---------------------------------------------------------------------------
+// Lenses — brief §13.4
+// ---------------------------------------------------------------------------
+
+/** A saved lens as returned by GET /api/lenses (summary list). */
+export interface LensSummary {
+  id: string;
+  ownerId: string;
+  name: string;
+  description: string | null;
+  visibility: "private" | "unlisted" | "public";
+  shareToken: string | null;
+  createdAt: string;
+}
+
+/** A lens's stored criteria. Mirrors the server-side `LensCriteria`. */
+export interface LensCriteria {
+  tags?: string[];
+  properties?: Array<{ name: string; value: string }>;
+  titleRegex?: string;
+  ownerScope?: "self" | "anyone" | { kind: "group"; groupId: string };
+  spaceIds?: string[];
+  includeTrash?: boolean;
+}
+
+/** A lens detail (criteria parsed). */
+export interface LensDetail extends LensSummary {
+  criteria: LensCriteria;
+}
+
+/** One promoted attribute on a lens hit, with provenance. */
+export interface LensHitAttribute {
+  name: string;
+  value: string;
+  own: boolean;
+  fromTitle?: string;
+}
+
+/** A page that matched a lens. The `promotedAttributes` field is
+ *  present only when the request used `?include=attributes`. */
+export interface LensHit {
+  pageId: string;
+  title: string;
+  slug: string;
+  spaceId: string;
+  spaceName: string;
+  ownerId: string | null;
+  branchId: string;
+  isTrashed: boolean;
+  promotedAttributes?: LensHitAttribute[];
+}
+
 export const api = {
   listSpaces: () => request<SpaceSummary[]>("/api/spaces"),
   createSpace: (name: string) => request<{ id: string; name: string }>("/api/spaces", {
@@ -253,4 +305,16 @@ export const api = {
     const q = opts.hops === undefined ? "" : `?hops=${Math.min(Math.max(opts.hops, 1), 3)}`;
     return request<PageGraphResponse>(`/api/pages/${pageId}/graph${q}`);
   },
+
+  // Brief §13.4: lenses with table & board views.
+  listLenses: () => request<LensSummary[]>("/api/lenses"),
+  getLens: (lensId: string) => request<LensDetail>(`/api/lenses/${lensId}`),
+  runLens: (lensId: string, opts: { includeAttributes?: boolean } = {}) =>
+    request<{ lens: LensDetail; hits: LensHit[] }>(
+      `/api/lenses/${lensId}/results${opts.includeAttributes ? "?include=attributes" : ""}`,
+    ),
+  runLensByToken: (token: string, opts: { includeAttributes?: boolean } = {}) =>
+    request<{ lens: LensDetail; hits: LensHit[] }>(
+      `/api/lenses/by-token/${token}/results${opts.includeAttributes ? "?include=attributes" : ""}`,
+    ),
 };

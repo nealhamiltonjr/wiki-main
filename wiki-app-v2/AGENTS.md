@@ -998,3 +998,123 @@ and inherit its attributes at read time. Trilium's classic model.
 - Cache the resolved chain per `(pageId, userId)` if profiles show
   it's hot; the BFS is a few queries per page-load right now.
 
+### Why this slice exists
+
+Brief §13.4 — attribute-driven table and board views over a saved
+lens. Promoted attributes become *columns* and *board lanes* once
+you can render the same lens result as structured data. Concretely:
+"every QSO log page, sorted by date and band" is now one toggle
+away from the current "find-by-tag" view.
+
+### What changed
+
+- **`src/server/services/lens.service.ts`** — new `runLensWithAttributes()`
+  wraps `runLens()` and enriches each hit with its promoted
+  attributes (own + inherited via §13.3's `resolveInheritedAttributes`).
+  Helper `enrichOneHit()` does the per-hit work: own promoted
+  from a direct `attributes` query, inherited promoted from the
+  resolver, then a name-keyed merge where own wins on collision.
+  Two new types: `LensHitAttribute` (with `own` and `fromTitle`
+  provenance) and `EnrichedLensHit`.
+- **`src/server/routes/lens.routes.ts`** — both results endpoints
+  (`/api/lenses/:id/results` and `/api/lenses/by-token/:token/results`)
+  accept `?include=attributes`; when set, hits come back with
+  `promotedAttributes[]`. Default response stays light for backward
+  compatibility with the existing slice-24 tests.
+- **`src/api/client.ts`** — new `LensSummary`, `LensDetail`,
+  `LensCriteria`, `LensHit`, `LensHitAttribute` interfaces, plus
+  `api.listLenses`, `api.getLens`, `api.runLens`, `api.runLensByToken`.
+- **`src/features/lenses/lensView.helpers.ts` (new)** — pure
+  helpers `deriveColumns`, `findAttr`, `sortHits`, `groupHits`.
+  Sort puts hits missing the column last (stable); group buckets
+  empty values into `__none__` sorted last.
+- **`src/features/lenses/TableView.tsx` (new)** — sortable table.
+  Click a column header to sort; click again to flip direction.
+  Inherited attribute values get a `↑<templateTitle>` suffix so the
+  provenance is visible inline. Pure presentational; takes a
+  `renderPageLink` callback so the unit test doesn't need a router.
+- **`src/features/lenses/BoardView.tsx` (new)** — kanban view.
+  One column per distinct value of the chosen attribute; column
+  count badge; same `renderPageLink` pattern.
+- **`src/routes/_authenticated/lenses/index.tsx` (new)** —
+  Saved-views landing page. Lists every lens the caller can read.
+- **`src/routes/_authenticated/lenses/$lensId.tsx` (new)** —
+  Lens detail with **List / Table / Board** view switcher, sort
+  state, and a group-by dropdown that auto-populates from the
+  result set's promoted columns.
+- **`src/routes/_authenticated.tsx`** — new "Saved views" link in
+  the topbar.
+
+### Design notes
+
+- **Promoted-only by design.** The resolver surface (table/board)
+  is for *promoted* attributes — those the user has explicitly
+  surfaced as a column. The full `attributes` array (un-promoted
+  relations, internal markers, etc.) stays in the page-API
+  response so the editor can still read them.
+- **Own wins on collision, deterministically.** If a page declares
+  a promoted attribute with the same name as its template, the
+  page's value wins. The `↑<fromTitle>` marker only appears for
+  inherited attrs — readers can always see when a value comes from
+  a template instead of the page itself.
+- **Hidden "noise" attributes are filtered client-side.** Anything
+  starting with `#` or `_` is the system/internal convention; those
+  never become columns. Filter is in `deriveColumns`; server still
+  ships them so the editor UIs can read them.
+- **Group-by empty values get a `(none)` column**, sorted last.
+  Otherwise a single hit with a missing value would create a
+  one-card column labeled "" that looks like a rendering bug.
+- **Default view is Table, not List.** Table degrades gracefully
+  to a List-equivalent when the result has no promoted attributes
+  (single Title + Space columns). New users land on the §13.4
+  headline view.
+- **`@testing-library/react` is still not installed.** Feature
+  tests follow the project's `renderToStaticMarkup` +
+  `vi.mock("@tanstack/react-router")` pattern. We mock only the
+  one symbol we touch (`Link`) so other router internals keep
+  working.
+- **Theme tokens, not literal colors.** The project enforces
+  `src/styles/__tests__/theme.test.ts` (every color must come
+  from `src/styles/tokens.css`). The first cut of TableView used
+  `bg-red-100` / `text-red-700` for the "trashed" badge and
+  `text-red-600` for error states; those all moved to `border-border
+  bg-surface text-text-muted` and `text-danger` respectively.
+
+### Tests
+
+- `src/server/__tests__/lens-attributes.integration.test.ts` —
+  6 integration tests over the real Fastify app: default
+  endpoint doesn't include the field, `?include=attributes`
+  does, own-promoted comes through, non-promoted is filtered,
+  inherited from §13.3 chain surfaces with provenance, drop
+  inherited attrs when the template is unreadable (no
+  existence leak), share-token endpoint honors the flag.
+- `src/features/lenses/__tests__/lensView.helpers.test.ts` —
+  11 unit tests: deriveColumns sorting + noise-skipping + empty
+  cases; findAttr; sortHits asc/desc/missing-last/no-sort;
+  groupHits distinct-values, none-bucket, empty-input.
+- `src/features/lenses/__tests__/TableView.test.tsx` — 6 SSR
+  tests: empty state, column ordering, inherited marker, dash
+  for missing, sort arrow when active, trashed badge.
+- `src/features/lenses/__tests__/BoardView.test.tsx` — 4 SSR
+  tests: empty state, distinct columns, (none) column, count
+  badge.
+- Full suite after slice-29: 46 files / 378 tests, typecheck
+  clean, theme test green.
+
+### Follow-ups left for later
+
+- Lens create / edit / delete UI (the API is already there from
+  slice-24 — admin can still wire lenses via `POST /api/lenses`).
+- Server-side caching of `resolveInheritedAttributes` per
+  `(pageId, userId)` if profiling shows it hot.
+- A `?includeHits=true` mode on the list endpoint so the index
+  page can render previews without a second round-trip.
+- "Recently used" — order the list by last-`runLens` timestamp
+  once we add that.
+- Per-lens bookmarks / starred-lenses, if user feedback says
+  the public + unlisted list is hard to navigate.
+- Server-side caching keyed on `criteria.hash` for very large
+  pagesets; not worth it until the dataset exceeds a few
+  thousand pages.
+
