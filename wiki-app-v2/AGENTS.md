@@ -1551,3 +1551,103 @@ backup never exposes the body (e.g. financial notes).
   `npm run build` clean.
 - (Slice-32 baseline was 54 files / 419 tests.)
 
+## Slice-34 — plugin failure isolation (§11.3)
+
+Plugin bundles that fail to load must not bring down the host app. The
+loader wraps each plugin's `activate()` in try/catch and records the
+failure into the registry. The UI shows a non-blocking "1 plugin
+disabled — view details" badge on the Plugins settings page instead of
+crashing the editor.
+
+- **`src/plugins/loader.ts`** — error capture with per-plugin failure
+  list; registry exposes `disabledPlugins` to the UI.
+- **`src/routes/_authenticated/settings/plugins.tsx`** — surfaces the
+  list with the failure reason each plugin reported.
+
+## Slice-35 — admin observability surface (§11.4)
+
+Adds `/admin/observability` to the admin-only surfaces: aggregates of
+plugin health, recent error events, and per-user edit volume. Rendered
+as a TanStack Router page; admin-gated by the server-side middleware.
+
+## Slice-36 — raw export survives disabled-plugin content (§11.2)
+
+The git-backed export pipeline emits a page even if its plugin-extension
+nodes fail to render — the raw JSON block is preserved as a verbatim
+fallback so no data is silently lost when a plugin is later uninstalled.
+
+## Slice-37 — offline readability for pinned pages (§12.5)
+
+Adds a service worker (`public/sw.js`) that serves pinned pages
+cache-first when the network is unreachable. The SW learns the pin set
+from the client via `postMessage` (SWs can't read cookies). Pin toggle
+endpoints and the `/api/pinned` list are server-side additions; the
+shell HTML falls back to the last cached `/index.html` for navigation
+requests so an offline user always gets a usable shell.
+
+- **`public/sw.js`** — read-only cache-first strategy for pinned
+  pages; the user's edits are NOT replicated offline (intentional, per
+  brief scope).
+- **`src/features/offline/PinButton.tsx`** — `data-testid="pin-button"`
+  toggle wired to `/api/pinned/:branchId`.
+- **`src/features/offline/OfflinePanel.tsx`** — `/pinned` route list,
+  UX-only.
+- **`src/server/__tests__/slice37.integration.test.ts`** (3) — server
+  endpoints behave like /api/favorites.
+
+## Slice-38 — defer SW pin-cache seed until auth resolves (§12.5)
+
+Fix: the SW registration handler was firing `GET /api/pinned` at app
+startup, before `useSession` resolved. The 401 an unauthenticated
+visitor received was logged by the browser as "Failed to load
+resource: 401" — tripping `e2e/skeleton.spec.ts`'s "no console errors"
+assertion.
+
+Extracted `seedOfflinePinCache()` into a new
+`src/features/offline/sw-bridge.ts` that's only callable from inside the
+authenticated layout. `registerOfflineServiceWorker()` at startup now
+registers the SW only; the seed happens after auth resolves.
+
+4 new unit tests in `sw-bridge.test.ts` lock the no-network-on-startup
+property. Skeleton spec passes again.
+
+## Slice-39 — mechanical §9.2 + §7.2 audit suite (§9.2 / §7.2)
+
+The brief's security checklist and settings-IA rule are properties best
+enforced by code, not by reviewers.
+
+- **`src/server/__tests__/security-invariants.audit.test.ts`** (7 cases)
+  greps every src/ file and fails on:
+  - settings-shaped forms living outside `/settings`
+  - `eval()` / `new Function()` outside the plugin loader
+  - missing security headers at boot (nosniff, frame-deny, strict CSP)
+  - missing `onRoute` middleware enforcing `config.access`
+  - raw SQL interpolation of variables in services
+  - `dangerouslySetInnerHTML` outside the sanctioned list (Prism,
+    Mermaid, code page)
+  - file downloads missing `X-Content-Type-Options: nosniff`
+
+A canary test (drop an `eval()` into a temp file, watch the suite fail)
+was run during development to confirm the audit is sensitive to
+regressions. Allowlists carry a justification comment so future
+additions stay accountable.
+
+## Slice-40 — single-session happy-path e2e sweep (§9.4)
+
+`e2e/happy-path.spec.ts` walks one user through every major feature in
+a single session — login, tree, editor, autosave, pin, /pinned,
+/settings/{profile,users,plugins}, /lenses, then unauth redirect — and
+asserts no console errors and no `pageerror` events throughout. The
+individual slice specs cover each feature deeply; this catches
+cross-feature regressions that no isolated test can.
+
+The dev server's webServer config wipes `data/e2e.db` and reseeds on
+every run, so the test starts from the canonical "first user / welcome
+space" state.
+
+### Test counts
+
+- Full suite after slice-40: **65 files / 460 tests** + **21/21 e2e**,
+  typecheck clean, `npm run build` clean.
+- (Slice-37 baseline was 63 files / 449 tests + 20/20 e2e.)
+
