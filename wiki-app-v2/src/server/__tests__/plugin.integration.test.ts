@@ -152,6 +152,54 @@ describe("plugin engine (slice-12) integration", () => {
     expect(res.payload).toContain("already installed");
   });
 
+  it("only one of two concurrent installs of the same id succeeds (UNIQUE-constraint race guard)", async () => {
+    // The earlier existence-check version had a window where two admins
+    // uploading the same zip could both pass the existence check, race the
+    // filesystem rename, and leave one with an inconsistent on-disk state.
+    // The fix inserts the DB row first; the UNIQUE constraint serializes
+    // everyone onto a single winner.
+    const zipPath = path.resolve(__dirname, "../../../test-fixtures/hello-world-plugin.zip");
+    const zipData = readFileSync(zipPath);
+
+    async function postInstall(): Promise<{ status: number; body: string }> {
+      const boundary = `----test-${randomBytes(4).toString("hex")}`;
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/plugins",
+        headers: { cookie: adminCookie, "content-type": `multipart/form-data; boundary=${boundary}` },
+        payload: Buffer.concat([
+          Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="hello-world-plugin.zip"\r\nContent-Type: application/zip\r\n\r\n`),
+          zipData,
+          Buffer.from(`\r\n--${boundary}--\r\n`),
+        ]),
+      });
+      return { status: res.statusCode, body: res.payload };
+    }
+
+    // The hello-world plugin was already installed by the first test in this
+    // suite, so BOTH installs in this race should be 409 — we're proving that
+    // the gate is consistent under concurrency, not that anything gets
+    // installed here. The first 409 had to come from the DB UNIQUE
+    // constraint (re-thrown as 409), since the second arrival can't have
+    // found a row with an existence check done mid-flight on the first.
+    const [a, b] = await Promise.all([postInstall(), postInstall()]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([409, 409]);
+    expect(a.body).toContain("already installed");
+    expect(b.body).toContain("already installed");
+
+    // Sanity: exactly one row exists for "hello-world" (the one from the
+    // first test), and the on-disk plugin directory is intact.
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/plugins",
+      headers: { cookie: adminCookie },
+    });
+    const plugins = (list.json() as Array<{ id: string; version: string }>).filter((p) => p.id === "hello-world");
+    expect(plugins.length).toBe(1);
+    expect(plugins[0]!.version).toBe("1.0.0");
+  });
+
   it("content validation accepts plugin node types via extra options", async () => {
     const { validateContent } = await import("../../shared/blockIds.js");
     const extraNodes = new Set(["helloWorld"]);

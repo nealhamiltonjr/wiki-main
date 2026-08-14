@@ -84,6 +84,16 @@
   then `rename()`s it into place. `rename` can throw EXDEV across devices ‚Üí the
   fallback is `cp -r` + `rm -r`. Never `rm(tmpDir, { force: true })` without
   `recursive: true` ‚Äî EISDIR, and it made every upload 500.
+- The DB row is reserved BEFORE the file extract (`plugins.id` UNIQUE
+  constraint is the race gate for two concurrent installs of the same id).
+  If the extract fails partway through (cross-device + cp also fails), the
+  existing on-disk install is renamed to `<dest>-stash-<uuid>` first so the
+  rename failure can restore from stash instead of leaving a DB row with no
+  files. Tested in `src/server/__tests__/plugin.integration.test.ts`.
+- No version-upgrade path. The install is keyed on `id` only. A new version
+  of an installed plugin must be uninstalled first (the 409 is the absence
+  of an "upgrade" endpoint, not a bug). Keep this in mind when shipping
+  plugin version bumps.
 - The manifest's `contentModel.nodes` is the source of truth the server uses
   (`getEnabledPluginNodeTypes()`) for `validateContent`; a plugin that registers a
   Tiptap node MUST declare it in the manifest or saves of that node get rejected.

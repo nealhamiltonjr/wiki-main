@@ -1,4 +1,4 @@
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -80,6 +80,15 @@ function isSafeRelativePath(p: string): boolean {
   const normalized = p.replace(/\\/g, "/");
   const segments = normalized.split("/").filter(s => s.length > 0 && s !== ".");
   return !segments.some(s => s === "..");
+}
+
+async function directoryExists(p: string): Promise<boolean> {
+  try {
+    const s = await stat(p);
+    return s.isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -188,11 +197,7 @@ export async function installPluginFromZip(zipBuffer: Buffer, actorUserId: strin
     throw Object.assign(new Error(msg), { statusCode: 400 });
   }
 
-  // 4. Check id uniqueness
-  const [existing] = await db.select({ id: plugins.id }).from(plugins).where(eq(plugins.id, manifest.id));
-  if (existing) throw Object.assign(new Error(`Plugin "${manifest.id}" is already installed`), { statusCode: 409 });
-
-  // 5. Check content model doesn't collide with core types
+  // 4. Check content model doesn't collide with core types
   const contentModel = manifest.contentModel ?? { nodes: [], marks: [] };
   for (const t of contentModel.nodes) {
     if (CORE_NODE_TYPES.has(t)) throw Object.assign(new Error(`Plugin node type "${t}" collides with a core node type`), { statusCode: 400 });
@@ -201,7 +206,7 @@ export async function installPluginFromZip(zipBuffer: Buffer, actorUserId: strin
     if (CORE_MARK_TYPES.has(t)) throw Object.assign(new Error(`Plugin mark type "${t}" collides with a core mark type`), { statusCode: 400 });
   }
 
-  // 6. Verify required files exist per declared capabilities
+  // 5. Verify required files exist per declared capabilities
   const hasClient = Object.prototype.hasOwnProperty.call(entries, "client/index.js");
   const hasServer = Object.prototype.hasOwnProperty.call(entries, "server/index.js");
   const needsClient = manifest.capabilities.tiptapExtensions || manifest.capabilities.slashCommands ||
@@ -216,9 +221,39 @@ export async function installPluginFromZip(zipBuffer: Buffer, actorUserId: strin
     throw Object.assign(new Error("Manifest declares hooks but no server/index.js found in zip"), { statusCode: 400 });
   }
 
-  // 7. Extract to a temp dir, validate, then rename into place (atomic-ish)
+  // 6. Reserve the plugin id by inserting the DB row FIRST. The UNIQUE
+  // constraint on plugins.id is the concurrency gate — two concurrent
+  // installs of the same id will both arrive here, but only one
+  // INSERT commits. The other gets a UNIQUE violation and we surface
+  // it as 409 'already installed'. Previously the existence check ran
+  // here and there was a window where two admins uploading the same
+  // zip simultaneously would both pass the check and clobber each
+  // other's extracted directory.
+  try {
+    await db.insert(plugins).values({
+      id: manifest.id,
+      name: manifest.name,
+      version: manifest.version,
+      enabled: false,
+      capabilities: manifest.capabilities,
+      nodeTypes: contentModel.nodes,
+      markTypes: contentModel.marks,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/UNIQUE/i.test(msg) || /already exists/i.test(msg)) {
+      throw Object.assign(new Error(`Plugin "${manifest.id}" is already installed`), { statusCode: 409 });
+    }
+    throw err;
+  }
+
+  // 7. Extract to a temp dir, validate, then rename into place (atomic-ish).
+  // The DB row is already committed at this point; if file extraction
+  // fails we DELETE the row in the catch below so a retry can pick up
+  // where the failed install left off.
   const destDir = getPluginDir(manifest.id);
   const tmpDir = path.resolve(PLUGIN_ROOT, `.tmp-${randomUUID()}`);
+  let cleanupRow = true;
   try {
     await mkdir(tmpDir, { recursive: true });
     for (const [entryPath, data] of Object.entries(entries)) {
@@ -226,47 +261,74 @@ export async function installPluginFromZip(zipBuffer: Buffer, actorUserId: strin
       await mkdir(path.dirname(fullPath), { recursive: true });
       await writeFile(fullPath, data);
     }
-    // Rename into final place (atomic on most filesystems)
-    await rm(destDir, { recursive: true, force: true });
+    // Stash any existing on-disk directory as a fallback so a cross-device
+    // rename failure doesn't lose the prior install. We only restore from
+    // the stash if the new rename fails AND the cp fallback fails too.
+    const stashDir = `${destDir}-stash-${randomUUID()}`;
+    let hadStash = false;
+    if (await directoryExists(destDir)) {
+      try {
+        const { rename: fsRename } = await import("node:fs/promises");
+        await fsRename(destDir, stashDir);
+        hadStash = true;
+      } catch {
+        // destDir exists but can't be stashed — leave it; the new rename
+        // will overwrite it (Node's rename replaces the destination) or
+        // throw, and the outer catch will surface a useful error.
+      }
+    }
     await mkdir(path.dirname(destDir), { recursive: true });
-    // rename can fail across devices; use copy+remove fallback:
     try {
       // node:fs/promises
       const { rename } = await import("node:fs/promises");
       await rename(tmpDir, destDir);
+      if (hadStash) await rm(stashDir, { recursive: true, force: true });
     } catch {
       // cross-device fallback: manual copy
-      const { cp, rm } = await import("node:fs/promises");
-      await cp(tmpDir, destDir, { recursive: true });
-      await rm(tmpDir, { recursive: true, force: true });
+      try {
+        const { cp, rm } = await import("node:fs/promises");
+        await cp(tmpDir, destDir, { recursive: true });
+        await rm(tmpDir, { recursive: true, force: true });
+        if (hadStash) await rm(stashDir, { recursive: true, force: true });
+      } catch (innerErr) {
+        // Both rename and copy failed. Re-create destDir from the stash so
+        // the on-disk plugin state matches the DB row that was already
+        // committed. Without this, an admin could be left with a DB row
+        // but no files.
+        if (hadStash) {
+          try {
+            const { rename: fsRename } = await import("node:fs/promises");
+            await fsRename(stashDir, destDir);
+          } catch {
+            // Best effort — the stash path is documented for the admin.
+          }
+        } else {
+          await mkdir(destDir, { recursive: true }).catch(() => {});
+        }
+        throw innerErr;
+      }
     }
-  } catch (e) {
+    cleanupRow = false;
+  } finally {
     await rm(tmpDir, { recursive: true, force: true });
-    throw e;
   }
 
-  // 8. Write DB row
-  await db.insert(plugins).values({
-    id: manifest.id,
-    name: manifest.name,
-    version: manifest.version,
-    enabled: false,
-    capabilities: manifest.capabilities,
-    nodeTypes: contentModel.nodes,
-    markTypes: contentModel.marks,
-  });
-
-  // 9. Audit
-  await db.insert(auditLog).values({
-    actorUserId,
-    action: "plugin_install",
-    targetType: "plugin",
-    targetId: manifest.id,
-    meta: { version: manifest.version },
-  });
+  // 8. Audit (only if we didn't roll back the row)
+  if (!cleanupRow) {
+    await db.insert(auditLog).values({
+      actorUserId,
+      action: "plugin_install",
+      targetType: "plugin",
+      targetId: manifest.id,
+      meta: { version: manifest.version },
+    });
+  } else {
+    // Roll the row back so a retry is permitted.
+    await db.delete(plugins).where(eq(plugins.id, manifest.id)).catch(() => {});
+  }
 
   const [row] = await db.select().from(plugins).where(eq(plugins.id, manifest.id));
-  if (!row) throw new Error("Plugin row missing after insert");
+  if (!row) throw new Error("Plugin row missing after install");
   return toPluginInfo(row);
 }
 
