@@ -61,12 +61,24 @@ describe("tiptapToMarkdown", () => {
     expect(tiptapToMarkdown({ type: "doc", content: [] } as any)).toBe("\n");
   });
 
-  it("degrades unknown node types to their inline text instead of dropping them", () => {
+  it("degrades unknown node types with a labelled placeholder + attrs (no silent data loss, §11.2)", () => {
+    // The old fallthrough emitted the inline text. §11.2 requires that
+    // even disabled-plugin content stays visible AND recoverable in a
+    // raw export — both the human-readable text *and* the node's attrs
+    // (as a fenced block) must show up so a re-install of the matching
+    // plugin can later reconstruct the node.
     const doc = {
       type: "doc",
-      content: [{ type: "someFutureNodeType", content: [{ type: "text", text: "still readable" }] }],
+      content: [
+        { type: "someFutureNodeType", attrs: { note: "hi" }, content: [{ type: "text", text: "still readable" }] },
+      ],
     };
-    expect(tiptapToMarkdown(doc as any)).toContain("still readable");
+    const md = tiptapToMarkdown(doc as any);
+    expect(md).toContain("someFutureNodeType");
+    // attrs JSON round-trip
+    expect(md).toContain('"note": "hi"');
+    // the readable text still appears
+    expect(md).toContain("still readable");
   });
 
   it("exports task lists with checkbox markers and highlight marks", () => {

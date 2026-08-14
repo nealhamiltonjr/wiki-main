@@ -136,6 +136,19 @@ function blockToMarkdown(node: PMNode, listDepth = 0, ctx?: MarkdownExportContex
       const source = (node.content ?? []).map((n) => n.text ?? "").join("");
       return codeFence(source, "mermaid");
     }
+    case "drawioEmbed": {
+      // §11.2: a Draw.io embed has to survive a raw export even when the
+      // plugin is disabled or uninstalled — losing the diagram would be
+      // silent data loss. We round-trip the diagram's source as a fenced
+      // ```drawio block (markdownToTiptap maps it back to drawioEmbed when
+      // the plugin is enabled). The fenced block has a human-readable
+      // title comment above it so a plain-Markdown reader sees a sensible
+      // placeholder, not a raw XML blob.
+      const xml = (node.attrs?.xml as string) ?? "";
+      const title = (node.attrs?.title as string) ?? "Diagram";
+      const header = `> **${title}** (Draw.io diagram — render in app)`;
+      return `${header}\n\n${codeFence(xml, "drawio")}`;
+    }
     case "blockquote":
       return (node.content ?? [])
         .map((n) => blockToMarkdown(n, listDepth, c))
@@ -178,11 +191,31 @@ function blockToMarkdown(node: PMNode, listDepth = 0, ctx?: MarkdownExportContex
       const name = (node.attrs?.name as string) ?? "";
       return `[${name}](${url})`;
     }
-    default:
-      // Unrecognized block type - degrade to its inline text content rather than
-      // dropping it silently or throwing. Better to export something imperfect
-      // than nothing at all.
-      return node.content ? inlineToMarkdown(node.content, c) : "";
+    default: {
+      // §11.2: an unknown block type almost always means a plugin-registered
+      // node whose plugin has been disabled or uninstalled (e.g. a custom embed
+      // for a deprecated plugin). Two failure modes are both unacceptable:
+      //   (a) throw → the whole page fails to export, taking the rest of the
+      //       document with it;
+      //   (b) silently emit an empty string → the user loses data with no
+      //       indication anything went wrong.
+      // Better: emit a visible placeholder that names the node type, include
+      // any inline text the node still has so a plain-Markdown reader sees
+      // something coherent, and round-trip the original attrs as a fenced
+      // block so a re-install of the matching plugin can later reconstruct
+      // the node from the export.
+      const label = node.type || "unknown";
+      const text = node.content ? inlineToMarkdown(node.content, c) : "";
+      const placeholder = `> *Unrendered plugin node: \`${label}\`*`;
+      let payload = "";
+      try {
+        payload = JSON.stringify(node.attrs ?? {}, null, 2);
+      } catch {
+        payload = "(attrs not serializable)";
+      }
+      const block = `${placeholder}\n\n${codeFence(payload, label)}`;
+      return text ? `${text}\n\n${block}` : block;
+    }
   }
 }
 
