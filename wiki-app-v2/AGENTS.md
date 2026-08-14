@@ -913,3 +913,88 @@ over title, owner=self, owner=group.
 - Per-lens bookmarks / starred-lenses, if user feedback says
   the public + unlisted list is hard to navigate.
 
+### Why this slice exists
+
+Brief §13.3 — a page can declare a template via `template:<pageId>`
+and inherit its attributes at read time. Trilium's classic model.
+
+### What changed
+
+- **`src/server/services/template.service.ts` (new).**
+  `resolveInheritedAttributes(pageId, user)` does the walk:
+  reads the page's own `name="template"` relation attributes,
+  permission-filters each direct template through `canViewPage`,
+  then BFS-escapes the chain with a visited-set + 8-deep cap.
+  Pure merge logic is split out as `mergeInheritedAttributes()` so
+  it can be unit-tested without the DB.
+  Returns `{ directTemplates, inheritedAttributes }`. Each
+  inherited attribute carries `templatePageId`, `templateTitle`,
+  and `depth` so the UI can show provenance.
+- **`src/server/routes/page.routes.ts`.** `GET /api/branches/:branchId/page`
+  now returns `templates: TemplateRef[]` and
+  `inheritedAttributes: InheritedAttribute[]` in addition to the
+  existing `attributes` array. Page's own attributes stay on
+  `attributes` (same shape as before).
+- **`src/api/client.ts`.** New `TemplateRef` and `InheritedAttribute`
+  types; both fields on `PageData` are optional for forward-compat.
+- **`src/features/templates/TemplateBanner.tsx` (new).**
+  Presentational banner rendered above the page header in
+  `routes/_authenticated/w/$branchId.tsx`. Shows the direct
+  templates as clickable links and an "Inherits N attribute(s)"
+  count when there's anything to inherit. Renders nothing when the
+  page has no templates.
+
+### Design notes
+
+- **Conflict rule: page wins, first template wins among templates.**
+  Matches Trilium and matches the user's mental model: own attrs
+  override inherited, and between two templates the earlier-listed
+  one is the more authoritative source.
+- **Cycle-safe via visited set.** A chain A → B → A terminates
+  cleanly; the second occurrence of A is dropped. Test coverage:
+  `template.integration.test.ts` "cycles don't infinite-loop."
+- **Depth-limited (`DEFAULT_MAX_DEPTH = 8`).** A hard backstop
+  against runaway chains or hand-crafted loops. Honest use cases
+  almost never exceed 2-3 levels.
+- **Permission filter upstream.** Every template page is checked
+  with `canViewPage(user, templatePageId)` *before* its attributes
+  are included. A template the caller can't read is dropped
+  silently — same no-existence-leak rule used by backlinks, graph,
+  and relations (brief §13.1 / §13.2).
+- **Template attribute `template` itself is not propagated.**
+  When walking a template's chain, we skip its own `template:*`
+  relations when copying its attributes into the page's view;
+  only *non-relation* attributes inherit. (The "this page is the
+  template of *that* page" pointer is metadata, not data.)
+- **Output ordering is stable.** By `depth` ascending, then
+  `position` ascending, then `name`. So two consecutive calls with
+  the same data return identical JSON — important for snapshot
+  tests and ETag caching.
+- **`@testing-library/react` is not installed.** The banner test
+  follows the project's `renderToStaticMarkup` + `vi.mock("@tanstack/react-router")`
+  pattern used by the rest of the feature tests.
+
+### Tests
+
+- `src/server/services/__tests__/template.test.ts` — 8 unit
+  tests for `mergeInheritedAttributes`: empty, no-collision,
+  own-wins, first-template-wins, multi-depth, ordering.
+- `src/server/__tests__/template.integration.test.ts` — 7
+  integration tests over the real Fastify app: no-template,
+  empty-template, basic inheritance, override, 2-level chain,
+  cycle, permission filter.
+- `src/features/templates/__tests__/TemplateBanner.test.tsx` —
+  6 SSR tests: empty, singular header, plural header,
+  inherited-count (singular + plural), hidden when no inherited.
+- Full suite after slice-28: 42 files / 351 tests, typecheck clean.
+
+### Follow-ups left for later
+
+- A read-only "Attributes" panel that shows the merged attribute
+  set (own + inherited) with provenance — the API already exposes
+  it; just a UI surface.
+- Editor support for adding/removing the `template` relation
+  attribute directly (today you go through RelationsPanel).
+- Cache the resolved chain per `(pageId, userId)` if profiles show
+  it's hot; the BFS is a few queries per page-load right now.
+

@@ -19,6 +19,7 @@ import { diffRevisions } from "../services/diff.service.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
 import { getPageBacklinks } from "../services/backlink.service.js";
+import { resolveInheritedAttributes } from "../services/template.service.js";
 import { processMentions } from "../services/mention.service.js";
 import { getPageHistory, getFileContentAtCommit } from "../services/git.service.js";
 import { enqueueJob } from "../services/queue.service.js";
@@ -71,6 +72,13 @@ export async function pageRoutes(app: FastifyInstance) {
       }
 
       const access = (request as any).resolvedAccess as string | undefined;
+      // §13.3: resolve template chain → direct templates + inherited
+      // attributes (page's own attrs win, first template wins among
+      // multiple templates, cycle-safe, depth-limited, permission-filtered).
+      const { directTemplates, inheritedAttributes } = await resolveInheritedAttributes(
+        row.page.id,
+        user,
+      );
       return reply.send({
         id: row.page.id,
         slug: row.page.slug,
@@ -82,6 +90,8 @@ export async function pageRoutes(app: FastifyInstance) {
         attributes: attrs,
         placements,
         backlinks,
+        templates: directTemplates,
+        inheritedAttributes,
       });
     }
   );

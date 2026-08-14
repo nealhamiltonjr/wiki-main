@@ -29,6 +29,32 @@ export interface PageAttribute { id: string; pageId: string; name: string; value
 export interface PagePlacement { id: string; slug: string }
 export interface BacklinkEntry { sourceBranchId: string; sourceSlug: string; sourceTitle: string | null; targetBlockId: string | null }
 
+/** Brief §13.3: a direct template reference (relation attribute with
+ *  name="template"). The banner shown above the page header is built
+ *  from these. */
+export interface TemplateRef {
+  pageId: string;
+  title: string;
+  branchId: string | null;
+  position: number;
+}
+
+/** An attribute inherited from a template page (not the page's own).
+ *  `templatePageId` + `depth` give the UI everything it needs to
+ *  render "Inherited from <Template>". */
+export interface InheritedAttribute {
+  id: string;
+  pageId: string;
+  name: string;
+  value: string;
+  valuePageId: string | null;
+  isPromoted: boolean;
+  position: number;
+  templatePageId: string;
+  templateTitle: string;
+  depth: number;
+}
+
 export interface PageData {
   id: string;
   slug: string;
@@ -40,6 +66,12 @@ export interface PageData {
   attributes: PageAttribute[];
   placements: PagePlacement[];
   backlinks: BacklinkEntry[];
+  /** Brief §13.3: direct template refs (relation attributes with
+   *  name="template"). Empty when the page has no templates. */
+  templates?: TemplateRef[];
+  /** Attributes inherited from any template in the chain. Page's own
+   *  attributes are returned in `attributes` and *not* repeated here. */
+  inheritedAttributes?: InheritedAttribute[];
 }
 
 export interface TrashEntry { branchId: string; pageId: string; slug: string; title: string; deletedAt: string }

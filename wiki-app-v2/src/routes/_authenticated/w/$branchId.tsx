@@ -14,6 +14,7 @@ import { CommentsPanel } from "@/features/comments/CommentsPanel";
 import { HistoryPanel } from "@/features/history/HistoryPanel";
 import { RelationsPanel } from "@/features/relations/RelationsPanel";
 import { GraphPanel } from "@/features/graph/GraphPanel";
+import { TemplateBanner } from "@/features/templates/TemplateBanner";
 import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import { useQuery } from "@/lib/useQuery";
 import { cn } from "@/lib/utils";
@@ -127,6 +128,10 @@ function PageView() {
 
   return (
     <div className="flex h-full flex-col">
+      <TemplateBanner
+        templates={page.templates ?? []}
+        inheritedAttributes={page.inheritedAttributes}
+      />
       <PageHeader
         key={page.branchId}
         page={page}
