@@ -63,6 +63,10 @@ export interface PageData {
   updatedAt: string;
   branchId: string;
   access?: string;
+  /** §13.6: "wiki" = Tiptap JSON content, "code" = plain-string source file. */
+  pageType?: "wiki" | "code";
+  /** Syntax language for code pages; null for wiki pages. */
+  language?: string | null;
   attributes: PageAttribute[];
   placements: PagePlacement[];
   backlinks: BacklinkEntry[];
@@ -239,7 +243,7 @@ export const api = {
     `/api/branches/${branchId}/page/content`,
     { method: "PUT", body: JSON.stringify(body) }
   ),
-  createPage: (spaceId: string, body: { slug: string; title?: string; parentBranchId?: string | null }) =>
+  createPage: (spaceId: string, body: { slug: string; title?: string; parentBranchId?: string | null; pageType?: "wiki" | "code"; language?: string | null }) =>
     request<{ branchId: string; pageId: string }>(`/api/spaces/${spaceId}/pages`, {
       method: "POST",
       body: JSON.stringify(body),

@@ -102,6 +102,10 @@ export async function pageRoutes(app: FastifyInstance) {
         updatedAt: row.page.updatedAt,
         branchId: row.branch.id,
         access,
+        // §13.6: pageType/language tell the client whether to mount the rich-text
+        // editor or the code editor. `language` is null for wiki pages.
+        pageType: row.page.pageType,
+        language: row.page.language ?? null,
         attributes: attrs,
         placements,
         backlinks,
@@ -217,6 +221,10 @@ export async function pageRoutes(app: FastifyInstance) {
     slug: z.string().min(1).max(120).regex(PAGE_SLUG_RE),
     title: z.string().optional(),
     parentBranchId: z.string().nullable().optional(),
+    // §13.6: code pages are whole-file source/config notes. `language` drives
+    // highlighting + the git file extension; absent → wiki page.
+    pageType: z.enum(["wiki", "code"]).optional(),
+    language: z.string().max(40).nullable().optional(),
   });
 
   app.post(
@@ -246,6 +254,8 @@ export async function pageRoutes(app: FastifyInstance) {
         ownerId: user.id,
         spaceId,
         parentBranchId: body.parentBranchId ?? null,
+        pageType: body.pageType ?? "wiki",
+        language: body.language ?? null,
       });
       return reply.code(201).send({ branchId, pageId });
     }
@@ -448,20 +458,26 @@ export async function pageRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: "Page not found" });
       }
 
-      let markdown: string | null;
+      let fileContent: string | null;
       try {
-        markdown = await getFileContentAtCommit(pageId, commitHash);
+        fileContent = await getFileContentAtCommit(pageId, commitHash);
       } catch (err) {
         request.log.warn({ err, pageId, commitHash }, "Failed to retrieve content at commit");
-        markdown = null;
+        fileContent = null;
       }
-      if (markdown === null) {
+      if (fileContent === null) {
         return reply.code(404).send({ error: "Content not found at that commit" });
       }
 
-      // Markdown→Tiptap, then save as a new forward-moving version through the
-      // normal OCC path so a concurrent edit still conflicts correctly.
-      const content = ensureBlockIds(markdownToTiptap(stripFrontmatter(markdown)) as never);
+      // §13.6: a code page's git file is already its raw source, so restore it
+      // verbatim. A wiki page's file is markdown (+frontmatter), so round-trip
+      // it back through the markdown importer into a Tiptap doc. Both then save
+      // as a NEW forward-moving version through the normal OCC path so a
+      // concurrent edit still conflicts correctly.
+      const content =
+        row.page.pageType === "code"
+          ? fileContent
+          : ensureBlockIds(markdownToTiptap(stripFrontmatter(fileContent)) as never);
 
       const { db } = getDb();
       const [currentPage] = await db.select({ updatedAt: pages.updatedAt }).from(pages).where(eq(pages.id, pageId));

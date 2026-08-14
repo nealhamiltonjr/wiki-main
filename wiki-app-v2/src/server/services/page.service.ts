@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { getDb } from "../db/index.js";
 import { pages, branches, pageRedirects } from "../db/schema.js";
 import { ensureBlockIds, validateContent, type JSONBlock } from "../../shared/blockIds.js";
+import type { PageType } from "../../shared/types.js";
 import { getEnabledPluginNodeTypes, getEnabledPluginMarkTypes } from "./plugin.service.js";
 import { refreshBacklinks } from "./backlink.service.js";
 import { indexPageForSearch, unindexPageForSearch } from "./search.service.js";
@@ -14,6 +15,11 @@ export function newPageContent(initial?: unknown): JSONBlock {
   return ensureBlockIds(base);
 }
 
+/** Code pages start empty (a blank file), never with a wiki paragraph doc. */
+export function newCodeContent(initial?: unknown): string {
+  return typeof initial === "string" ? initial : "";
+}
+
 export async function createPage(opts: {
   slug: string;
   title?: string;
@@ -21,9 +27,12 @@ export async function createPage(opts: {
   spaceId: string;
   parentBranchId: string | null;
   initialContent?: unknown;
+  pageType?: PageType;
+  language?: string | null;
 }) {
   const pageId = crypto.randomUUID();
   const branchId = crypto.randomUUID();
+  const pageType = opts.pageType ?? "wiki";
 
   const { db } = getDb();
   db.transaction((tx) => {
@@ -32,7 +41,9 @@ export async function createPage(opts: {
       slug: opts.slug,
       title: opts.title?.trim() || opts.slug,
       ownerId: opts.ownerId,
-      content: newPageContent(opts.initialContent),
+      content: pageType === "code" ? newCodeContent(opts.initialContent) : newPageContent(opts.initialContent),
+      pageType,
+      language: pageType === "code" ? opts.language ?? null : null,
     }).run();
     tx.insert(branches).values({
       id: branchId,
@@ -62,6 +73,14 @@ export async function getPageByBranchId(branchId: string) {
     .innerJoin(pages, eq(branches.pageId, pages.id))
     .where(eq(branches.id, branchId));
   if (!row) return null;
+
+  // §13.6: code pages store a plain string, not a Tiptap doc. Skip the JSON
+  // integrity validation for them — the "content is a doc tree" invariant only
+  // applies to wiki pages.
+  if (row.page.pageType === "code") {
+    const stored = row.page.content as unknown;
+    return { ...row, page: { ...row.page, content: typeof stored === "string" ? stored : "" } };
+  }
 
   // §11.4 data safety: validate content on every read. If the stored JSON
   // has been corrupted (e.g. by a bug in a previous version, or a manual DB
@@ -98,6 +117,22 @@ export async function savePageOCC(opts: {
   expectedUpdatedAt: Date;
 }): Promise<{ ok: true } | { ok: false; conflict: true } | { ok: false; validationErrors: string[] }> {
   const { db } = getDb();
+
+  // §13.6: code pages have a different content contract (plain string, no
+  // block ids, no backlinks). Wiki pages keep the Tiptap validation path.
+  const [pageRow] = await db
+    .select({ pageType: pages.pageType })
+    .from(pages)
+    .where(eq(pages.id, opts.pageId));
+  const pageType = pageRow?.pageType ?? "wiki";
+
+  if (pageType === "code") {
+    if (typeof opts.content !== "string") {
+      return { ok: false, validationErrors: ["Code page content must be a string"] };
+    }
+    return saveCodePageOCC({ ...opts, content: opts.content });
+  }
+
   const { doc, errors } = validateContent(opts.content, {
     extraNodeTypes: getEnabledPluginNodeTypes(),
     extraMarkTypes: getEnabledPluginMarkTypes(),
@@ -148,6 +183,52 @@ export async function savePageOCC(opts: {
   // Fire-and-forget so the save response is never delayed by a git commit.
   await enqueueJob("git_commit", { pageId: opts.pageId, branchId: opts.branchId, kind: "autosave" });
 
+  return { ok: true };
+}
+
+/**
+ * Code-page save path (§13.6). Content is a plain string; there are no block
+ * ids to repair and no backlinks to scan (code pages don't carry wiki links).
+ * Search still indexes the raw text so a snippet of a script is findable.
+ */
+async function saveCodePageOCC(opts: {
+  pageId: string;
+  branchId: string;
+  title?: string;
+  titleProvided?: boolean;
+  content: string;
+  expectedUpdatedAt: Date;
+}): Promise<{ ok: true } | { ok: false; conflict: true } | { ok: false; validationErrors: string[] }> {
+  const { db } = getDb();
+
+  if (opts.title !== undefined) {
+    await db.update(pages).set({ title: opts.title }).where(eq(pages.id, opts.pageId));
+  }
+
+  if (opts.titleProvided) {
+    const [current] = await db.select({ content: pages.content }).from(pages).where(eq(pages.id, opts.pageId));
+    const contentUnchanged = current && current.content === opts.content;
+    if (contentUnchanged) {
+      await enqueueJob("git_commit", { pageId: opts.pageId, branchId: opts.branchId, kind: "autosave" });
+      return { ok: true };
+    }
+  }
+
+  const result = await db
+    .update(pages)
+    .set({ content: opts.content as never, updatedAt: new Date() })
+    .where(and(eq(pages.id, opts.pageId), eq(pages.updatedAt, opts.expectedUpdatedAt)));
+
+  const changes = (result as unknown as { changes: number }).changes;
+  if (changes === 0) return { ok: false, conflict: true };
+
+  const [saved] = await db.select({ title: pages.title, content: pages.content }).from(pages).where(eq(pages.id, opts.pageId));
+  if (saved) {
+    indexPageForSearch(opts.pageId, saved.title, saved.content);
+    // No refreshBacklinks: code content has no internal wiki-link marks.
+  }
+
+  await enqueueJob("git_commit", { pageId: opts.pageId, branchId: opts.branchId, kind: "autosave" });
   return { ok: true };
 }
 

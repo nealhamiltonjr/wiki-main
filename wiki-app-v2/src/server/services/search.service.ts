@@ -10,9 +10,24 @@ interface PMNode {
   attrs?: Record<string, unknown>;
 }
 
-/** Concatenates all plain text from a Tiptap/ProseMirror JSON doc. */
+/** Concatenates all plain text from a Tiptap/ProseMirror JSON doc, or returns
+ *  a raw string (code pages, §13.6) unchanged so code content is searchable. */
 export function docToText(doc: unknown): string {
-  const json = (typeof doc === "string" ? JSON.parse(doc) : doc) as PMNode | null;
+  if (typeof doc === "string") {
+    try {
+      const parsed = JSON.parse(doc) as PMNode | null;
+      if (parsed && parsed.type === "doc") {
+        return walkDoc(parsed);
+      }
+    } catch {
+      // not JSON — treat the string itself as the page body (code page).
+    }
+    return doc.replace(/\s+/g, " ").trim();
+  }
+  return walkDoc(doc as PMNode | null);
+}
+
+function walkDoc(json: PMNode | null): string {
   if (!json || json.type !== "doc") return "";
   const parts: string[] = [];
   const walk = (node: PMNode) => {

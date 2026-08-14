@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { pages, branches, spaces, users } from "../db/schema.js";
 import { tiptapToMarkdown, frontmatterToMarkdown } from "./markdown.service.js";
+import { codeLanguageExtension } from "../../shared/codeLanguages.js";
 
 const REPO_ROOT = process.env.GIT_REPO_ROOT ?? "./data/repo";
 let git: SimpleGit | undefined;
@@ -49,22 +50,28 @@ export async function commitPageChange(pageId: string, branchId: string, oldSlug
   // lands bare at the repo root or starts a path with a leading dash.
   const spaceSlug = slugify(space?.name ?? "space") || "space";
 
-  // YAML frontmatter makes title changes visible in git history.
-  const frontmatter = frontmatterToMarkdown({ title: page.title, slug: page.slug, date: page.updatedAt?.toISOString() ?? null });
-  const markdown = frontmatter + "\n" + tiptapToMarkdown(page.content as never);
-  const relPath = path.join(spaceSlug, `${page.slug}.md`);
+  // §13.6: code pages are written as raw source files (readable git diffs, no
+  // YAML frontmatter cluttering a config/script). Wiki pages keep markdown +
+  // frontmatter so title changes stay visible in history.
+  const isCode = page.pageType === "code";
+  const ext = isCode ? codeLanguageExtension(page.language) : "md";
+  const body = isCode
+    ? (typeof page.content === "string" ? page.content : "")
+    : frontmatterToMarkdown({ title: page.title, slug: page.slug, date: page.updatedAt?.toISOString() ?? null }) + "\n" + tiptapToMarkdown(page.content as never);
+
+  const relPath = path.join(spaceSlug, `${page.slug}.${ext}`);
   const fullPath = path.join(REPO_ROOT, relPath);
 
   await mkdir(path.dirname(fullPath), { recursive: true });
-  await writeFile(fullPath, markdown, "utf-8");
+  await writeFile(fullPath, body, "utf-8");
 
   await git.add(relPath);
-  // A rename must also drop the previous <slug>.md, or the tree keeps a stale
-  // copy of the page under its old name forever (space slugs never change, so
-  // the old path lives in the same directory).
+  // A rename must also drop the previous <slug>.<ext>, or the tree keeps a
+  // stale copy of the page under its old name forever (space slugs never
+  // change, so the old path lives in the same directory).
   const commitPaths = [relPath];
   if (oldSlug && oldSlug !== page.slug) {
-    const oldRelPath = path.join(spaceSlug, `${oldSlug}.md`);
+    const oldRelPath = path.join(spaceSlug, `${oldSlug}.${ext}`);
     try {
       await git.rm([oldRelPath]);
       commitPaths.push(oldRelPath);
@@ -97,13 +104,16 @@ export async function commitManualSnapshot(pageId: string, message: string, user
   const [page] = await db.select().from(pages).where(eq(pages.id, pageId));
   if (!page) throw new Error(`commitManualSnapshot: page ${pageId} not found`);
 
-  const frontmatter = frontmatterToMarkdown({ title: page.title, slug: page.slug, date: new Date().toISOString() });
-  const markdown = frontmatter + "\n" + tiptapToMarkdown(page.content as never);
-  const relPath = path.join("_snapshots", `${page.id}.md`);
+  const isCode = page.pageType === "code";
+  const ext = isCode ? codeLanguageExtension(page.language) : "md";
+  const body = isCode
+    ? (typeof page.content === "string" ? page.content : "")
+    : frontmatterToMarkdown({ title: page.title, slug: page.slug, date: new Date().toISOString() }) + "\n" + tiptapToMarkdown(page.content as never);
+  const relPath = path.join("_snapshots", `${page.id}.${ext}`);
   const fullPath = path.join(REPO_ROOT, relPath);
 
   await mkdir(path.dirname(fullPath), { recursive: true });
-  await writeFile(fullPath, markdown, "utf-8");
+  await writeFile(fullPath, body, "utf-8");
 
   // git requires "Name <email>", not a bare id — build a valid ident.
   const [author] = await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, userId));
@@ -137,11 +147,13 @@ export async function getFileContentAtCommit(pageId: string, commitHash: string)
   // the empty tree; without it, the very first commit reports no files at all.
   const filesOut = await git.raw(["diff-tree", "--no-commit-id", "--name-only", "-r", "--root", commitHash]);
   const files = filesOut.trim().split("\n").filter(Boolean);
-  const snapshotPath = `_snapshots/${pageId}.md`;
-  const snapshotFile = files.find((f) => f === snapshotPath);
+  // §13.6: snapshot files use the page's language extension (.md for wiki,
+  // .sh/.py/... for code), so match by the pageId prefix rather than a fixed
+  // extension.
+  const snapshotFile = files.find((f) => f.startsWith(`_snapshots/${pageId}.`));
   if (snapshotFile) return await git.show([`${commitHash}:${snapshotFile}`]);
 
-  // Autosave commits write <spaceSlug>/<pageSlug>.md where pageSlug is the
+  // Autosave commits write <spaceSlug>/<pageSlug>.<ext> where pageSlug is the
   // slug AT COMMIT TIME — the page may have been renamed since, so the
   // current page.slug may not match. Autosave messages are
   // "page:<id>: Update - <slug>", so derive the commit-time slug from them.
@@ -149,7 +161,8 @@ export async function getFileContentAtCommit(pageId: string, commitHash: string)
     (msg) => /^page:[^:]+: Update - (.+)$/.exec(msg.trim())?.[1],
     () => undefined,
   );
-  const pageFile = files.find((f) => f.endsWith(`/${commitSlug ?? page.slug}.md`));
+  const basename = `${commitSlug ?? page.slug}.`;
+  const pageFile = files.find((f) => !f.startsWith("_snapshots/") && path.basename(f).startsWith(basename));
   if (!pageFile) throw new Error(`File not found in commit ${commitHash} for page ${pageId}`);
   return await git.show([`${commitHash}:${pageFile}`]);
 }

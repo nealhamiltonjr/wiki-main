@@ -8,6 +8,9 @@ export type AccessResult = "none" | "viewer" | "editor" | "admin";
 export type TokenType = "share_link" | "api_token";
 export type TokenScopeType = "branch" | "space" | "account";
 export type TokenPermission = "view" | "edit" | "admin";
+/** §13.6: a page is either a rich-text "wiki" page (Tiptap JSON) or a "code"
+ *  page whose whole content is a single source/config file. */
+export type PageType = "wiki" | "code";
 
 /** Everything the permission engine needs to know about the requester. */
 export interface UserContext {

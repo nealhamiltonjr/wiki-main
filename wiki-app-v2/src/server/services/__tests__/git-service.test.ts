@@ -60,6 +60,18 @@ async function createPage(pageId: string, slug: string, content: unknown) {
   return branchId;
 }
 
+async function createCodePage(pageId: string, slug: string, language: string, content: string) {
+  await db.insert(pages).values({
+    id: pageId, slug, title: slug, ownerId: "u1", content: content as never,
+    pageType: "code", language,
+  });
+  const branchId = `b-${pageId}`;
+  await db.insert(branches).values({
+    id: branchId, pageId, parentBranchId: null, spaceId: "s1", visibility: "inherit", isSystem: false, createdBy: "u1",
+  });
+  return branchId;
+}
+
 const simpleDoc = (text: string) => ({
   type: "doc",
   content: [{ type: "paragraph", content: [{ type: "text", text }] }],
@@ -198,5 +210,39 @@ describe("git flush pipeline", () => {
     const headFiles = execSync("git show --name-only --format= HEAD", { cwd: TEST_REPO, encoding: "utf-8" });
     expect(headFiles).toContain("home-lab/bravo.md");
     expect(headFiles).not.toContain("home-lab/alpha.md");
+  });
+});
+
+describe("§13.6 code-page git export", () => {
+  it("writes raw source (no frontmatter) under the language extension", async () => {
+    const pageId = "code-bash";
+    const branchId = await createCodePage(pageId, "deploy", "bash", "#!/bin/bash\necho hi\n");
+    await commitPageChange(pageId, branchId);
+
+    const file = execSync("git show HEAD:home-lab/deploy.sh", { cwd: TEST_REPO, encoding: "utf-8" });
+    expect(file).toBe("#!/bin/bash\necho hi\n");
+    expect(file).not.toContain("---");
+    expect(file).not.toContain("title:");
+  });
+
+  it("round-trips raw code through getFileContentAtCommit", async () => {
+    const pageId = "code-python";
+    const branchId = await createCodePage(pageId, "worker", "python", "print('hi')\n");
+    await commitPageChange(pageId, branchId);
+
+    const [latest] = await getPageHistory(pageId);
+    if (!latest) throw new Error("expected a commit for code page");
+    const content = await getFileContentAtCommit(pageId, latest.hash);
+    expect(content).toBe("print('hi')\n");
+  });
+
+  it("writes manual snapshots as raw source too", async () => {
+    const pageId = "code-json";
+    const branchId = await createCodePage(pageId, "settings", "json", "{\"x\":1}\n");
+    await commitPageChange(pageId, branchId);
+    await commitManualSnapshot(pageId, "json checkpoint", "u1");
+
+    const snapshot = execSync(`git show HEAD:_snapshots/${pageId}.json`, { cwd: TEST_REPO, encoding: "utf-8" });
+    expect(snapshot).toBe("{\"x\":1}\n");
   });
 });

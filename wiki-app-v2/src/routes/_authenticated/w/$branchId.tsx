@@ -10,6 +10,8 @@ import { userColor, type CollabUser } from "@/features/editor/useCollab";
 import { useSession } from "@/api/authClient";
 import { ReadOnlyContent } from "@/features/editor/ReadOnlyContent";
 import { TableOfContents } from "@/features/editor/TableOfContents";
+import { CodePageReadOnly } from "@/features/editor/CodePageReadOnly";
+import { CodePageEditor } from "@/features/editor/CodePageEditor";
 import { CommentsPanel } from "@/features/comments/CommentsPanel";
 import { HistoryPanel } from "@/features/history/HistoryPanel";
 import { RelationsPanel } from "@/features/relations/RelationsPanel";
@@ -151,21 +153,44 @@ function PageView() {
       <div className="flex min-h-0 flex-1">
         <div className="min-h-0 flex-1">
           {editMode ? (
-            <EditableCanvas
-              branchId={page.branchId}
-              slug={page.slug}
-              content={content}
-              updatedAt={updatedAt}
-              key={`${page.id}:${reloadTick}`}
-              collabOn={collabOn}
-              collabUser={collabUser}
-              onToggleCollab={() => setCollabOn((c) => !c)}
-              onCollabSessionEnd={handleCollabSessionEnd}
-              onConflict={handleReload}
-              onContentChange={(nextContent, nextUpdatedAt) =>
-                setLivePage({ content: nextContent, updatedAt: nextUpdatedAt })
-              }
-            />
+            page.pageType === "code" ? (
+              <CodeEditableCanvas
+                branchId={page.branchId}
+                slug={page.slug}
+                content={content}
+                language={page.language ?? null}
+                updatedAt={updatedAt}
+                key={`${page.id}:${reloadTick}`}
+                onConflict={handleReload}
+                onContentChange={(nextContent, nextUpdatedAt) =>
+                  setLivePage({ content: nextContent, updatedAt: nextUpdatedAt })
+                }
+              />
+            ) : (
+              <EditableCanvas
+                branchId={page.branchId}
+                slug={page.slug}
+                content={content}
+                updatedAt={updatedAt}
+                key={`${page.id}:${reloadTick}`}
+                collabOn={collabOn}
+                collabUser={collabUser}
+                onToggleCollab={() => setCollabOn((c) => !c)}
+                onCollabSessionEnd={handleCollabSessionEnd}
+                onConflict={handleReload}
+                onContentChange={(nextContent, nextUpdatedAt) =>
+                  setLivePage({ content: nextContent, updatedAt: nextUpdatedAt })
+                }
+              />
+            )
+          ) : page.pageType === "code" ? (
+            <div className="flex h-full min-h-0">
+              <div className="min-h-0 flex-1 overflow-auto">
+                <div className="editor-canvas">
+                  <CodePageReadOnly content={content} language={page.language ?? null} />
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="flex h-full min-h-0">
               <div className="min-h-0 flex-1 overflow-auto">
@@ -397,6 +422,72 @@ function EditableCanvas({ branchId, slug, content, updatedAt, collabOn, collabUs
           >
             Live edit…
           </button>
+          <span>{slug}</span>
+          {saveState === "dirty" && (
+            <button type="button" onClick={saveNow} className="underline text-link">
+              Save now
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Code-page editable canvas — plain-text source editor with OCC autosave.
+// No collab: the Yjs/Tiptap collab path is rich-text only (§13.6 code pages
+// are single-file text, so live-edit is out of scope for this slice).
+// ---------------------------------------------------------------------------
+
+function CodeEditableCanvas({ branchId, slug, content, language, updatedAt, onConflict, onContentChange }: {
+  branchId: string;
+  slug: string;
+  content: unknown;
+  language: string | null;
+  updatedAt: string;
+  onConflict: () => void;
+  onContentChange: (content: unknown, updatedAt: string) => void;
+}) {
+  const [value, setValue] = useState(typeof content === "string" ? content : "");
+  // The autosave controller snapshots `getContent()` synchronously when the
+  // debounce is scheduled, which is BEFORE React re-renders with the new value.
+  // Reading a ref (like the Tiptap editor does with editorRef) keeps the save
+  // payload current without depending on the render closure's `value`.
+  const valueRef = useRef(value);
+  valueRef.current = value;
+
+  const getContent = useCallback(() => valueRef.current, []);
+  const getTitle = useCallback(() => undefined, []);
+
+  const { state: saveState, scheduleSave, saveNow } = useAutosave({
+    branchId,
+    initialUpdatedAt: new Date(updatedAt),
+    getContent,
+    getTitle,
+    onSaved: (next) => onContentChange(valueRef.current, next.toISOString()),
+    onConflict: () => {
+      toast.error("This page was updated elsewhere. Reload to see the latest version.", {
+        action: { label: "Reload", onClick: onConflict },
+      });
+    },
+  });
+
+  const handleChange = useCallback((next: string) => {
+    // Update the ref synchronously: scheduleSave snapshots getContent() in the
+    // same tick (before this render commits), so the ref must already hold the
+    // latest text or the debounced save would persist the previous value.
+    valueRef.current = next;
+    setValue(next);
+    scheduleSave();
+  }, [scheduleSave]);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <CodePageEditor value={value} language={language} onChange={handleChange} autoFocus />
+      <div className="flex items-center justify-between border-t border-border px-4 py-1 text-xs text-text-muted">
+        <span>{saveStateLabel(saveState)}</span>
+        <div className="flex items-center gap-3">
           <span>{slug}</span>
           {saveState === "dirty" && (
             <button type="button" onClick={saveNow} className="underline text-link">

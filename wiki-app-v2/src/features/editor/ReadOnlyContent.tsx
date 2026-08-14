@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { safeLinkHref } from "@/shared/blockIds";
 import { MermaidRenderer } from "./extensions/MermaidRenderer.js";
 import { useEmbedTypeMap } from "@/plugins/registry";
+import { highlightCode } from "./codeHighlight.js";
 
 /**
  * Simple server-rendering-safe content renderer. Walks Tiptap JSON nodes into
@@ -110,27 +111,7 @@ function BlockNode({ node, embedMap }: { node: PMNode; embedMap: Map<string, imp
  * highlighting. In read mode, shows a language tag and highlighted code.
  */
 function CodeBlock({ code, language }: { code: string; language?: string }) {
-  const highlighted = useMemo(() => {
-    if (!language) return null;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const Prism = require("prismjs");
-      // Load common languages on demand
-      const langMap: Record<string, string> = {
-        ts: "typescript", tsx: "tsx", js: "javascript", jsx: "jsx",
-        py: "python", rb: "ruby", go: "go", rs: "rust", java: "java",
-        css: "css", html: "html", xml: "html", json: "json",
-        yaml: "yaml", yml: "yaml", toml: "toml", md: "markdown",
-        sql: "sql", sh: "bash", bash: "bash", zsh: "bash",
-        dockerfile: "docker", graphql: "graphql",
-      };
-      const resolved = langMap[language] ?? language;
-      try { require(`prismjs/components/prism-${resolved}`); } catch { /* ignore */ }
-      return Prism.highlight(code, Prism.languages[resolved] ?? Prism.languages.plaintext, resolved);
-    } catch {
-      return null;
-    }
-  }, [code, language]);
+  const highlighted = useMemo(() => highlightCode(code, language), [code, language]);
 
   return (
     <div className="my-3 overflow-hidden rounded-md border border-border">

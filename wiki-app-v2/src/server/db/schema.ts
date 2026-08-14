@@ -88,6 +88,15 @@ export const pages = sqliteTable("pages", {
   slug: text("slug").notNull(), // added this revision - was missing from the reviewed handoff's own doc
   title: text("title").notNull().default("Untitled"), // real title column (UI overhaul Track A1); body H1s are content, not the title
   content: text("content", { mode: "json" }).notNull().default(sql`'{"type":"doc","content":[{"type":"paragraph"}]}'`), // Tiptap/ProseMirror JSON - must contain at least one block node, an empty content array isn't a valid document
+  // §13.6: "wiki" pages store Tiptap JSON in `content`; "code" pages store the
+  // raw source text as a JSON string in the SAME column (drizzle `mode:"json"`
+  // round-trips a plain JS string through JSON.stringify/parse). Keeping one
+  // column avoids a content-kind join and keeps the `pages` row self-contained.
+  pageType: text("page_type", { enum: ["wiki", "code"] }).notNull().default("wiki"),
+  /** Syntax language for code pages (e.g. "bash", "python", "json", "yaml").
+   *  Null for wiki pages. Drives both the read-mode highlighter and the
+   *  file extension used for the git export. */
+  language: text("language"),
   ownerId: text("owner_id").notNull().references(() => users.id),
   deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
   ...timestamps,
