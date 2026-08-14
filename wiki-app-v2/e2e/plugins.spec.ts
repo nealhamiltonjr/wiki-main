@@ -28,7 +28,9 @@ test("admin can upload + enable hello-world through the real UI", async ({ page 
 
   // The topbar "Settings" link only renders for admins — confirms the seed user
   // is a global admin so the admin-only plugin route will accept the upload.
-  await page.getByRole("link", { name: "Settings" }).click();
+  // Use exact:true because the post-slice-47 home page also links out as
+  // "Settings → Spaces", which substring-matches "Settings" without it.
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
   await expect(page).toHaveURL(/\/settings\/plugins/);
   // The layout H1 was removed in slice-16 (each sub-page owns its own H2), so
   // use the plugins page's "Installed Plugins" heading as the post-navigation /
