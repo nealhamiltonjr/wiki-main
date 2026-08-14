@@ -21,8 +21,10 @@ import {
   runLens,
   runLensWithAttributes,
   updateLens,
+  UnsafeLensRegexError,
   type LensCriteria,
 } from "../services/lens.service.js";
+import { assertSafeRegex } from "../utils/regex-safety.js";
 import type { UserContext } from "../../shared/types.js";
 
 const ownerScopeSchema = z.union([
@@ -31,13 +33,34 @@ const ownerScopeSchema = z.union([
   z.object({ kind: z.literal("group"), groupId: z.string().min(1) }),
 ]);
 
+// Slice-42 ReDoS defense: titleRegex is evaluated per row inside a sync
+// SQLite REGEXP function (db/index.ts) that calls RegExp.test(). Without a
+// safety gate a malicious lens owner (or anyone with a share token for an
+// unlisted lens) could create a lens with a catastrophic-backtracking
+// pattern — `(a+)+$` etc. — and freeze the server on every results call.
+// We bound star height, total quantifier count, and reject adjacent
+// quantifiers / backreferences; see utils/regex-safety.ts.
+const safeRegexSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .superRefine((v, ctx) => {
+    const result = assertSafeRegex(v);
+    if (!result.safe) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `unsafe regex: ${result.reason ?? "rejected"} (pattern: ${v})`,
+      });
+    }
+  });
+
 const criteriaSchema = z.object({
   tags: z.array(z.string().min(1)).max(50).optional(),
   properties: z
     .array(z.object({ name: z.string().min(1).max(64), value: z.string().max(256) }))
     .max(20)
     .optional(),
-  titleRegex: z.string().min(1).max(256).optional(),
+  titleRegex: safeRegexSchema.optional(),
   ownerScope: ownerScopeSchema.optional(),
   spaceIds: z.array(z.string().min(1)).max(100).optional(),
   includeTrash: z.boolean().optional(),
@@ -187,10 +210,17 @@ export async function lensRoutes(app: FastifyInstance) {
       // each hit's promoted attributes (own + inherited via §13.3). The
       // list-only path stays light; the enriched path is opt-in.
       const wantAttributes = request.query.include === "attributes";
-      const hits = wantAttributes
-        ? await runLensWithAttributes(lens, u)
-        : await runLens(lens, u);
-      return { lens, hits };
+      try {
+        const hits = wantAttributes
+          ? await runLensWithAttributes(lens, u)
+          : await runLens(lens, u);
+        return { lens, hits };
+      } catch (err) {
+        if (err instanceof UnsafeLensRegexError) {
+          return reply.code(400).send({ error: err.message });
+        }
+        throw err;
+      }
     },
   );
 
@@ -218,10 +248,17 @@ export async function lensRoutes(app: FastifyInstance) {
       if (!lens) return reply.code(404).send({ error: "lens not found" });
       if (!u) return reply.code(401).send({ error: "unauthenticated" });
       const wantAttributes = request.query.include === "attributes";
-      const hits = wantAttributes
-        ? await runLensWithAttributes(lens, u)
-        : await runLens(lens, u);
-      return { lens, hits };
+      try {
+        const hits = wantAttributes
+          ? await runLensWithAttributes(lens, u)
+          : await runLens(lens, u);
+        return { lens, hits };
+      } catch (err) {
+        if (err instanceof UnsafeLensRegexError) {
+          return reply.code(400).send({ error: err.message });
+        }
+        throw err;
+      }
     },
   );
 

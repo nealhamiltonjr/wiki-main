@@ -387,4 +387,99 @@ describe("lens routes (brief §12.4)", () => {
     });
     expect(missing.statusCode).toBe(404);
   });
+
+  // Slice-42: ReDoS defense for lens titleRegex. A malicious lens owner
+  // (or anyone with a share token for an unlisted lens) could otherwise
+  // create a lens with a catastrophic-backtracking pattern and freeze
+  // the server on every results call.
+  describe("slice-42: titleRegex ReDoS gate", () => {
+    const hostilePatterns = [
+      "^(a+)+$",
+      "(a+)+X",
+      "(a+)+\\1",
+      "(a*)*$",
+      "(a+|b)+",
+      "a++",
+      "a+b+c+d+e+f+",
+      "\\1",
+    ];
+
+    it.each(hostilePatterns)(
+      "rejects the hostile regex %j at create time",
+      async (pattern) => {
+        const owner = await signupAndLogin(`redos-create-${randomBytes(3).toString("hex")}@test.local`);
+        const create = await app.inject({
+          method: "POST",
+          url: "/api/lenses",
+          headers: { cookie: owner.cookie },
+          payload: { name: "evil", criteria: { titleRegex: pattern } },
+        });
+        expect(create.statusCode).toBe(400);
+        const body = create.json() as { error: unknown };
+        // zod flatten().error → either { formErrors, fieldErrors } shape,
+        // or for a top-level refine issue the raw issue list. Either way
+        // the message must mention "unsafe regex".
+        expect(JSON.stringify(body.error)).toMatch(/unsafe regex/);
+      },
+    );
+
+    it("rejects the same hostile regex at patch time", async () => {
+      const owner = await signupAndLogin(`redos-patch-${randomBytes(3).toString("hex")}@test.local`);
+      const create = await app.inject({
+        method: "POST",
+        url: "/api/lenses",
+        headers: { cookie: owner.cookie },
+        payload: { name: "innocent", criteria: { titleRegex: "^Meeting$" } },
+      });
+      expect(create.statusCode).toBe(201);
+      const lens = create.json() as { id: string };
+      const patch = await app.inject({
+        method: "PATCH",
+        url: `/api/lenses/${lens.id}`,
+        headers: { cookie: owner.cookie },
+        payload: { criteria: { titleRegex: "^(a+)+$" } },
+      });
+      expect(patch.statusCode).toBe(400);
+    });
+
+    it("defense-in-depth: a legacy row with an unsafe regex still 400s when run", async () => {
+      // Simulate a row that bypassed the route gate (legacy import, raw DB
+      // write, or a future regression in the zod schema) by inserting the
+      // malicious regex directly via the service layer. We use a real
+      // signed-up user as the owner so the FK constraint is satisfied —
+      // the point of the test is that the regex safety check fires
+      // *before* any per-user access logic runs.
+      const { createLens, runLens, UnsafeLensRegexError } = await import(
+        "../services/lens.service.js"
+      );
+      const owner = await signupAndLogin(`redos-run-${randomBytes(3).toString("hex")}@test.local`);
+      const lens = await createLens({
+        ownerId: owner.userId,
+        name: "legacy",
+        criteria: { titleRegex: "^(a+)+$" },
+      });
+      await expect(
+        runLens(lens, { id: owner.userId, isAdmin: true } as never),
+      ).rejects.toBeInstanceOf(UnsafeLensRegexError);
+    });
+
+    it("the SQL REGEXP function refuses to execute an unsafe pattern", async () => {
+      // Even if every other gate is bypassed, the db-level function is the
+      // last line of defense: it throws before calling RegExp.test().
+      const { getDb } = await import("../db/index.js");
+      const { sqlite } = getDb();
+      expect(() =>
+        sqlite.prepare("SELECT regexp(?, 'value') AS m").get("^(a+)+$"),
+      ).toThrow(/unsafe regex pattern/);
+    });
+
+    it("the SQL REGEXP function still works for safe patterns", async () => {
+      const { getDb } = await import("../db/index.js");
+      const { sqlite } = getDb();
+      const row = sqlite.prepare("SELECT regexp('^hello', 'hello world') AS m").get() as
+        | { m: number }
+        | undefined;
+      expect(row?.m).toBe(1);
+    });
+  });
 });

@@ -34,11 +34,28 @@ import {
   spaces,
 } from "../db/schema.js";
 import { resolveInheritedAttributes } from "./template.service.js";
+import { assertSafeRegex } from "../utils/regex-safety.js";
 import type { UserContext } from "../../shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
+
+/**
+ * Thrown by `runLens` when a lens row's `criteria.titleRegex` fails the
+ * ReDoS safety check (slice-42). The route layer catches this and turns
+ * it into a 400 — the lens itself is malformed and must be patched.
+ *
+ * Existing at runtime rather than at write time: lens rows written before
+ * the regex gate existed (legacy import, raw DB write, future regression)
+ * can still surface here, so the service refuses to execute them.
+ */
+export class UnsafeLensRegexError extends Error {
+  constructor(reason: string) {
+    super(`unsafe lens titleRegex: ${reason}`);
+    this.name = "UnsafeLensRegexError";
+  }
+}
 
 /** A single lens criterion as stored in `saved_filters.criteria`. */
 export interface LensCriteria {
@@ -235,6 +252,18 @@ export async function listLensesForUser(userId: string): Promise<Lens[]> {
 export async function runLens(lens: Lens, caller: UserContext): Promise<LensHit[]> {
   const { db, sqlite } = getDb();
   const criteria = lens.criteria;
+
+  // Defense-in-depth (slice-42). The route validates `titleRegex` at
+  // create/patch time, but a lens row written before that gate (legacy
+  // import, raw DB write, or future regression) could still carry a
+  // catastrophic-backtracking pattern. Re-check before executing it
+  // against every page title; throw a typed error the route maps to 400.
+  if (criteria.titleRegex) {
+    const safety = assertSafeRegex(criteria.titleRegex);
+    if (!safety.safe) {
+      throw new UnsafeLensRegexError(safety.reason ?? "rejected");
+    }
+  }
 
   // Space filter: if the caller restricted by spaceIds, restrict to those.
   // Otherwise: every space (the per-page access check happens post-hoc).
