@@ -89,6 +89,29 @@ export function safeLinkHref(href: string): string {
 }
 
 /**
+ * Mirror of safeLinkHref but stricter — image sources can never legitimately
+ * be mailto/tel, and `data:` is unsafe in <img src> because:
+ *   - data:text/html can carry script (the browser blocks it as an image,
+ *     but the URL itself is suspicious)
+ *   - data:image/svg+xml can carry script via SVG <script> or onload
+ *   - data:application/xml can carry XXE payloads in old browsers
+ * Returning "" (instead of "#") is intentional: a link with an empty href is
+ * still navigable to nothing, but a broken <img src=""> renders more honestly
+ * as an empty/broken image than <img src="#">. The renderer / markdown parser
+ * drops the whole image node when its src sanitizes to "" — no zombie
+ * placeholder, no chance of a future renderer misinterpreting "#".
+ */
+export function safeImageSrc(src: string): string {
+  const trimmed = src.trim();
+  if (trimmed.startsWith("#") || trimmed.startsWith("/")) return trimmed;
+  const schemeMatch = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(trimmed);
+  if (!schemeMatch) return trimmed; // no scheme — e.g. "example.com/x.png"
+  const scheme = schemeMatch[1]!.toLowerCase();
+  if (scheme === "http" || scheme === "https") return trimmed;
+  return "";
+}
+
+/**
  * Validates a Tiptap JSON document tree before persisting. Catches the three
  * most common failure modes from past bugs:
  *  1. Pasting from Word leaves inline style attributes / stray spans that
@@ -144,6 +167,17 @@ export function validateContent(
       if (!node.attrs?.id) {
         node.attrs = { ...(node.attrs ?? {}), id: defaultGenerateId() };
         errors.push(`${path}: block "${type}" missing id — auto-assigned`);
+      }
+    }
+
+    // Sanitize image src at persist time (defense in depth: the markdown
+    // parser already calls safeImageSrc, but a hand-edited doc or a future
+    // importer must not bypass this).
+    if (type === "image" && typeof node.attrs?.src === "string") {
+      const safe = safeImageSrc(node.attrs.src as string);
+      if (safe !== node.attrs.src) {
+        node.attrs = { ...node.attrs, src: safe };
+        errors.push(`${path}: unsafe image src — neutralized`);
       }
     }
 

@@ -13,6 +13,8 @@
  * level, by the caller when it rewrites cross-page links.
  */
 
+import { safeLinkHref, safeImageSrc } from "@/shared/blockIds.js";
+
 interface PMNode {
   type: string;
   attrs?: Record<string, unknown>;
@@ -421,9 +423,18 @@ export function markdownToTiptap(markdown: string): PMNode {
     // standalone image (whole line is just an image)
     const imgMatch = line.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/);
     if (imgMatch) {
-      blocks.push({ type: "paragraph", content: [
-        { type: "image", attrs: { src: imgMatch[2]!, alt: imgMatch[1]! } },
-      ]});
+      const src = safeImageSrc(imgMatch[2]!);
+      if (src !== "") {
+        blocks.push({ type: "paragraph", content: [
+          { type: "image", attrs: { src, alt: imgMatch[1]! } },
+        ]});
+      } else {
+        // Unsafe image src — skip the whole block rather than emit a broken
+        // placeholder that some future renderer could misread as a target.
+        // The text is logged elsewhere via validateContent errors when the
+        // doc is persisted; at parse time we just drop the block.
+        blocks.push({ type: "paragraph" });
+      }
       i++;
       continue;
     }
@@ -576,7 +587,11 @@ function parseInline(text: string): PMNode[] {
       const closeP = openP > closeB ? text.indexOf(")", openP) : -1;
       if (closeB > pos && openP === closeB + 1 && closeP > openP) {
         const linkText = text.slice(pos + 1, closeB);
-        const href = text.slice(openP + 1, closeP);
+        const href = safeLinkHref(text.slice(openP + 1, closeP));
+        // A safeLinkHref("#") on an unsafe href is fine — the renderer treats
+        // it as a no-op link. We don't drop the text either: stripping the
+        // link from "click here to verify" hides the user's content, which is
+        // a worse UX than a no-op link.
         nodes.push({ type: "text", text: linkText, marks: [{ type: "link", attrs: { href } }] });
         pos = closeP + 1;
         continue;
@@ -587,7 +602,15 @@ function parseInline(text: string): PMNode[] {
     const imgRe = /^!\[([^\]]*)\]\(([^)]+)\)/;
     const imgMatch = text.slice(pos).match(imgRe);
     if (imgMatch) {
-      nodes.push({ type: "image", attrs: { src: imgMatch[2]!, alt: imgMatch[1]! } });
+      const src = safeImageSrc(imgMatch[2]!);
+      if (src !== "") {
+        nodes.push({ type: "image", attrs: { src, alt: imgMatch[1]! } });
+      }
+      // Always advance past the image syntax, even when we drop it — leaving
+      // the parser stuck on `![alt](javascript:...)` would produce garbage on
+      // the next loop. The alt text is intentionally not emitted as a text
+      // node; the user wrote an image, not text, and a phantom "alt" string
+      // would be confusing.
       pos += imgMatch[0].length;
       continue;
     }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateContent, ensureBlockIds, collectBlockIds, safeLinkHref, filterUnknownNodes, KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES } from "../blockIds.js";
+import { validateContent, ensureBlockIds, collectBlockIds, safeLinkHref, safeImageSrc, filterUnknownNodes, KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES } from "../blockIds.js";
 import type { JSONBlock } from "../blockIds.js";
 
 describe("validateContent", () => {
@@ -115,6 +115,57 @@ describe("safeLinkHref + link sanitization", () => {
     const mark = (paragraph.marks as unknown[])[0] as { attrs?: { href?: string } };
     expect(mark.attrs?.href).toBe("#");
     expect(errors.some((e) => e.includes("unsafe link scheme"))).toBe(true);
+  });
+});
+
+describe("safeImageSrc + image sanitization", () => {
+  it("keeps safe schemes and relative/fragment srcs", () => {
+    expect(safeImageSrc("https://example.com/x.png")).toBe("https://example.com/x.png");
+    expect(safeImageSrc("http://example.com/x.png")).toBe("http://example.com/x.png");
+    expect(safeImageSrc("/api/files/abc/image.png")).toBe("/api/files/abc/image.png");
+    expect(safeImageSrc("#poster")).toBe("#poster");
+    expect(safeImageSrc("example.com/x.png")).toBe("example.com/x.png"); // no scheme = fine
+  });
+
+  it("neutralizes script-capable schemes to empty string", () => {
+    expect(safeImageSrc("javascript:alert(1)")).toBe("");
+    expect(safeImageSrc("  JAVASCRIPT:alert(1)  ")).toBe("");
+    expect(safeImageSrc("vbscript:msgbox(1)")).toBe("");
+    expect(safeImageSrc("file:///etc/passwd")).toBe("");
+  });
+
+  it("neutralizes data: URLs (SVG can carry script, text/html can carry script, application/xml can carry XXE)", () => {
+    expect(safeImageSrc("data:text/html,<script>alert(1)</script>")).toBe("");
+    expect(safeImageSrc("data:image/svg+xml,<svg onload='alert(1)'/>")).toBe("");
+    expect(safeImageSrc("data:application/xml,<x/>")).toBe("");
+    // Even "safe-looking" image data URLs are blocked — inline data: is a
+    // niche feature the wiki doesn't need (use file upload instead), and
+    // blocking all of them shrinks the attack surface.
+    expect(safeImageSrc("data:image/png;base64,AAAA")).toBe("");
+  });
+
+  it("auto-repairs unsafe image srcs during validation", () => {
+    const input = {
+      type: "doc",
+      content: [
+        { type: "image", attrs: { id: "im1", src: "javascript:alert(1)", alt: "x" } },
+      ],
+    };
+    const { doc, errors } = validateContent(input);
+    const img = (doc.content as unknown[])[0] as { attrs?: { src?: string } };
+    expect(img.attrs?.src).toBe("");
+    expect(errors.some((e) => e.includes("unsafe image src"))).toBe(true);
+  });
+
+  it("preserves a safe image src unchanged during validation", () => {
+    const input = {
+      type: "doc",
+      content: [
+        { type: "image", attrs: { id: "im1", src: "https://example.com/x.png", alt: "x" } },
+      ],
+    };
+    const { errors } = validateContent(input);
+    expect(errors.some((e) => e.includes("unsafe image src"))).toBe(false);
   });
 });
 

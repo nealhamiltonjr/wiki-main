@@ -2008,4 +2008,111 @@ and the existing `drizzle` read; no new packages.
   +17 tests). Typecheck clean, build clean. Only the pre-existing
   large-chunk-size warning remains.
 
+## Slice-45 — markdown import XSS (link href + image src)
+
+### Probe results (before the fix)
+
+The deep-dive audit ran a probe script against `markdownToTiptap` with
+known XSS payloads. Findings:
+
+| Payload                          | Pre-fix output                              | Risk       |
+| -------------------------------- | ------------------------------------------- | ---------- |
+| `[click](javascript:alert(1))`   | `href: "javascript:alert(1"` (truncated)    | CRITICAL   |
+| `[click](  JAVASCRIPT:alert(1)  )` | `href: "javascript:alert(1"`               | CRITICAL   |
+| `[click](\tjavascript:alert(1))` | `href: "\tjavascript:alert(1"`              | CRITICAL   |
+| `[click](data:text/html,<script>)` | `href: "data:text/html,<script>"`          | CRITICAL   |
+| `[click](vbscript:msgbox(1))`    | `href: "vbscript:msgbox(1"`                 | LOW        |
+| `[secret](file:///etc/passwd)`   | `href: "file:///etc/passwd"`                | LOW        |
+| `![alt](javascript:foo)`         | `src: "javascript:foo"`                     | HIGH       |
+| `![alt](data:text/html,<x>)`     | `src: "data:text/html,<x>"`                 | MEDIUM     |
+| `<script>alert(1)</script>`      | literal text node                           | SAFE       |
+
+### Why this wasn't a zero-day
+
+There were already three defensive layers downstream of the parser:
+
+1. `safeLinkHref` in `src/shared/blockIds.ts` (the one in
+   `validateContent` is called at persist time).
+2. `validateContent` neutralizes link hrefs before persisting.
+3. `ReadOnlyContent` calls `safeLinkHref` again at render time.
+
+So a `javascript:` href that made it through the parser would be
+neutralized to `#` before the bytes hit the DB and again before
+they hit the DOM. But:
+
+- Image src had **no sanitizer anywhere** (the only image sanitizer
+  would have been `safeLinkHref`, which doesn't apply to images).
+- The in-memory Tiptap doc between parse and persist carried the
+  dangerous URL, exposing it to autosave/draft paths and any future
+  reader that bypasses `validateContent` (a hand-edited DB row, an
+  export-to-another-format route, etc.).
+- The whole "neutralize at every layer" approach is fine in
+  isolation, but it's brittle: a future renderer that forgets the
+  `safeLinkHref` call is a one-line regression away from stored XSS.
+
+### The fix (defense in depth at the parse layer)
+
+- `src/shared/blockIds.ts` exports `safeImageSrc(src)` — a stricter
+  sibling of `safeLinkHref`. Allows http/https/relative/anchor,
+  blocks javascript/vbscript/data/file. Returns `""` (not `"#"`)
+  because `<img src="#">` is a worse UX than `<img src="">`.
+- `validateContent` now walks `image` nodes and sanitizes their
+  `attrs.src` exactly the way it walks `link` marks (replaces with
+  safe value + records an error).
+- `markdown.service.ts`:
+  - `parseInline` link branch now wraps the URL in `safeLinkHref`.
+  - `parseInline` image branch drops the image node entirely when
+    `safeImageSrc` returns `""` (no zombie placeholder), then
+    advances past the `![alt](...)` syntax.
+  - Standalone-image branch does the same drop-and-advance.
+
+### Why drop the image instead of neutralizing the src
+
+An empty src on an image is honest — the browser renders a broken
+image, and any future renderer sees "no source, no render". A src
+of `"#"` is misleading — it's a syntactically-valid URL that
+points to the current document fragment; some renderer might try to
+follow it.
+
+### Why keep the link text when the href is neutralized
+
+For links, the text is the user's content (the words they chose).
+Stripping the text along with the dangerous URL hides their content
+for a UX-recovery reason. The link mark survives with `href="#"`:
+visible as a styled link, click is a no-op.
+
+### What did NOT need fixing
+
+- Raw HTML in text/headings/code blocks: the markdown parser does
+  not pass through HTML; it stays as a literal text node. Tiptap
+  renders text nodes as escaped text. No XSS surface.
+- Frontmatter title: consumed only by `splitFrontmatter` for diff
+  display and SSG page titles. Never rendered as HTML.
+
+### Tests
+
+- **new** `src/server/__tests__/markdown-xss.test.ts` — 20 tests
+  across three `describe` blocks (link href, image src, raw HTML
+  inertness). Probes every XSS payload from the table above plus
+  the safe-preservation cases (https, relative, mailto).
+- **new tests in** `src/shared/__tests__/blockIds.test.ts` — 5
+  `safeImageSrc` tests + 2 `validateContent` image-sanitization
+  tests.
+
+### Files touched
+
+- `src/shared/blockIds.ts` — added `safeImageSrc`; extended
+  `validateContent` walk to sanitize `image` nodes' `attrs.src`.
+- `src/server/services/markdown.service.ts` — added
+  `safeLinkHref` + `safeImageSrc` calls in `parseInline` link /
+  image branches and the standalone-image branch.
+- `src/shared/__tests__/blockIds.test.ts` — added 7 tests.
+- **new** `src/server/__tests__/markdown-xss.test.ts` — 20 tests.
+- `AGENTS.md` — this slice entry.
+
+### Test counts
+
+- Full suite after slice-45: **69 files / 554 tests** (+1 file,
+  +25 tests). Typecheck clean, build clean.
+
 
