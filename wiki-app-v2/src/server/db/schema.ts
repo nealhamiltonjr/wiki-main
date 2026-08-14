@@ -412,6 +412,21 @@ export const favorites = sqliteTable("favorites", {
 });
 
 // ---------------------------------------------------------------------------
+// Pinned pages — brief §12.5 "Offline readability for the pages that matter
+// most". Per-user list of branches the user has explicitly pinned so the
+// client-side service worker can serve them from cache when the network is
+// down (e.g. the Proxmox box that's hosting the docs is the one that's
+// down). Read-only offline cache — the server still owns writes; the
+// service worker only ever serves a cached read.
+// ---------------------------------------------------------------------------
+export const pinnedPages = sqliteTable("pinned_pages", {
+  id: id(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  branchId: text("branch_id").notNull(),
+  ...timestamps,
+});
+
+// ---------------------------------------------------------------------------
 // Lenses / saved filters (§12.4) — user-defined cross-cutting views over the
 // page tree. The criteria JSON is interpreted by lens.service.ts; we don't
 // normalise the structure into separate tables because (a) criteria are

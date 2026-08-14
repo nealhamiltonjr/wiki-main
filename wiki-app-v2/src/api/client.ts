@@ -110,6 +110,7 @@ export interface CommentItem {
 }
 
 export interface FavoriteEntry { id: string; branchId: string; slug: string; title: string }
+export interface PinnedEntry { id: string; branchId: string; slug: string; title: string; pinnedAt: string }
 export interface PageHistoryEntry { hash: string; message: string; date: string }
 
 export interface NotificationEntry {
@@ -274,6 +275,8 @@ export const api = {
     request<{ resolved: boolean }>(`/api/comment-threads/${threadId}/resolve`, { method: "PUT" }),
   listFavorites: () => request<FavoriteEntry[]>("/api/favorites"),
   toggleFavorite: (branchId: string) => request<{ favorited: boolean }>(`/api/favorites/${branchId}`, { method: "POST" }),
+  listPinned: () => request<PinnedEntry[]>("/api/pinned"),
+  togglePinned: (branchId: string) => request<{ pinned: boolean }>(`/api/pinned/${branchId}`, { method: "POST" }),
   getPageHistory: (pageId: string, branchId: string) =>
     request<PageHistoryEntry[]>(`/api/pages/${pageId}/branches/${branchId}/history`),
   createSnapshot: (pageId: string, branchId: string, message: string) =>

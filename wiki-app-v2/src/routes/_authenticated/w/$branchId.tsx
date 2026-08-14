@@ -21,6 +21,7 @@ import { RelationsPanel } from "@/features/relations/RelationsPanel";
 import { GraphPanel } from "@/features/graph/GraphPanel";
 import { TemplateBanner } from "@/features/templates/TemplateBanner";
 import { FavoriteButton } from "@/features/favorites/FavoriteButton";
+import { PinButton } from "@/features/offline/PinButton";
 import { useQuery } from "@/lib/useQuery";
 import { cn } from "@/lib/utils";
 
@@ -115,6 +116,14 @@ function PageView() {
   // branchId so it remounts with the correct initial value.
   const { data: favoriteBranchIds } = useQuery(
     () => api.listFavorites().then((list) => new Set(list.map((f) => f.branchId))),
+    [branchId]
+  );
+
+  // §12.5: same pattern for the offline-pin toggle. The service worker reads
+  // its own copy from IndexedDB / Cache Storage; this hook only feeds the
+  // *initial* rendered state. After mount, PinButton handles its own state.
+  const { data: pinnedBranchIds } = useQuery(
+    () => api.listPinned().then((list) => new Set(list.map((p) => p.branchId))),
     [branchId]
   );
 
@@ -222,6 +231,7 @@ function PageView() {
         showGraph={showGraph}
         onToggleGraph={() => setShowGraph((s) => !s)}
         initiallyFavorited={favoriteBranchIds?.has(page.branchId) ?? false}
+        initiallyPinned={pinnedBranchIds?.has(page.branchId) ?? false}
         isEncrypted={isEncrypted}
         unlocked={unlock !== null}
         onProtect={() => setShowProtect(true)}
@@ -346,6 +356,7 @@ function PageHeader({
   showGraph,
   onToggleGraph,
   initiallyFavorited,
+  initiallyPinned,
   isEncrypted,
   unlocked,
   onProtect,
@@ -364,6 +375,7 @@ function PageHeader({
   showGraph: boolean;
   onToggleGraph: () => void;
   initiallyFavorited: boolean;
+  initiallyPinned: boolean;
   isEncrypted: boolean;
   unlocked: boolean;
   onProtect: () => void;
@@ -391,6 +403,7 @@ function PageHeader({
       </div>
       <div className="flex items-center gap-1">
         <FavoriteButton branchId={page.branchId} initiallyFavorited={initiallyFavorited} />
+        <PinButton branchId={page.branchId} initiallyPinned={initiallyPinned} />
         {!editMode && (page.access === "editor" || page.access === "admin") ? (
           isEncrypted && unlocked ? (
             <button

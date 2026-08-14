@@ -1,0 +1,10 @@
+{
+  "name": "Knowledge Base",
+  "short_name": "Knowledge Base",
+  "description": "Personal wiki for homelab, ham radio, recipes, and everything in between.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0f172a",
+  "icons": []
+}

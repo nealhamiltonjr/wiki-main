@@ -71,6 +71,13 @@
       "when": 1786720000000,
       "tag": "0009_plugin_failure_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1786723808374,
+      "tag": "0010_calm_beyonder",
+      "breakpoints": true
     }
   ]
 }

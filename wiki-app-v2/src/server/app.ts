@@ -13,6 +13,7 @@ import { fileRoutes } from "./routes/file.routes.js";
 import { searchRoutes } from "./routes/search.routes.js";
 import { commentRoutes } from "./routes/comment.routes.js";
 import { favoriteRoutes } from "./routes/favorite.routes.js";
+import { offlineRoutes } from "./routes/offline.routes.js";
 import { notificationRoutes } from "./routes/notification.routes.js";
 import { gitRoutes } from "./routes/git.routes.js";
 import { pluginRoutes } from "./routes/plugin.routes.js";
@@ -95,6 +96,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(searchRoutes);
   await app.register(commentRoutes);
   await app.register(favoriteRoutes);
+  await app.register(offlineRoutes);
   await app.register(notificationRoutes);
   await app.register(gitRoutes);
   await app.register(pluginRoutes);

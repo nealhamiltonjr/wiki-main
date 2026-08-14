@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Tree as ArboristTree, type NodeRendererProps } from "react-arborist";
-import { ChevronRight, Trash2 } from "lucide-react";
+import { ChevronRight, Pin, Trash2 } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { api, type SpaceSummary, type TreeNode } from "../../api/client.js";
@@ -121,6 +121,15 @@ export function Tree() {
           Trash
         </button>
       )}
+      <button
+        type="button"
+        onClick={() => navigate({ to: "/pinned" })}
+        className="mt-1 flex shrink-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-text-muted transition-colors hover:bg-muted hover:text-foreground"
+        data-testid="pinned-sidebar-link"
+      >
+        <Pin className="h-3.5 w-3.5" />
+        Pinned
+      </button>
     </div>
   );
 }

@@ -13,6 +13,7 @@ import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as PublicRouteImport } from './routes/_public'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedHealthRouteImport } from './routes/_authenticated/health'
+import { Route as AuthenticatedPinnedRouteImport } from './routes/_authenticated/pinned'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as PublicLoginRouteImport } from './routes/_public/login'
 import { Route as AuthenticatedLensesIndexRouteImport } from './routes/_authenticated/lenses/index'
@@ -47,6 +48,11 @@ const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
 const AuthenticatedHealthRoute = AuthenticatedHealthRouteImport.update({
   id: '/health',
   path: '/health',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedPinnedRoute = AuthenticatedPinnedRouteImport.update({
+  id: '/pinned',
+  path: '/pinned',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
@@ -152,6 +158,7 @@ const AuthenticatedWBranchIdRoute = AuthenticatedWBranchIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/health': typeof AuthenticatedHealthRoute
+  '/pinned': typeof AuthenticatedPinnedRoute
   '/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/login': typeof PublicLoginRoute
   '/lenses/$lensId': typeof AuthenticatedLensesLensIdRoute
@@ -173,6 +180,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof AuthenticatedIndexRoute
   '/health': typeof AuthenticatedHealthRoute
+  '/pinned': typeof AuthenticatedPinnedRoute
   '/login': typeof PublicLoginRoute
   '/lenses/$lensId': typeof AuthenticatedLensesLensIdRoute
   '/settings/appearance': typeof AuthenticatedSettingsAppearanceRoute
@@ -195,6 +203,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/_public': typeof PublicRouteWithChildren
   '/_authenticated/health': typeof AuthenticatedHealthRoute
+  '/_authenticated/pinned': typeof AuthenticatedPinnedRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/_public/login': typeof PublicLoginRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
@@ -219,6 +228,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/health'
+    | '/pinned'
     | '/settings'
     | '/login'
     | '/lenses/$lensId'
@@ -240,6 +250,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/health'
+    | '/pinned'
     | '/login'
     | '/lenses/$lensId'
     | '/settings/appearance'
@@ -261,6 +272,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/_public'
     | '/_authenticated/health'
+    | '/_authenticated/pinned'
     | '/_authenticated/settings'
     | '/_public/login'
     | '/_authenticated/'
@@ -314,6 +326,13 @@ declare module '@tanstack/react-router' {
       path: '/health'
       fullPath: '/health'
       preLoaderRoute: typeof AuthenticatedHealthRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/pinned': {
+      id: '/_authenticated/pinned'
+      path: '/pinned'
+      fullPath: '/pinned'
+      preLoaderRoute: typeof AuthenticatedPinnedRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/settings': {
@@ -474,6 +493,7 @@ const AuthenticatedSettingsRouteWithChildren =
 
 interface AuthenticatedRouteChildren {
   AuthenticatedHealthRoute: typeof AuthenticatedHealthRoute
+  AuthenticatedPinnedRoute: typeof AuthenticatedPinnedRoute
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRouteWithChildren
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedLensesLensIdRoute: typeof AuthenticatedLensesLensIdRoute
@@ -484,6 +504,7 @@ interface AuthenticatedRouteChildren {
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedHealthRoute: AuthenticatedHealthRoute,
+  AuthenticatedPinnedRoute: AuthenticatedPinnedRoute,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRouteWithChildren,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedLensesLensIdRoute: AuthenticatedLensesLensIdRoute,
