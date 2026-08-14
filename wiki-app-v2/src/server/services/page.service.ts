@@ -1,4 +1,4 @@
-import { eq, and, isNull, count } from "drizzle-orm";
+import { eq, and, isNull, ne, count } from "drizzle-orm";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -33,7 +33,19 @@ export async function createPage(opts: {
   initialContent?: unknown;
   pageType?: PageType;
   language?: string | null;
-}) {
+}): Promise<{ pageId: string; branchId: string }> {
+  // Slice-54: slugs must be unique within a space. Two pages with the same
+  // slug in the same space both export to <spaceSlug>/<slug>.md and would
+  // race each other in the git flush pipeline (one silently overwrites the
+  // other's history). Detect the collision and surface it as 409 from the
+  // caller; we don't write any rows in that path.
+  if (await slugTakenInSpace(opts.spaceId, opts.slug, null)) {
+    throw Object.assign(
+      new Error(`A page with slug "${opts.slug}" already exists in this space`),
+      { statusCode: 409 },
+    );
+  }
+
   const pageId = crypto.randomUUID();
   const branchId = crypto.randomUUID();
   const pageType = opts.pageType ?? "wiki";
@@ -66,6 +78,32 @@ export async function createPage(opts: {
   await enqueueJob("git_commit", { pageId, branchId, kind: "autosave" });
 
   return { pageId, branchId };
+}
+
+/**
+ * Returns true when `slug` is already used by another (non-trashed) page in
+ * `spaceId`. `ignorePageId` excludes a specific page from the check so a
+ * rename can keep its own slug without tripping over itself. Used by both
+ * create and rename so the rule stays in one place.
+ */
+async function slugTakenInSpace(spaceId: string, slug: string, ignorePageId: string | null): Promise<boolean> {
+  const { db } = getDb();
+  const rows = db
+    .select({ id: pages.id })
+    .from(branches)
+    .innerJoin(pages, eq(branches.pageId, pages.id))
+    .where(
+      and(
+        eq(branches.spaceId, spaceId),
+        eq(branches.isSystem, false),
+        eq(pages.slug, slug),
+        isNull(pages.deletedAt),
+        ignorePageId ? ne(pages.id, ignorePageId) : undefined,
+      ),
+    )
+    .limit(1)
+    .all();
+  return rows.length > 0;
 }
 
 /** The page (and its branch placement) behind a branch id, for the view/edit route. */
@@ -412,12 +450,28 @@ export async function renamePage(pageId: string, slug: string): Promise<boolean>
   // No-op rename: don't write a redirect to itself or churn the timestamp.
   if (oldSlug === slug) return true;
 
+  // Slice-54: a rename can't land on a slug already used by another page in
+  // any of this page's spaces (otherwise the two pages would share a git
+  // file path and the rename's autosave commit would silently overwrite the
+  // existing page's history). We check per-placement so a page placed in
+  // space A can still be renamed even if space B already has that slug —
+  // each space has its own independent slug namespace; only collisions
+  // within a single space matter.
+  const placements = db
+    .select({ spaceId: branches.spaceId })
+    .from(branches)
+    .where(eq(branches.pageId, pageId))
+    .all();
+  for (const p of placements) {
+    if (await slugTakenInSpace(p.spaceId, slug, pageId)) {
+      throw Object.assign(
+        new Error(`A page with slug "${slug}" already exists in this space`),
+        { statusCode: 409 },
+      );
+    }
+  }
+
   await db.transaction((tx) => {
-    const placements = tx
-      .select({ spaceId: branches.spaceId })
-      .from(branches)
-      .where(eq(branches.pageId, pageId))
-      .all();
     for (const p of placements) {
       tx.insert(pageRedirects)
         .values({ spaceId: p.spaceId, oldSlug, pageId })
