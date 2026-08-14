@@ -1,6 +1,7 @@
 import type { PluginInfo } from "@/shared/pluginTypes";
 import { createPluginAPI } from "./api.js";
 import { markPluginsLoaded } from "./registry.js";
+import { registerCoreCommands } from "./coreCommands.js";
 import { request } from "@/api/client";
 
 let _loaded = false;
@@ -10,10 +11,15 @@ let _loaded = false;
  * first editor mounts so the registry is populated. Idempotent — subsequent
  * calls are no-ops. A failing plugin is caught and logged; it never prevents
  * the rest of the app from booting.
+ *
+ * Core commands (§13.6 — first-class content types like Mermaid) are
+ * registered before the user-plugin loop so they're always present, even if
+ * every user plugin fails to fetch.
  */
 export async function loadPlugins(): Promise<void> {
   if (_loaded) return;
   _loaded = true;
+  registerCoreCommands();
 
   let plugins: PluginInfo[];
   try {

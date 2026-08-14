@@ -1270,3 +1270,100 @@ away from the current "find-by-tag" view.
   pagesets; not worth it until the dataset exceeds a few
   thousand pages.
 
+## Slice-31 — first-class Mermaid insert (§13.6, Mermaid portion)
+
+### Why this slice exists
+
+Brief §13.6 calls out two pieces of editor work that fold
+into step 5: dedicated **code pages** (whole page is a
+syntax-highlighted code/config file) and **first-class Mermaid**
+(a Tiptap node that renders diagrams from its text source, like
+how math rendering already works in the current app). The
+Mermaid node already existed since slice-15 and round-trips
+through markdown, but you could only reach it through the
+toolbar — there was no slash command and no obvious onboarding
+content, so the feature felt like an afterthought. This slice
+finishes the Mermaid half of §13.6.
+
+The **code-pages** half is its own slice (deferred). Splitting
+keeps each landed slice's surface small and the architecture
+choices (page type vs. editor mode vs. directory entry)
+isolated for review.
+
+### What changed
+
+- **`src/features/editor/extensions/mermaidInsert.ts` (new).**
+  Single source of truth for how a Mermaid block is inserted.
+  Holds the starter template (`MERMAID_STARTER` — a 5-line
+  `graph TD` flowchart with one decision so the user sees
+  something render and has obvious edit anchors) plus
+  `insertMermaidDiagram(editor)` which fires
+  `chain().focus().insertContent([mermaidDiagram + paragraph])`.
+  The trailing paragraph is load-bearing: without it Tiptap
+  leaves the caret inside the just-inserted mermaid atom and
+  the user has to press ArrowDown to keep typing.
+- **`src/features/editor/extensions/mermaidSlashCommand.ts`
+  (new).** `registerMermaidSlashCommand()` — registers a slash
+  command named `mermaid` (label "Mermaid diagram", icon `◇`,
+  keywords `["diagram","chart","flow","graph","sequence"]`)
+  that calls the insert helper. Lives next to the mermaid
+  extension so anyone touching the node sees the slash hookup.
+- **`src/plugins/coreCommands.ts` (new).** Centralized
+  boot-time registration of every first-party slash command.
+  Today: just `registerMermaidSlashCommand()`. Future first-
+  class content types (divider, callout, code-page shortcut)
+  add their own `registerXxxSlashCommand()` here. Keeps the
+  invariant "core commands register before user plugins" in
+  one place.
+- **`src/plugins/loader.ts`** — calls `registerCoreCommands()`
+  inside `loadPlugins()` immediately after the `_loaded` guard,
+  so the Mermaid command is in the registry even before the
+  user-plugin list fetch resolves (and even when the plugin
+  fetch fails entirely). The `_authenticated` loading gate
+  already waits for `usePluginsLoaded()`; core commands now
+  ride the same gate.
+- **`src/features/editor/Editor.tsx`** — added a `Workflow`
+  lucide button in the toolbar between Code block and the
+  plugin-item separator. Clicking it calls
+  `insertMermaidDiagram(editor)`, so toolbar and slash-menu
+  share one insertion path.
+
+### Tests added
+
+- **`src/features/editor/__tests__/mermaidInsert.test.ts`
+  (3 tests).** Recording-mock editor verifies (a) a
+  `mermaidDiagram` node with `MERMAID_STARTER` text is
+  inserted followed by an empty paragraph, (b) the chain
+  order is `focus → insertContent → run`, (c) the starter
+  template parses as a Mermaid graph directive.
+- **`src/plugins/__tests__/coreCommands.test.ts` (3 tests).**
+  `registerCoreCommands()` lands a slash command named
+  `mermaid` with the right metadata; the registered `run`
+  inserts a `mermaidDiagram`; the slash-command `run` and the
+  toolbar button call the same insert helper (regression guard
+  so UX changes only need to land in one place).
+
+### Test counts
+
+- Full suite after slice-31: **51 files / 405 tests**, typecheck
+  clean, **e2e 19/19 green**, `npm run build` clean.
+- (Slice-30 baseline was 49 files / 399 tests.)
+
+### Why code pages stayed out of this slice
+
+Code pages are a different kind of feature from a Mermaid
+content block: they need a page-level type (separate editor
+mode, separate markdown export path, possibly a separate
+directory entry), new permission model (could they be rendered
+read-only into a parent page?), and a UX story (do they appear
+in `Ctrl-K` search? in the tree?). Bundling any of those
+decisions into the Mermaid polish slice would have made review
+much harder. Landed here as its own future slice.
+
+### Follow-ups left for later (within §13.6)
+
+- Dedicated code page type — see slice-32 prep notes above.
+- If we add more slash-menu items, sort them by recency or
+  category (Right now the slash menu shows them in registration
+  order.)
+

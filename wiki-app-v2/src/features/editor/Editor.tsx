@@ -6,13 +6,14 @@ import { Collaboration } from "@tiptap/extension-collaboration";
 import { CollaborationCaret } from "@tiptap/extension-collaboration-caret";
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough, Heading1, Heading2,
-  List, ListOrdered, Quote, Code, Undo2, Redo2,
+  List, ListOrdered, Quote, Code, Undo2, Redo2, Workflow,
 } from "lucide-react";
 
 import { baseExtensions, stripWordHTML } from "./editorExtensions.js";
 import { useCollab, type CollabUser } from "./useCollab.js";
 import { useTiptapExtensions, useToolbarItems } from "@/plugins/registry";
 import { SlashMenuExtension, SlashMenu } from "./SlashMenu.js";
+import { insertMermaidDiagram } from "./extensions/mermaidInsert.js";
 import { KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES, filterUnknownNodes } from "@/shared/blockIds";
 import type { JSONBlock } from "@/shared/blockIds";
 import { cn } from "@/lib/utils";
@@ -228,6 +229,9 @@ function EditorToolbar({ editor, pluginItems }: { editor: Editor; pluginItems: R
       </ToolbarButton>
       <ToolbarButton title="Code block" active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()}>
         <Code className="h-4 w-4" />
+      </ToolbarButton>
+      <ToolbarButton title="Mermaid diagram" onClick={() => insertMermaidDiagram(editor)}>
+        <Workflow className="h-4 w-4" />
       </ToolbarButton>
       {pluginItems.length > 0 && <span className="mx-1 h-4 w-px bg-border" aria-hidden />}
       {pluginItems.map(item => (
