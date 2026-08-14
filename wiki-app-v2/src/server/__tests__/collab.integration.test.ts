@@ -175,6 +175,41 @@ describe("collab auth + eligibility (slice-11 gate)", () => {
     expect(principal).toBeNull();
   });
 
+  it("rejects an encrypted page so collab can't leak plaintext into the envelope slot", async () => {
+    // §13.7: collab broadcast + storeDocument write-back would overwrite the
+    // ciphertext envelope with Tiptap JSON. The check fires at the gate so the
+    // UI never offers "Live edit…" on encrypted pages either.
+    const { cookie, userId } = await signup("enc-collab@example.com");
+    const spaceId = await createSpace(cookie, "EncCollab Space");
+    const { branchId } = await createPage(cookie, spaceId, "enc-page");
+
+    const envelope = {
+      v: 1,
+      kdf: { alg: "PBKDF2-SHA-256", salt: "AAECAwQFBgcICQoLDA0ODw==", iterations: 100000 },
+      dek: { iv: "AAAAAAAAAAAAAAAA", data: "d2VsbC1ub3QtdHJ1bHk=" },
+      content: { iv: "AAAAAAAAAAAAAAAA", data: "cGxlYXN0eHQ=" },
+    };
+    const getPage = await app.inject({ method: "GET", url: `/api/branches/${branchId}/page`, headers: { cookie } });
+    const { updatedAt } = getPage.json() as { updatedAt: string };
+    const protect = await app.inject({
+      method: "PUT",
+      url: `/api/branches/${branchId}/page/content`,
+      headers: { cookie },
+      payload: { content: envelope, expectedUpdatedAt: updatedAt, encrypted: true },
+    });
+    expect(protect.statusCode).toBe(200);
+
+    const headers = new Headers({ cookie });
+    const principal = await resolveCollabPrincipal(undefined, headers);
+    expect(principal?.user.id).toBe(userId);
+    const result = await checkCollabEligibility(principal!.user, branchId);
+    expect(result).toEqual({ ok: false, error: "Collaboration is not available on encrypted pages" });
+
+    // The same gate must clear and re-allow when the page is unprotected.
+    const [page] = await getDb().db.select({ isEncrypted: pages.isEncrypted }).from(pages).where(eq(pages.id, (await getPage.json() as { id: string }).id));
+    expect(page?.isEncrypted).toBe(true);
+  });
+
   it("accepts an account-scoped passwordless token and rejects a password-protected one", async () => {
     // An account-scoped, passwordless API token IS a valid collab credential;
     // a password-protected one must not be (there is no way to present the

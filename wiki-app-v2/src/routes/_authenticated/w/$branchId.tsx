@@ -276,6 +276,7 @@ function PageView() {
                 onCollabSessionEnd={handleCollabSessionEnd}
                 onConflict={handleReload}
                 savePage={isEncrypted ? encryptedSavePage : undefined}
+                isEncrypted={isEncrypted}
                 onContentChange={isEncrypted ? handleEncryptedContentChange : (nextContent, nextUpdatedAt) =>
                   setLivePage({ content: nextContent, updatedAt: nextUpdatedAt })
                 }
@@ -504,7 +505,20 @@ function PageHeader({
 // Editable canvas — Tiptap editor with OCC autosave.
 // ---------------------------------------------------------------------------
 
-function EditableCanvas({ branchId, slug, content, updatedAt, collabOn, collabUser, onToggleCollab, onCollabSessionEnd, onConflict, onContentChange, savePage }: {
+function EditableCanvas({
+  branchId,
+  slug,
+  content,
+  updatedAt,
+  collabOn,
+  collabUser,
+  onToggleCollab,
+  onCollabSessionEnd,
+  onConflict,
+  onContentChange,
+  savePage,
+  isEncrypted,
+}: {
   branchId: string;
   slug: string;
   content: unknown;
@@ -516,6 +530,11 @@ function EditableCanvas({ branchId, slug, content, updatedAt, collabOn, collabUs
   onConflict: () => void;
   onContentChange: (content: unknown, updatedAt: string) => void;
   savePage?: Parameters<typeof useAutosave>[0]["savePage"];
+  // §13.7: encrypted pages have no "Live edit…" — the server would otherwise
+  // clobber the ciphertext envelope with plaintext Tiptap JSON. The gate is
+  // also enforced server-side at checkCollabEligibility; this prop just keeps
+  // the affordance off the toolbar.
+  isEncrypted?: boolean;
 }) {
   const editorRef = useRef<PageEditorHandle>(null);
 
@@ -567,14 +586,16 @@ function EditableCanvas({ branchId, slug, content, updatedAt, collabOn, collabUs
       <div className="flex items-center justify-between border-t border-border px-4 py-1 text-xs text-text-muted">
         <span>{saveStateLabel(saveState)}</span>
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onToggleCollab}
-            className="underline text-link"
-            title="Collaborate live on this page with other editors"
-          >
-            Live edit…
-          </button>
+          {!isEncrypted && (
+            <button
+              type="button"
+              onClick={onToggleCollab}
+              className="underline text-link"
+              title="Collaborate live on this page with other editors"
+            >
+              Live edit…
+            </button>
+          )}
           <span>{slug}</span>
           {saveState === "dirty" && (
             <button type="button" onClick={saveNow} className="underline text-link">

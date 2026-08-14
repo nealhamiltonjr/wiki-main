@@ -121,6 +121,19 @@ export async function checkCollabEligibility(
     return { ok: false, error: "Collaboration is only available for pages with a single placement" };
   }
 
+  // §13.7: live collaboration broadcasts every edit to the server (via the
+  // Yjs doc) and to every other participant. The encrypted-page model is
+  // that the server never sees plaintext — only the wrapped DEK + ciphertext
+  // body. Let a collab session open on an encrypted page and the server's
+  // storeDocument write-back would clobber the envelope with the in-memory
+  // Tiptap doc, leaking plaintext to the DB, the search index, and the git
+  // flush pipeline. Block at the gate so the UI never offers "Live edit…"
+  // for these pages either.
+  const [page] = await db.select({ isEncrypted: pages.isEncrypted }).from(pages).where(eq(pages.id, resolved.pageId));
+  if (page?.isEncrypted) {
+    return { ok: false, error: "Collaboration is not available on encrypted pages" };
+  }
+
   return { ok: true, pageId: resolved.pageId, branchId: resolved.branchId };
 }
 
