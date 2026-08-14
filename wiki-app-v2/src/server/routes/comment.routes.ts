@@ -69,6 +69,27 @@ async function readThreadsPerPageCap(): Promise<number> {
   return Math.floor(v);
 }
 
+/**
+ * Slice-51: admin-tunable per-thread reply cap. Default of 1000 mirrors
+ * Discourse's per-topic reply guard — a runaway reply loop on a single
+ * thread is more common than a thousand-thread page, and it tanks the
+ * panel-render cost (every reply is a row in `comments`; the thread
+ * list endpoint ships them all back). Like the per-page cap, the count
+ * + insert run in one transaction so two concurrent replies on the same
+ * thread can't both observe "below cap" and both insert.
+ */
+const REPLIES_PER_THREAD_MIN = 1;
+const REPLIES_PER_THREAD_MAX = 50_000;
+const REPLIES_PER_THREAD_DEFAULT = 1000;
+
+async function readRepliesPerThreadCap(): Promise<number> {
+  const v = await getSystemSetting<unknown>("limits.commentRepliesPerThreadMax", REPLIES_PER_THREAD_DEFAULT);
+  if (typeof v !== "number" || !Number.isFinite(v) || v < REPLIES_PER_THREAD_MIN || v > REPLIES_PER_THREAD_MAX) {
+    return REPLIES_PER_THREAD_DEFAULT;
+  }
+  return Math.floor(v);
+}
+
 const createThreadBody = z.object({
   rangeFrom: z.number().int().min(0),
   rangeTo: z.number().int().min(0),
@@ -274,16 +295,32 @@ export async function commentRoutes(app: FastifyInstance) {
         .where(and(eq(commentThreads.id, threadId), eq(commentThreads.pageId, pageId)));
       if (!thread) return reply.code(404).send({ error: "Thread not found" });
 
+      // Slice-51: count + insert in one tx so two concurrent replies to the
+      // SAME thread can't both observe "below cap" and both insert. Single
+      // pages still gate on thread count; this caps the depth dimension.
+      const cap = await readRepliesPerThreadCap();
       const commentId = crypto.randomUUID();
       const now = new Date();
-      db.insert(comments).values({
-        id: commentId,
-        threadId,
-        body: body.body,
-        userId: user.id,
-        createdAt: now,
-        updatedAt: now,
-      }).run();
+      db.transaction((tx) => {
+        const [row] = tx
+          .select({ n: count() })
+          .from(comments)
+          .where(eq(comments.threadId, threadId))
+          .all();
+        const current = row?.n ?? 0;
+        if (current >= cap) {
+          throw Object.assign(new Error(`This comment thread already has the maximum number of replies (${cap})`), { statusCode: 409 });
+        }
+
+        tx.insert(comments).values({
+          id: commentId,
+          threadId,
+          body: body.body,
+          userId: user.id,
+          createdAt: now,
+          updatedAt: now,
+        }).run();
+      });
 
       return reply.code(201).send({
         id: commentId,

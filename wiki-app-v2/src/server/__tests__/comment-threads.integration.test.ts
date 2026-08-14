@@ -199,6 +199,47 @@ describe("POST /api/branches/:branchId/comments (slice-48)", () => {
 
     await setThreadCap(cookie, 1000);
   });
+
+  it("rejects a reply past the per-thread reply cap with 409 (slice-51)", async () => {
+    // Lower the reply cap to 1 (counts every comment on the thread,
+    // including the opening one). With cap=1 the thread is full
+    // immediately after creation, so the first reply must 409 with a
+    // readable message. Restoring to 1000 at the end keeps later
+    // tests on the documented default.
+    const setCap = await app.inject({
+      method: "PUT",
+      url: "/api/settings/limits.commentRepliesPerThreadMax",
+      headers: { cookie },
+      payload: { value: 1 },
+    });
+    expect(setCap.statusCode).toBe(200);
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/branches/${branchId}/comments`,
+      headers: { cookie },
+      payload: { rangeFrom: 10, rangeTo: 11, body: "thread-opener" },
+    });
+    expect(created.statusCode).toBe(201);
+    const { threadId } = created.json() as { threadId: string };
+
+    const firstReply = await app.inject({
+      method: "POST",
+      url: `/api/branches/${branchId}/comments/${threadId}`,
+      headers: { cookie },
+      payload: { body: "first reply" },
+    });
+    expect(firstReply.statusCode).toBe(409);
+    expect(firstReply.payload).toContain("maximum number of replies (1)");
+
+    const restore = await app.inject({
+      method: "PUT",
+      url: "/api/settings/limits.commentRepliesPerThreadMax",
+      headers: { cookie },
+      payload: { value: 1000 },
+    });
+    expect(restore.statusCode).toBe(200);
+  });
 });
 
 describe("DELETE /api/comments/:commentId (slice-48)", () => {

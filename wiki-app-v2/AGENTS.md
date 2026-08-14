@@ -2370,18 +2370,22 @@ write paths that the audit flagged as having stale-read races.
   underneath the newly-arrived reply. The three ops now live inside
   one `db.transaction` so the reply either lands before or after the
   cleanup, not between.
+- **Slice-51: per-thread reply cap** (`limits.commentRepliesPerThreadMax`,
+  default 1000, Discourse tier). A runaway reply loop on a single
+  thread is more common than 1000 threads on a page (slackbot-style
+  announcements, noisy threads); the panel-render cost is per-comment,
+  not per-thread, so this was the missing cap. Counts every comment
+  on the thread, including the opening message. The `count + insert`
+  are wrapped in a single `db.transaction` so two concurrent replies
+  on the same thread can't both observe "below cap" and both insert.
 
 ### Files
 
 - `src/server/routes/comment.routes.ts` — read cap + two tx wraps.
 - `src/server/__tests__/comment-threads.integration.test.ts` — new;
-  4 tests (atomic create, cap rejection on (cap+1)th, garbage-cap
-  fallback to default, last-comment deletion cascades to thread).
-
-### Non-goals
-
-- No upper bound on replies-per-thread (Discord tier; unbounded and
-  human-rare). The cap on per-page thread count covers the worst case.
+  5 tests (atomic create, cap rejection on (cap+1)th, garbage-cap
+  fallback to default, last-comment deletion cascades to thread,
+  per-thread reply cap rejection).
 - No soft delete. Hard delete keeps the schema simpler; the
   `onDelete: cascade` on `comments.threadId` is the only delete path.
 - No rate limiting. That's a separate slice if needed.
@@ -2391,4 +2395,23 @@ write paths that the audit flagged as having stale-read races.
 - Full suite after slice-48: **73 files / 586 tests** (+1 file,
   +4 tests). Typecheck clean, build clean (existing large-chunk
   warning only, unrelated to this change).
+- Slice-49 (§13.7 collab+encryption gate): 73 files / 587 tests. The
+  collab write-back path can no longer overwrite a ciphertext envelope
+  with the in-memory Tiptap doc, the "Live edit…" toolbar button is
+  hidden for encrypted pages, and a server-side test confirms an
+  editor session is gated with "Collaboration is not available on
+  encrypted pages".
+- Slice-50 (plugin install race hardening): 73 files / 588 tests.
+  The DB row is reserved before file extraction (UNIQUE-constraint
+  race gate for two concurrent uploads of the same plugin id);
+  the on-disk destDir is stashed before rename so a cross-device
+  rename + cp failure can't silently delete the prior install; the
+  row is rolled back if extraction fails partway through. AGENTS
+  also documents that the install has no version-upgrade path by
+  design (uninstall-then-reinstall is the documented sequence).
+- Slice-51 (comment per-thread reply cap): 73 files / 589 tests.
+  Admin-tunable `limits.commentRepliesPerThreadMax` (default 1000,
+  Discourse tier) applies on every reply; count + insert are
+  wrapped in a single transaction so two concurrent replies on the
+  same thread can't both observe "below cap" and both insert.
 
