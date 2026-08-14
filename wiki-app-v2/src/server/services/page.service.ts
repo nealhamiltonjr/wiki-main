@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { getDb } from "../db/index.js";
 import { pages, branches, pageRedirects } from "../db/schema.js";
 import { ensureBlockIds, validateContent, type JSONBlock } from "../../shared/blockIds.js";
+import { validateEnvelope } from "../../shared/cryptoEnvelope.js";
 import type { PageType } from "../../shared/types.js";
 import { getEnabledPluginNodeTypes, getEnabledPluginMarkTypes } from "./plugin.service.js";
 import { refreshBacklinks } from "./backlink.service.js";
@@ -74,6 +75,13 @@ export async function getPageByBranchId(branchId: string) {
     .where(eq(branches.id, branchId));
   if (!row) return null;
 
+  // §13.7: encrypted pages return their CryptoEnvelope as `content` (the client
+  // decrypts after a per-session unlock). No server-side content validation —
+  // the stored value is ciphertext, not a doc tree or code string.
+  if (row.page.isEncrypted) {
+    return { ...row, page: { ...row.page, content: row.page.content as unknown } };
+  }
+
   // §13.6: code pages store a plain string, not a Tiptap doc. Skip the JSON
   // integrity validation for them — the "content is a doc tree" invariant only
   // applies to wiki pages.
@@ -115,6 +123,8 @@ export async function savePageOCC(opts: {
   titleProvided?: boolean;
   content: unknown;
   expectedUpdatedAt: Date;
+  /** §13.7: when true, `content` is a CryptoEnvelope to persist verbatim. */
+  encrypted?: boolean;
 }): Promise<{ ok: true } | { ok: false; conflict: true } | { ok: false; validationErrors: string[] }> {
   const { db } = getDb();
 
@@ -125,6 +135,10 @@ export async function savePageOCC(opts: {
     .from(pages)
     .where(eq(pages.id, opts.pageId));
   const pageType = pageRow?.pageType ?? "wiki";
+
+  if (opts.encrypted) {
+    return saveEncryptedPageOCC({ ...opts, content: opts.content });
+  }
 
   if (pageType === "code") {
     if (typeof opts.content !== "string") {
@@ -165,7 +179,10 @@ export async function savePageOCC(opts: {
 
   const result = await db
     .update(pages)
-    .set({ content: content as never, updatedAt: new Date() })
+    // A normal save on a previously encrypted page is the "unprotect" path: the
+    // client already decrypted, and the plaintext doc it sends replaces the
+    // envelope. isEncrypted is cleared here so read validation resumes.
+    .set({ content: content as never, isEncrypted: false, updatedAt: new Date() })
     .where(and(eq(pages.id, opts.pageId), eq(pages.updatedAt, opts.expectedUpdatedAt)));
 
   const changes = (result as unknown as { changes: number }).changes;
@@ -216,7 +233,7 @@ async function saveCodePageOCC(opts: {
 
   const result = await db
     .update(pages)
-    .set({ content: opts.content as never, updatedAt: new Date() })
+    .set({ content: opts.content as never, isEncrypted: false, updatedAt: new Date() })
     .where(and(eq(pages.id, opts.pageId), eq(pages.updatedAt, opts.expectedUpdatedAt)));
 
   const changes = (result as unknown as { changes: number }).changes;
@@ -229,6 +246,45 @@ async function saveCodePageOCC(opts: {
   }
 
   await enqueueJob("git_commit", { pageId: opts.pageId, branchId: opts.branchId, kind: "autosave" });
+  return { ok: true };
+}
+
+/**
+ * Encrypted-page save path (§13.7). The body is a CryptoEnvelope that the
+ * server persists verbatim — it cannot decrypt, validate, index, or export the
+ * plaintext. Search, backlinks, mentions, and git are all deliberately skipped;
+ * the only server-side work is shape validation, OCC, and clearing any stale
+ * search index left from before the page was protected.
+ */
+async function saveEncryptedPageOCC(opts: {
+  pageId: string;
+  title?: string;
+  content: unknown;
+  expectedUpdatedAt: Date;
+}): Promise<{ ok: true } | { ok: false; conflict: true } | { ok: false; validationErrors: string[] }> {
+  const { db } = getDb();
+
+  try {
+    validateEnvelope(opts.content);
+  } catch (err) {
+    return { ok: false, validationErrors: [err instanceof Error ? err.message : "Invalid encrypted envelope"] };
+  }
+
+  // Titles remain plaintext so the tree/list can still render a name; only the
+  // page body is encrypted at rest (§13.7 v1 limitation, documented in AGENTS).
+  if (opts.title !== undefined) {
+    await db.update(pages).set({ title: opts.title }).where(eq(pages.id, opts.pageId));
+  }
+
+  const result = await db
+    .update(pages)
+    .set({ content: opts.content as never, isEncrypted: true, updatedAt: new Date() })
+    .where(and(eq(pages.id, opts.pageId), eq(pages.updatedAt, opts.expectedUpdatedAt)));
+
+  const changes = (result as unknown as { changes: number }).changes;
+  if (changes === 0) return { ok: false, conflict: true };
+
+  unindexPageForSearch(opts.pageId);
   return { ok: true };
 }
 

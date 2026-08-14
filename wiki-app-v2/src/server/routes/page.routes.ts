@@ -106,6 +106,9 @@ export async function pageRoutes(app: FastifyInstance) {
         // editor or the code editor. `language` is null for wiki pages.
         pageType: row.page.pageType,
         language: row.page.language ?? null,
+        // §13.7: when true, `content` is a CryptoEnvelope; the client must prompt
+        // for a passphrase and decrypt before rendering.
+        isEncrypted: row.page.isEncrypted,
         attributes: attrs,
         placements,
         backlinks,
@@ -146,6 +149,8 @@ export async function pageRoutes(app: FastifyInstance) {
     title: z.string().optional(),
     titleProvided: z.boolean().optional(),
     expectedUpdatedAt: z.coerce.date(),
+    // §13.7: true means `content` is a CryptoEnvelope to persist verbatim.
+    encrypted: z.boolean().optional(),
   });
 
   app.put(
@@ -164,6 +169,7 @@ export async function pageRoutes(app: FastifyInstance) {
         titleProvided: body.titleProvided,
         content: body.content,
         expectedUpdatedAt: body.expectedUpdatedAt,
+        encrypted: body.encrypted,
       });
 
       if (!result.ok) {
@@ -185,8 +191,12 @@ export async function pageRoutes(app: FastifyInstance) {
         .from(pages)
         .where(eq(pages.id, row.page.id));
       // Mention notifications are derived data — fire-and-forget so a slow
-      // notification fan-out never delays the save response.
-      processMentions(row.page.id, branchId, row.page.slug, (request as any).userContext?.id ?? "", body.content).catch(() => {});
+      // notification fan-out never delays the save response. Skipped for
+      // encrypted saves: the body is ciphertext, so there are no mentions to
+      // extract (and we never have the plaintext server-side).
+      if (!body.encrypted) {
+        processMentions(row.page.id, branchId, row.page.slug, (request as any).userContext?.id ?? "", body.content).catch(() => {});
+      }
       const saveResponse = { ok: true, updatedAt: fresh?.updatedAt, title: fresh?.title };
 
       // Brief §13.5: dispatch pageSave hook AFTER the reply is sent
@@ -430,6 +440,9 @@ export async function pageRoutes(app: FastifyInstance) {
       if (!row || row.page.id !== pageId || row.page.deletedAt) {
         return reply.code(404).send({ error: "Page not found" });
       }
+      if (row.page.isEncrypted) {
+        return reply.code(400).send({ error: "Encrypted pages have no git history and cannot be snapshotted" });
+      }
       const user = (request as any).userContext as UserContext;
       await enqueueJob("git_commit", {
         pageId,
@@ -456,6 +469,12 @@ export async function pageRoutes(app: FastifyInstance) {
       const row = await getPageByBranchId(branchId);
       if (!row || row.page.id !== pageId || row.page.deletedAt) {
         return reply.code(404).send({ error: "Page not found" });
+      }
+
+      // §13.7: encrypted pages have no git history (the plaintext never reaches
+      // the server), so there is no committed version to restore.
+      if (row.page.isEncrypted) {
+        return reply.code(400).send({ error: "Encrypted pages have no git history and cannot be restored" });
       }
 
       let fileContent: string | null;

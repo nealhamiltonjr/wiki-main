@@ -97,6 +97,9 @@ export const pages = sqliteTable("pages", {
    *  Null for wiki pages. Drives both the read-mode highlighter and the
    *  file extension used for the git export. */
   language: text("language"),
+  // §13.7: when true, `content` is a CryptoEnvelope (ciphertext + wrapped DEK),
+  // NOT a Tiptap doc or a raw code string. Decryption is client-side only.
+  isEncrypted: integer("is_encrypted", { mode: "boolean" }).notNull().default(false),
   ownerId: text("owner_id").notNull().references(() => users.id),
   deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
   ...timestamps,

@@ -5,9 +5,10 @@ import {
   AutosaveController,
   type PendingSave,
   type SaveState,
+  type SavePageFn,
 } from "./autosaveController.js";
 
-export type { SaveState };
+export type { SaveState, SavePageFn };
 
 /**
  * OCC-aware autosave with a retry queue (§11.5). Thin wrapper over
@@ -21,6 +22,7 @@ export function useAutosave({
   getTitle,
   onSaved,
   onConflict,
+  savePage,
 }: {
   branchId: string;
   initialUpdatedAt: Date;
@@ -28,6 +30,10 @@ export function useAutosave({
   getTitle: () => string | undefined;
   onSaved: (updatedAt: Date) => void;
   onConflict: () => void;
+  /** Override for callers that must transform the payload before it hits the
+   *  API (e.g. §13.7 encrypted pages re-seal the body client-side). Defaults to
+   *  the plain `api.savePageContent`. */
+  savePage?: SavePageFn;
 }) {
   const [state, setState] = useState<SaveState>("idle");
 
@@ -36,14 +42,16 @@ export function useAutosave({
   // never captures a stale closure across renders.
   const onSavedRef = useRef(onSaved);
   const onConflictRef = useRef(onConflict);
+  const savePageRef = useRef(savePage ?? ((id: string, pending: PendingSave) => api.savePageContent(id, pending)));
   onSavedRef.current = onSaved;
   onConflictRef.current = onConflict;
+  savePageRef.current = savePage ?? savePageRef.current;
 
   const controllerRef = useRef<AutosaveController | null>(null);
   if (!controllerRef.current) {
     controllerRef.current = new AutosaveController(
       branchId,
-      (id, pending) => api.savePageContent(id, pending),
+      (id, pending) => savePageRef.current(id, pending),
       {
         onSaved: (next) => {
           lastUpdatedAtRef.current = next;
@@ -86,7 +94,7 @@ export function useAutosave({
       const pending = controller.queued;
       controller.dispose();
       if (pending) {
-        void api.savePageContent(branchId, pending).catch(() => {});
+        void savePageRef.current(branchId, pending).catch(() => {});
       }
     };
   }, [branchId, controller]);

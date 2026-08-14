@@ -1470,3 +1470,84 @@ editor reads `editorRef.current` at event time.
 - Slash-menu ordering (recency/category) is a minor polish item, not
   core to §13.6 — left for a future UX pass.
 
+
+## Slice-33 — per-page encryption (§13.7)
+
+### Why this slice exists
+
+§13.7 requires pages that are encrypted at rest and decrypted only
+client-side after a per-session unlock, so a compromised server DB or
+backup never exposes the body (e.g. financial notes).
+
+### Crypto design (DEK + KEK envelope)
+
+- `src/shared/cryptoEnvelope.ts` (new) implements a WebCrypto envelope:
+  - **DEK** = random 256-bit AES-GCM key that encrypts the page body.
+  - **KEK** = PBKDF2-SHA-256 (100k iterations) derived from the unlock
+    passphrase; it only wraps the DEK, so re-saving edited content never
+    re-derives the passphrase.
+  - Stored shape: `{ v, kdf{salt,iterations}, dek{iv,data}, content{iv,data} }`.
+- The server **never** holds the passphrase, KEK, or DEK. It only
+  shape-validates the envelope (`validateEnvelope`) before persisting.
+- Unlock returns `{ plaintext, dek }`; the client keeps the live DEK in
+  memory for the session and re-seals edits with `sealContent`.
+
+### Server changes
+
+- **`drizzle/0008` + `schema.ts`** — `pages.is_encrypted` boolean
+  (default false). When true, `pages.content` is a CryptoEnvelope, not a
+  Tiptap doc or code string.
+- **`page.service.ts`** — `getPageByBranchId` returns encrypted pages'
+  `content` verbatim (skips doc/code validation). `savePageOCC` gains an
+  `encrypted` flag: true routes to `saveEncryptedPageOCC` (validate
+  envelope → OCC write → `isEncrypted=true` → `unindexPageForSearch`),
+  while a normal save on an encrypted page clears the flag and stores the
+  plaintext again (the "unprotect" path). No search/backlinks/mentions/git
+  for encrypted bodies — the server never has plaintext to derive from.
+- **`page.routes.ts`** — GET returns `isEncrypted`; PUT body accepts
+  `encrypted`; mentions skipped for encrypted saves; snapshot/restore
+  return 400 for encrypted pages.
+- **`git.service.ts`** — defensive guards: `commitPageChange` and
+  `commitManualSnapshot` throw for encrypted pages (they're never enqueued
+  by the encrypted save path, so this only fires if a bad job sneaks in).
+- **Search exclusion** is automatic: encrypted saves never index, and
+  protect calls `unindexPageForSearch` to clear any pre-protection row.
+
+### Client changes
+
+- **`api/client.ts`** — `PageData.isEncrypted`; `savePageContent` body
+  accepts `encrypted`.
+- **`useAutosave.ts`** — optional `savePage` override (and the unmount
+  flush now uses it) so encrypted pages can re-seal before hitting the API
+  instead of leaking plaintext through the default save.
+- **`$branchId.tsx`** — encrypted pages render `EncryptedPageLock` until
+  unlocked; after unlock the normal wiki/code editors run with a custom
+  `savePage` that re-seals and sends `encrypted:true`. Protect/unprotect
+  buttons live in the header (view mode only, so dirty editor state can't
+  be encrypted accidentally); history is hidden for encrypted pages.
+- **`src/features/encryption/` (new)** — `EncryptedPageLock` (passphrase
+  gate) and `ProtectPageDialog` (collect new passphrase).
+
+### v1 limitations (documented on purpose)
+
+- Only the page **body** is encrypted; `pages.title` stays plaintext so the
+  tree/list can still render names. Do not put secrets in titles.
+- Encrypted pages have **no git history** (snapshot/restore blocked). The
+  git repo never receives ciphertext.
+- The unlock is per browser-session and per page (not a global vault).
+
+### Tests added
+
+- **`src/shared/__tests__/cryptoEnvelope.test.ts` (5)** — create→unlock
+  round-trip, tamper detection, wrong passphrase, re-seal stability,
+  server shape validation.
+- **`src/server/services/__tests__/page-service-encryption.test.ts` (3)** —
+  encrypted save persists envelope + flags; non-envelope → 422 shape;
+  plaintext save clears the flag.
+
+### Test counts
+
+- Full suite after slice-33: **56 files / 427 tests**, typecheck clean,
+  `npm run build` clean.
+- (Slice-32 baseline was 54 files / 419 tests.)
+

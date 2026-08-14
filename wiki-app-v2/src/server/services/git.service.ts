@@ -42,6 +42,12 @@ export async function commitPageChange(pageId: string, branchId: string, oldSlug
   const [page] = await db.select().from(pages).where(eq(pages.id, pageId));
   if (!page) throw new Error(`commitPageChange: page ${pageId} not found`);
 
+  // §13.7: encrypted pages are never exported to git. The plaintext never
+  // reaches the server, so any commit would have to write the ciphertext
+  // envelope (unreadable diffs) or fail on the envelope-as-doc conversion.
+  // Defensive: the encrypted save path never enqueues a git_commit job.
+  if (page.isEncrypted) throw new Error(`commitPageChange: page ${pageId} is encrypted`);
+
   const [branch] = await db.select().from(branches).where(eq(branches.id, branchId));
   if (!branch) throw new Error(`commitPageChange: branch ${branchId} not found`);
 
@@ -103,6 +109,10 @@ export async function commitManualSnapshot(pageId: string, message: string, user
   const { db } = getDb();
   const [page] = await db.select().from(pages).where(eq(pages.id, pageId));
   if (!page) throw new Error(`commitManualSnapshot: page ${pageId} not found`);
+
+  // §13.7: snapshotting would write either the ciphertext envelope or a broken
+  // markdown conversion; encrypted pages intentionally have no git history.
+  if (page.isEncrypted) throw new Error(`commitManualSnapshot: page ${pageId} is encrypted`);
 
   const isCode = page.pageType === "code";
   const ext = isCode ? codeLanguageExtension(page.language) : "md";

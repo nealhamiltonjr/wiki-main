@@ -67,6 +67,8 @@ export interface PageData {
   pageType?: "wiki" | "code";
   /** Syntax language for code pages; null for wiki pages. */
   language?: string | null;
+  /** §13.7: when true, `content` is a CryptoEnvelope to decrypt client-side. */
+  isEncrypted?: boolean;
   attributes: PageAttribute[];
   placements: PagePlacement[];
   backlinks: BacklinkEntry[];
@@ -239,6 +241,8 @@ export const api = {
     title?: string;
     titleProvided?: boolean;
     expectedUpdatedAt: Date;
+    /** §13.7: true when `content` is a CryptoEnvelope. */
+    encrypted?: boolean;
   }) => request<{ ok: true; updatedAt?: string; title?: string }>(
     `/api/branches/${branchId}/page/content`,
     { method: "PUT", body: JSON.stringify(body) }

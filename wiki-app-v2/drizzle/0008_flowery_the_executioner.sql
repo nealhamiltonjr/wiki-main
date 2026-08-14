@@ -1,0 +1,1 @@
+ALTER TABLE `pages` ADD `is_encrypted` integer DEFAULT false NOT NULL;
