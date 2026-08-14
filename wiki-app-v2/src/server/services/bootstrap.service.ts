@@ -48,72 +48,79 @@ interface SeededSpace {
 
 /** Seeds the §11.6 Welcome space for the just-created admin. Returns null if
  *  a space already exists (idempotent — concurrent first sign-ups or a
- *  second invocation after a restart must not duplicate the tree). */
+ *  second invocation after a restart must not duplicate the tree).
+ *
+ *  Concurrency note: the count-check + insert pair runs inside a single
+ *  sync `db.transaction`. better-sqlite3 acquires the write lock at BEGIN
+ *  and holds it for the duration, so a second concurrent caller blocks on
+ *  BEGIN until the first commits; by then the count check inside the second
+ *  transaction sees 1 and returns null. Previously this used a non-
+ *  transactional `select().count()` followed by individual inserts, which
+ *  let two concurrent first sign-ups both observe count=0 and both insert a
+ *  Welcome space — see the slice-41 regression test in
+ *  bootstrap.integration.test.ts. */
 export async function seedWelcomeSpace(ownerId: string): Promise<SeededSpace | null> {
   const { db } = getDb();
-  const spaceCount = await db.select({ n: count() }).from(spaces);
-  if ((spaceCount[0]?.n ?? 0) > 0) return null;
+  return db.transaction((tx) => {
+    const row = tx.select({ n: count() }).from(spaces).get();
+    if ((row?.n ?? 0) > 0) return null;
 
-  const spaceId = randomUUID();
-  await db.insert(spaces).values({
-    id: spaceId,
-    name: "Welcome",
-    createdBy: ownerId,
-    // Open to other authenticated users by default so collaboration isn't
-    // accidentally locked behind "members only". The admin can tighten this
-    // in /settings if they want.
-    defaultRole: "editor",
+    const spaceId = randomUUID();
+    tx.insert(spaces).values({
+      id: spaceId,
+      name: "Welcome",
+      createdBy: ownerId,
+      // Open to other authenticated users by default so collaboration isn't
+      // accidentally locked behind "members only". The admin can tighten this
+      // in /settings if they want.
+      defaultRole: "editor",
+    }).run();
+    tx.insert(spaceMembers).values({ spaceId, userId: ownerId, role: "admin" }).run();
+
+    const welcomeId = makePage(tx, ownerId, "welcome", "Welcome", "🏠");
+    const notesId = makePage(tx, ownerId, "notes", "Notes");
+    const gettingStartedId = makePage(tx, ownerId, "getting-started", "Getting Started", "🚀");
+    const cliReferenceId = makePage(tx, ownerId, "cli", "CLI Reference");
+
+    const welcomeBranchId = makeBranch(tx, spaceId, ownerId, welcomeId, null, 0);
+    const notesBranchId = makeBranch(tx, spaceId, ownerId, notesId, null, 1);
+    const gettingStartedBranchId = makeBranch(tx, spaceId, ownerId, gettingStartedId, welcomeBranchId, 0);
+    makeBranch(tx, spaceId, ownerId, cliReferenceId, gettingStartedBranchId, 0);
+
+    return {
+      spaceId,
+      rootBranchIds: { welcome: welcomeBranchId, notes: notesBranchId },
+      pageIds: {
+        welcome: welcomeId,
+        notes: notesId,
+        gettingStarted: gettingStartedId,
+        cliReference: cliReferenceId,
+      },
+    };
   });
-  await db.insert(spaceMembers).values({ spaceId, userId: ownerId, role: "admin" });
-
-  const welcomeId = await makePage(db, ownerId, "welcome", "Welcome", "🏠");
-  const notesId = await makePage(db, ownerId, "notes", "Notes");
-  const gettingStartedId = await makePage(db, ownerId, "getting-started", "Getting Started", "🚀");
-  const cliReferenceId = await makePage(db, ownerId, "cli", "CLI Reference");
-
-  const welcomeBranchId = await makeBranch(db, spaceId, ownerId, welcomeId, null, 0);
-  const notesBranchId = await makeBranch(db, spaceId, ownerId, notesId, null, 1);
-  const gettingStartedBranchId = await makeBranch(db, spaceId, ownerId, gettingStartedId, welcomeBranchId, 0);
-  await makeBranch(db, spaceId, ownerId, cliReferenceId, gettingStartedBranchId, 0);
-
-  return {
-    spaceId,
-    rootBranchIds: { welcome: welcomeBranchId, notes: notesBranchId },
-    pageIds: {
-      welcome: welcomeId,
-      notes: notesId,
-      gettingStarted: gettingStartedId,
-      cliReference: cliReferenceId,
-    },
-  };
 }
 
-type Db = ReturnType<typeof getDb>["db"];
+type Tx = Parameters<Parameters<ReturnType<typeof getDb>["db"]["transaction"]>[0]>[0];
 
-async function makePage(db: Db, ownerId: string, slug: string, title: string, icon?: string): Promise<string> {
+function makePage(tx: Tx, ownerId: string, slug: string, title: string, icon?: string): string {
   const id = randomUUID();
-  await db.insert(pages).values({
-    id,
-    slug,
-    title,
-    ownerId,
-  });
+  tx.insert(pages).values({ id, slug, title, ownerId }).run();
   if (icon) {
-    await db.insert(attributes).values({ pageId: id, name: "icon", value: icon });
+    tx.insert(attributes).values({ pageId: id, name: "icon", value: icon }).run();
   }
   return id;
 }
 
-async function makeBranch(
-  db: Db,
+function makeBranch(
+  tx: Tx,
   spaceId: string,
   createdBy: string,
   pageId: string,
   parentBranchId: string | null,
   position: number,
-): Promise<string> {
+): string {
   const id = randomUUID();
-  await db.insert(branches).values({ id, spaceId, pageId, parentBranchId, position, createdBy });
+  tx.insert(branches).values({ id, spaceId, pageId, parentBranchId, position, createdBy }).run();
   return id;
 }
 

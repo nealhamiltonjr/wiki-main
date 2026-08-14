@@ -137,4 +137,49 @@ describe("slice-18 gate: first-boot bootstrap", () => {
     const body = res.json();
     expect(body.user.isAdmin).toBe(false);
   });
+
+  // ---------------------------------------------------------------------------
+  // Slice-41: race regression. The original seedWelcomeSpace read
+  // `spaces.count > 0` outside a transaction before deciding to insert. With
+  // WAL + better-sqlite3, two concurrent callers could both observe count=0
+  // and both insert a "Welcome" space. The fix wraps the idempotency check
+  // + insert in a sync `db.transaction` so the write lock serializes them.
+  //
+  // We drive the function directly (not through sign-up) so the race is
+  // exposed deterministically, independent of better-auth's own
+  // request-level serialization.
+  // ---------------------------------------------------------------------------
+  it("concurrent seedWelcomeSpace calls produce exactly one Welcome space", async () => {
+    // Fresh DB: drop & re-migrate so the test is hermetic.
+    await app.close();
+    const { closeDb, getDb } = await import("../db/index.js");
+    const { resetAuth } = await import("../auth/config.js");
+    closeDb();
+    resetAuth();
+    for (const p of [TEST_DB_PATH, `${TEST_DB_PATH}-wal`, `${TEST_DB_PATH}-shm`]) {
+      if (existsSync(p)) rmSync(p, { force: true });
+    }
+    app = await (await import("../app.js")).buildApp();
+    await app.ready();
+
+    // Seed two user rows directly (skips sign-up so we can race the
+    // .after-hook equivalent).
+    const { seedWelcomeSpace } = await import("../services/bootstrap.service.js");
+    const { db } = getDb();
+    const { user } = await import("../db/auth-schema.js");
+    const { spaces } = await import("../db/schema.js");
+    const ownerA = "race-user-a";
+    const ownerB = "race-user-b";
+    db.insert(user).values({ id: ownerA, name: "A", email: `race-a-${Date.now()}@example.com` }).run();
+    db.insert(user).values({ id: ownerB, name: "B", email: `race-b-${Date.now()}@example.com` }).run();
+
+    // Fire two seeds at the same microtask. With WAL + the un-transacted
+    // count check, both could see count=0 and both insert; with the
+    // transaction-wrapped fix, exactly one inserts and the other returns null.
+    const [a, b] = await Promise.all([seedWelcomeSpace(ownerA), seedWelcomeSpace(ownerB)]);
+
+    const inserted = [a, b].filter((r): r is NonNullable<typeof r> => r !== null);
+    expect(inserted).toHaveLength(1); // exactly one did the work
+    expect(await db.select().from(spaces)).toHaveLength(1);
+  });
 });

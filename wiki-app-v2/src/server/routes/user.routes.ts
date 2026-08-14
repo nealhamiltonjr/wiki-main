@@ -37,7 +37,7 @@ export async function userRoutes(app: FastifyInstance) {
     const body = updateUserBody.parse(request.body);
     const actor = (request as any).userContext as { id: string; isAdmin: boolean };
 
-    const { db } = getDb();
+    const { db, sqlite } = getDb();
     const [row] = await db.select().from(users).where(eq(users.id, id));
     if (!row) return reply.code(404).send({ error: "User not found" });
 
@@ -52,6 +52,75 @@ export async function userRoutes(app: FastifyInstance) {
     if (body.isAdmin !== undefined) set.isAdmin = body.isAdmin;
     if (body.suspended !== undefined) set.suspended = body.suspended;
     if (Object.keys(set).length === 0) return reply.send(row);
+
+    // Slice-43: lockout guard for concurrent admin demote races. The
+    // invariant we MUST preserve: at least one active admin must remain
+    // after the patch commits. self-lockout (above) prevents the solo-
+    // admin self-demote case. But two concurrent PATCHes — A demoting
+    // B and B demoting A — both pass self-lockout (different targets)
+    // and each UPDATE alone would leave at least one admin remaining.
+    // Run them in parallel with no guard and the second writer commits
+    // *after* the first's demote has already landed, so by the time the
+    // second's commit fires, the active-admin count has just dropped to
+    // one (the second writer's actor). Removing that one too leaves zero.
+    //
+    // The guard re-checks the total count inside a transaction so the
+    // second writer's re-read sees the first writer's committed state.
+    // If at commit time there is exactly one active admin (the second
+    // writer, surviving the first writer's demote), and this patch would
+    // demote that lone admin, abort with 409 before touching the row.
+    //
+    // Important details:
+    //   - The query is the TOTAL active-admin count, not "excluding
+    //     target" or "excluding actor". Subtracting target from the
+    //     count reads like the obvious check but breaks the race: A
+    //     excludes B and sees 1 (itself, surviving), proceeds; B
+    //     excludes A and sees 1 (itself, surviving), proceeds — both
+    //     commit and zero admins remain. The right check is "would
+    //     my commit leave zero?", and "1 active admin" is the only
+    //     pre-commit state from which any successful demote produces
+    //     zero.
+    //   - The transaction must be `immediate: true` (BEGIN IMMEDIATE,
+    //     not better-sqlite3's default BEGIN DEFERRED). A deferred
+    //     BEGIN doesn't acquire the write lock until the first write
+    //     statement; our guard body is read-only, so a deferred
+    //     transaction holds no lock at all and both writers' counts
+    //     see the pre-race state. IMMEDIATE acquires the lock at
+    //     BEGIN; the second writer blocks until the first commits,
+    //     then re-counts against the post-commit state.
+    const targetIsCurrentlyAdmin = row.isAdmin === true;
+    const targetIsCurrentlyActive = row.suspended !== true;
+    // Only enter the lockout guard when this patch will *reduce* the
+    // active-admin count. A patch that demotes a suspended admin (no
+    // effect on active count) or sets suspended=true on a suspended user
+    // (already inactive) is harmless to the invariant — the guard would
+    // only generate false-positive 409s in those cases.
+    const willRemoveActiveAdmin =
+      (set.isAdmin === false && targetIsCurrentlyAdmin && targetIsCurrentlyActive) ||
+      (set.suspended === true && targetIsCurrentlyAdmin && targetIsCurrentlyActive);
+
+    if (willRemoveActiveAdmin) {
+      try {
+        sqlite.transaction(() => {
+          const result = sqlite
+            .prepare(
+              "SELECT COUNT(*) AS n FROM user WHERE is_admin = 1 AND suspended = 0",
+            )
+            .all() as { n: number }[];
+          const n = result[0]?.n ?? 0;
+          if (n === 1) {
+            throw new LastAdminError();
+          }
+        }).immediate();
+      } catch (err) {
+        if (err instanceof LastAdminError) {
+          return reply.code(409).send({
+            error: "cannot demote or suspend the last active admin",
+          });
+        }
+        throw err;
+      }
+    }
 
     await db.update(users).set(set).where(eq(users.id, id));
     await db.insert(auditLog).values({
@@ -76,4 +145,16 @@ export async function userRoutes(app: FastifyInstance) {
       .where(eq(users.id, id));
     return reply.send(updated);
   });
+}
+
+/**
+ * Sentinel thrown inside the last-admin transaction. Distinct class so the
+ * route can map it cleanly to a 409 while letting any unexpected SQLite
+ * error propagate.
+ */
+class LastAdminError extends Error {
+  constructor() {
+    super("last admin");
+    this.name = "LastAdminError";
+  }
 }

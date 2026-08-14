@@ -7,6 +7,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 
 import * as authSchema from "./auth-schema.js";
 import * as wikiSchema from "./schema.js";
+import { assertSafeRegex } from "../utils/regex-safety.js";
 
 // ---------------------------------------------------------------------------
 // THE single SQLite connection (brief §3.2). Every service — collab included —
@@ -57,12 +58,17 @@ export function getDb() {
 
   // SQLite ships without a REGEXP function unless you register one. Lenses
   // (brief §12.4) match pages by regex-over-title, so register a thin
-  // JS-side implementation. The pattern itself is parameterised and
-  // expected to be from a trusted user (lens owner), but treat untrusted
-  // usage defensively — throw on invalid regexes so the query fails loudly
-  // instead of silently dropping matches.
+  // JS-side implementation. Slice-42: the pattern is no longer trusted —
+  // a malicious lens owner could persist a catastrophic-backtracking
+  // pattern and freeze the server on every results call. Re-check the
+  // pattern's complexity on every invocation (cheap) and refuse to
+  // execute an unsafe one. The route and the service also gate the same
+  // pattern at write time and at runLens entry; this is the last line of
+  // defense so any legacy row written before those gates cannot DoS us.
   sqlite.function("regexp", { deterministic: true }, (pattern: unknown, value: unknown) => {
     if (typeof pattern !== "string" || typeof value !== "string") return 0;
+    const safety = assertSafeRegex(pattern);
+    if (!safety.safe) throw new Error(`unsafe regex pattern: ${safety.reason ?? "rejected"}`);
     try {
       return new RegExp(pattern).test(value) ? 1 : 0;
     } catch {

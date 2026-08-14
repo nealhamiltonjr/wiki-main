@@ -107,9 +107,10 @@ export function createAuth() {
             // Failures are logged, never thrown: a sign-up response must not
             // be 5xx'd because of a seed hiccup, and the next-boot sweep
             // (manual `npm run seed-welcome`) can repair an empty install.
-            // seedWelcomeSpace is idempotent — concurrent first sign-ups (a
-            // theoretical race; the brief calls it acceptable to have two
-            // admins) will not duplicate the tree.
+            // seedWelcomeSpace is race-safe: the count-check + insert pair
+            // runs inside a sync transaction (better-sqlite3 serializes
+            // concurrent BEGINs on the write lock), so two first sign-ups
+            // cannot produce two Welcome spaces — see slice-41.
             try {
               await seedWelcomeSpace(user.id);
             } catch (err) {
