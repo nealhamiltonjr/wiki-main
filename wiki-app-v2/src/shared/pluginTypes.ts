@@ -56,4 +56,14 @@ export interface PluginInfo {
   nodeTypes: string[];
   markTypes: string[];
   installedAt: string;
+  // §11.3 plugin failure isolation: surfaced to the admin UI so
+  // a recently-failing plugin is visible before its auto-disable
+  // threshold trips. `disabledReason` is the snapshot persisted
+  // when the threshold was crossed; `lastError` is the most
+  // recent captured handler message (capped to ~500 chars at
+  // write time so a pathological plugin can't bloat the row).
+  failureCount: number;
+  lastError: string | null;
+  lastFailureAt: string | null;
+  disabledReason: string | null;
 }

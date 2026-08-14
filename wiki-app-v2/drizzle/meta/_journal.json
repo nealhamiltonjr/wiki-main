@@ -64,6 +64,13 @@
       "when": 1786716886017,
       "tag": "0008_flowery_the_executioner",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1786720000000,
+      "tag": "0009_plugin_failure_tracking",
+      "breakpoints": true
     }
   ]
 }

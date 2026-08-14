@@ -108,6 +108,16 @@ function PluginSettingsPage() {
                     <span className={p.enabled ? "text-success" : "text-text-muted"}>
                       {p.enabled ? "Enabled" : "Disabled"}
                     </span>
+                    {p.disabledReason && (
+                      <div className="mt-1 text-xs text-danger" title={p.disabledReason}>
+                        {p.disabledReason}
+                      </div>
+                    )}
+                    {!p.disabledReason && p.failureCount > 0 && p.enabled && (
+                      <div className="mt-1 text-xs text-warning" title={p.lastError ?? ""}>
+                        {p.failureCount} consecutive failure{p.failureCount === 1 ? "" : "s"}
+                      </div>
+                    )}
                   </td>
                   <td className="py-2 flex gap-2">
                     <button

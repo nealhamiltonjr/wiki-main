@@ -10,7 +10,7 @@ import type { FastifyInstance } from "fastify";
 import { getDb } from "../db/index.js";
 import { plugins, auditLog } from "../db/schema.js";
 import type { PluginInfo, PluginCapabilities } from "../../shared/pluginTypes.js";
-import { registerHook, unregisterPluginHooks } from "../hooks.js";
+import { registerHook, unregisterPluginHooks, setPluginFailureHandler } from "../hooks.js";
 import type { HookEventName, HookHandler } from "../hookTypes.js";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +108,10 @@ function toPluginInfo(row: typeof plugins.$inferSelect): PluginInfo {
     nodeTypes: row.nodeTypes,
     markTypes: row.markTypes,
     installedAt: new Date(row.installedAt).toISOString(),
+    failureCount: row.failureCount,
+    lastError: row.lastError,
+    lastFailureAt: row.lastFailureAt ? new Date(row.lastFailureAt).toISOString() : null,
+    disabledReason: row.disabledReason,
   };
 }
 
@@ -271,7 +275,16 @@ export async function setPluginEnabled(pluginId: string, enabled: boolean, actor
   const [existing] = await db.select().from(plugins).where(eq(plugins.id, pluginId));
   if (!existing) throw Object.assign(new Error("Plugin not found"), { statusCode: 404 });
 
-  await db.update(plugins).set({ enabled }).where(eq(plugins.id, pluginId));
+  // §11.3 plugin failure isolation: re-enabling a plugin clears its
+  // failure counter, last error, and disabled reason so it gets a
+  // clean slate. Disabling leaves them populated (so the admin UI
+  // can still show *why* it was disabled).
+  await db.update(plugins).set({
+    enabled,
+    ...(enabled
+      ? { failureCount: 0, lastError: null, lastFailureAt: null, disabledReason: null }
+      : {}),
+  }).where(eq(plugins.id, pluginId));
 
   await db.insert(auditLog).values({
     actorUserId: actorUserId ?? null,
@@ -414,6 +427,10 @@ async function registerPluginServerRoutesIfNeeded(app: FastifyInstance, plugin: 
     }
     // Register in a child scope with an onRequest guard: the routes only answer
     // while the plugin row exists AND is enabled.
+    // §11.3 plugin failure isolation: a thrown server-route handler from the
+    // plugin feeds the same per-plugin failure counter as a hook throw, and
+    // the success path of a clean 2xx response clears it (via setResponseError
+    // / onSend hooks we set up below).
     await app.register(async (child) => {
       child.addHook("onRequest", async (_request, reply) => {
         const { db } = getDb();
@@ -422,6 +439,21 @@ async function registerPluginServerRoutesIfNeeded(app: FastifyInstance, plugin: 
           .from(plugins)
           .where(eq(plugins.id, plugin.id));
         if (!row || !row.enabled) return reply.code(404).send({ error: "Plugin not found" });
+      });
+      child.addHook("onError", async (_request, _reply, err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        await recordPluginFailure(plugin.id, `server route error: ${msg}`, err);
+      });
+      child.addHook("onSend", async (_request, reply, _payload) => {
+        // 2xx = success; non-2xx (4xx/5xx) treated as a failure for counter
+        // purposes so a plugin that always 500s gets auto-disabled even when
+        // its handlers don't actually throw.
+        const code = reply.statusCode;
+        if (code >= 200 && code < 400) {
+          await clearPluginFailure(plugin.id);
+        } else if (code >= 500) {
+          await recordPluginFailure(plugin.id, `server route returned ${code}`, null);
+        }
       });
       await child.register(mod.default, { prefix: `/api/plugins/${plugin.id}` });
     });
@@ -439,3 +471,111 @@ const _registeredServerPlugins = new Set<string>();
 
 /** Plugin hook modules this process has already loaded. Brief §13.5. */
 const _registeredHookPlugins = new Set<string>();
+
+// ---------------------------------------------------------------------------
+// §11.3 plugin failure isolation
+// ---------------------------------------------------------------------------
+
+/**
+ * Consecutive-failure threshold before a plugin is auto-disabled.
+ * Matches PLUGIN_FAILURE_THRESHOLD used by hooks.ts (read the same
+ * env var directly here so they can't drift).
+ */
+function pluginFailureThreshold(): number {
+  const raw = process.env.PLUGIN_FAILURE_THRESHOLD;
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5;
+}
+
+/**
+ * Cap stored error messages so a misbehaving plugin can't bloat the
+ * row. 500 chars is plenty for a stack-trace top frame and a few
+ * lines of message; anything beyond it gets an ellipsis.
+ */
+function clampErrorMessage(msg: string): string {
+  if (msg.length <= 500) return msg;
+  return msg.slice(0, 497) + "...";
+}
+
+/**
+ * Increment a plugin's consecutive-failure counter, persist the
+ * last-error snapshot, and auto-disable it (clearing the
+ * per-process hook subscriptions via the registered failure
+ * handler return value) if the threshold is exceeded. Returns the
+ * new count and whether the plugin was just auto-disabled by this
+ * call.
+ *
+ * Public so the server-route guard in registerPluginServerRoutes
+ * can use the same persistence path for plugin-owned server
+ * endpoints.
+ */
+export async function recordPluginFailure(
+  pluginId: string,
+  message: string,
+  _error: unknown,
+): Promise<{ failureCount: number; autoDisabled: boolean }> {
+  const { db } = getDb();
+  const threshold = pluginFailureThreshold();
+  const now = new Date();
+  const [row] = await db.select().from(plugins).where(eq(plugins.id, pluginId));
+  if (!row) return { failureCount: 0, autoDisabled: false };
+  const newCount = (row.failureCount ?? 0) + 1;
+  const willDisable = newCount >= threshold;
+  await db.update(plugins).set({
+    failureCount: newCount,
+    lastError: clampErrorMessage(message),
+    lastFailureAt: now,
+    // Stamp the disabled reason the moment the threshold is
+    // crossed. The next failure (if any) won't overwrite it.
+    ...(willDisable
+      ? {
+          enabled: false,
+          disabledReason: `Auto-disabled after ${newCount} consecutive handler failures. Last error: ${clampErrorMessage(message)}`,
+        }
+      : {}),
+  }).where(eq(plugins.id, pluginId));
+  if (willDisable) {
+    // Audit the auto-disable; admin UI surfaces this as the
+    // disabledReason too.
+    await db.insert(auditLog).values({
+      actorUserId: null,
+      action: "plugin_auto_disabled",
+      targetType: "plugin",
+      targetId: pluginId,
+      meta: { failureCount: newCount, lastError: clampErrorMessage(message) },
+    });
+    unregisterPluginHooks(pluginId);
+    _registeredHookPlugins.delete(pluginId);
+  }
+  return { failureCount: newCount, autoDisabled: willDisable };
+}
+
+/**
+ * Reset a plugin's failure counter and clear its last-error
+ * snapshot. Called automatically on each successful hook handler
+ * invocation so a transient blip doesn't escalate. (Re-enabling a
+ * plugin also resets; see setPluginEnabled.)
+ */
+export async function clearPluginFailure(pluginId: string): Promise<void> {
+  const { db } = getDb();
+  await db.update(plugins).set({
+    failureCount: 0,
+    lastError: null,
+    lastFailureAt: null,
+  }).where(eq(plugins.id, pluginId));
+}
+
+/**
+ * Boot-time wire: connect the hooks registry to the persistence
+ * layer. Called once from server/index.ts before any plugin
+ * module is loaded.
+ */
+export function installPluginFailureHook(): void {
+  setPluginFailureHandler(async ({ kind, pluginId, message }) => {
+    if (kind === "success") {
+      await clearPluginFailure(pluginId);
+      return { failureCount: 0, autoDisabled: false };
+    }
+    return recordPluginFailure(pluginId, message, null);
+  });
+}

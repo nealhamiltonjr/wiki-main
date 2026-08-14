@@ -23,7 +23,7 @@ import { tokenRoutes } from "./routes/token.routes.js";
 import { lensRoutes } from "./routes/lens.routes.js";
 import { relationRoutes } from "./routes/relation.routes.js";
 import { graphRoutes } from "./routes/graph.routes.js";
-import { registerPluginServerRoutes, registerPluginHookHandlers } from "./services/plugin.service.js";
+import { registerPluginServerRoutes, registerPluginHookHandlers, installPluginFailureHook } from "./services/plugin.service.js";
 import multipart from "@fastify/multipart";
 
 /**
@@ -94,6 +94,9 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // Register server routes for every enabled plugin that declares the
   // serverRoutes capability. A failing plugin is logged and skipped; it never
   // takes down the whole instance.
+  // §11.3: install the failure handler BEFORE any plugin module is loaded so
+  // even the boot-time load errors feed the counter.
+  installPluginFailureHook();
   await registerPluginServerRoutes(app);
 
   // Brief §13.5: load hook handlers for every enabled plugin that

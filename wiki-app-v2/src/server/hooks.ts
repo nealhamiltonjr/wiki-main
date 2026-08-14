@@ -16,6 +16,17 @@
  * mutex; we do need a copy of the handler list at dispatch
  * time so a handler that calls `unregister` doesn't corrupt
  * the iteration.
+ *
+ * §11.3 plugin failure isolation: every handler invocation is
+ * independently try/catched. A throw triggers the registered
+ * `PluginFailureHandler` (set once by plugin.service.ts at
+ * boot) which increments the per-plugin consecutive-failure
+ * counter and auto-disables the plugin past the configured
+ * threshold. The handler always returns the new counter and
+ * whether the plugin was auto-disabled so dispatch can decide
+ * whether to unregister that plugin's other subscriptions.
+ * A single successful invocation calls the handler with
+ * `kind: "success"` to reset the counter.
  */
 import type { HookEvent, HookHandler, HookEventName } from "./hookTypes.js";
 
@@ -34,6 +45,48 @@ const _subscriptions: Record<HookEventName, Subscription[]> = {
   pageSave: [],
   attributeChange: [],
 };
+
+/**
+ * §11.3 — wired by plugin.service.ts at boot. Single handler
+ * (the registry is process-global and the persistence layer
+ * is also process-global). The handler returns the new
+ * failure count and whether the plugin was just auto-disabled.
+ */
+export type PluginFailureHandler = (info: {
+  kind: "success" | "failure";
+  pluginId: string;
+  event: HookEventName;
+  message: string;
+  error: unknown;
+}) => Promise<{ failureCount: number; autoDisabled: boolean } | null>;
+
+let _failureHandler: PluginFailureHandler | null = null;
+
+export function setPluginFailureHandler(handler: PluginFailureHandler | null): void {
+  _failureHandler = handler;
+}
+
+/**
+ * In-process set of plugin ids that are currently in a failure
+ * streak (their most recent handler invocation threw). The success
+ * path only clears the persisted counter when this plugin id is
+ * present — otherwise an unrelated plugin's successful handler
+ * would reset a sibling plugin's counter and break the consecutive
+ * semantics the threshold depends on.
+ */
+const _failingPluginIds = new Set<string>();
+
+export function _isPluginInFailureStreak(pluginId: string): boolean {
+  return _failingPluginIds.has(pluginId);
+}
+
+export function _markPluginFailure(pluginId: string): void {
+  _failingPluginIds.add(pluginId);
+}
+
+export function _clearPluginFailureStreak(pluginId: string): void {
+  _failingPluginIds.delete(pluginId);
+}
 
 /**
  * Register a handler for a named event. Returns an unregister
@@ -78,6 +131,14 @@ export function unregisterPluginHooks(pluginId: string): void {
  * not prevent the next one from running, and does not
  * propagate back to the caller.
  *
+ * §11.3: a throw asks the registered failure handler to
+ * increment the per-plugin counter and, if it crosses the
+ * threshold, auto-disable the plugin (the handler returns
+ * `autoDisabled: true` and we drop every other subscription
+ * owned by that plugin id). A successful invocation calls
+ * the same handler with `kind: "success"` so the counter
+ * resets.
+ *
  * Returns the number of handlers invoked (handy for tests).
  */
 export async function dispatchHook(event: HookEvent): Promise<number> {
@@ -88,9 +149,48 @@ export async function dispatchHook(event: HookEvent): Promise<number> {
     invoked++;
     try {
       await sub.handler(event);
+      // Success: only ask the failure handler to reset the counter
+      // if THIS plugin was previously in a failure streak. Without
+      // this guard a healthy plugin's successful handler would
+      // wipe a sibling broken plugin's accumulating count and
+      // defeat the consecutive-failure threshold.
+      if (_failureHandler && _failingPluginIds.has(sub.pluginId)) {
+        _failingPluginIds.delete(sub.pluginId);
+        try {
+          await _failureHandler({
+            kind: "success",
+            pluginId: sub.pluginId,
+            event: sub.event,
+            message: "ok",
+            error: null,
+          });
+        } catch {
+          // failure handler errors never crash dispatch
+        }
+      }
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(`[hooks] plugin "${sub.pluginId}" handler for ${sub.event} threw:`, err);
+      _failingPluginIds.add(sub.pluginId);
+      let autoDisabled = false;
+      if (_failureHandler) {
+        try {
+          const result = await _failureHandler({
+            kind: "failure",
+            pluginId: sub.pluginId,
+            event: sub.event,
+            message: err instanceof Error ? err.message : String(err),
+            error: err,
+          });
+          autoDisabled = result?.autoDisabled ?? false;
+        } catch {
+          // failure handler errors never crash dispatch
+        }
+      }
+      if (autoDisabled) {
+        unregisterPluginHooks(sub.pluginId);
+        _failingPluginIds.delete(sub.pluginId);
+      }
     }
   }
   return invoked;
@@ -104,6 +204,8 @@ export function __resetHookRegistry(): void {
   for (const event of Object.keys(_subscriptions) as HookEventName[]) {
     _subscriptions[event] = [];
   }
+  _failureHandler = null;
+  _failingPluginIds.clear();
 }
 
 /** Diagnostic accessor — total subscription count across all events. */

@@ -288,6 +288,14 @@ export const plugins = sqliteTable("plugins", {
   nodeTypes: text("node_types", { mode: "json" }).$type<string[]>().notNull(),
   markTypes: text("mark_types", { mode: "json" }).$type<string[]>().notNull(),
   installedAt: integer("installed_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  // §11.3 plugin failure isolation: consecutive handler throw counter +
+  // captured last error + admin-facing disabled reason. Reset on a single
+  // successful handler invocation. Auto-disable when count exceeds the
+  // configured threshold; admin re-enable clears the counter + reason.
+  failureCount: integer("failure_count").notNull().default(0),
+  lastError: text("last_error"),
+  lastFailureAt: integer("last_failure_at", { mode: "timestamp_ms" }),
+  disabledReason: text("disabled_reason"),
 });
 
 // System/debug log - deliberately separate from the security audit log (brief
