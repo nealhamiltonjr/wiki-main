@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { Pencil, Eye, Loader2, MessageSquare, History, Link2, Network, Lock, LockOpen, Share2, Tags } from "lucide-react";
 
 import { api, type PageData } from "@/api/client";
-import { CollabEditor, PageEditor, type PageEditorHandle } from "@/features/editor/Editor";
+import { CollabEditor, PageEditor, type PageEditorHandle, type InlineCommentSelection } from "@/features/editor/Editor";
 import { useAutosave, saveStateLabel, type SavePageFn } from "@/features/editor/useAutosave";
 import { userColor, type CollabUser } from "@/features/editor/useCollab";
 import { useSession } from "@/api/authClient";
@@ -63,6 +63,9 @@ function PageView() {
   const [protectBusy, setProtectBusy] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [showProperties, setShowProperties] = useState(false);
+  const [inlineComment, setInlineComment] = useState<InlineCommentSelection | null>(null);
+  const [inlineDraft, setInlineDraft] = useState("");
+  const [inlineBusy, setInlineBusy] = useState(false);
 
   const { data: page, loading, error, reload } = useQuery(
     () => api.getPage(branchId),
@@ -99,6 +102,30 @@ function PageView() {
     setEditMode((m) => !m);
   }, [editMode, collabOn, handleCollabSessionEnd]);
 
+  // Slice 33 — inline comment anchored to a text selection. The thread body is
+  // created here and the comments panel opens so the just-created note is
+  // visible; the range/blockId anchor is persisted by the server.
+  const submitInlineComment = useCallback(async () => {
+    if (!inlineComment || !inlineDraft.trim() || inlineBusy) return;
+    setInlineBusy(true);
+    try {
+      await api.createCommentThread(branchId, {
+        rangeFrom: inlineComment.rangeFrom,
+        rangeTo: inlineComment.rangeTo,
+        blockId: inlineComment.blockId,
+        selection: inlineComment.selection,
+        body: inlineDraft.trim(),
+      });
+      setInlineDraft("");
+      setInlineComment(null);
+      setShowComments(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not add comment");
+    } finally {
+      setInlineBusy(false);
+    }
+  }, [inlineComment, inlineDraft, inlineBusy, branchId]);
+
   // Reset transient view state whenever we navigate to a different page. The
   // route component instance is reused across branch params (same route match),
   // so without this the comments panel would keep showing the previous page's
@@ -115,6 +142,8 @@ function PageView() {
     setShowProtect(false);
     setShowShare(false);
     setShowProperties(false);
+    setInlineComment(null);
+    setInlineDraft("");
   }, [branchId]);
 
   // Derive the star's initial state from the user's favorites list (refetched
@@ -287,6 +316,7 @@ function PageView() {
                 onConflict={handleReload}
                 savePage={isEncrypted ? encryptedSavePage : undefined}
                 isEncrypted={isEncrypted}
+                onInlineComment={setInlineComment}
                 onContentChange={isEncrypted ? handleEncryptedContentChange : (nextContent, nextUpdatedAt) =>
                   setLivePage({ content: nextContent, updatedAt: nextUpdatedAt })
                 }
@@ -359,6 +389,70 @@ function PageView() {
       {showShare && (
         <ShareDialog branchId={branchId} onClose={() => setShowShare(false)} />
       )}
+      {inlineComment && (
+        <InlineCommentComposer
+          selection={inlineComment}
+          draft={inlineDraft}
+          busy={inlineBusy}
+          onDraftChange={setInlineDraft}
+          onCancel={() => { setInlineComment(null); setInlineDraft(""); }}
+          onSubmit={submitInlineComment}
+        />
+      )}
+    </div>
+  );
+}
+
+function InlineCommentComposer({
+  selection, draft, busy, onDraftChange, onCancel, onSubmit,
+}: {
+  selection: InlineCommentSelection;
+  draft: string;
+  busy: boolean;
+  onDraftChange: (s: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const preview = selection.selection.length > 80
+    ? `${selection.selection.slice(0, 80)}…`
+    : selection.selection;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-6 pt-24" role="dialog" aria-modal="true" aria-label="Add inline comment">
+      <div className="w-full max-w-md rounded-lg border border-border bg-surface-elevated p-4 shadow-xl">
+        <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+          <MessageSquare className="h-4 w-4 text-text-secondary" />
+          Add comment
+        </div>
+        <div className="mb-3 rounded border border-border bg-surface px-3 py-2 text-sm text-text-muted italic">
+          “{preview}”
+        </div>
+        <textarea
+          autoFocus
+          value={draft}
+          onChange={(e) => onDraftChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onSubmit();
+            if (e.key === "Escape") onCancel();
+          }}
+          placeholder="Write a note on this selection…"
+          className="mb-3 w-full resize-none rounded border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
+          rows={3}
+        />
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className="rounded px-3 py-1.5 text-sm text-text-secondary hover:bg-surface-hover">
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!draft.trim() || busy}
+            onClick={onSubmit}
+            className="rounded bg-primary px-3 py-1.5 text-sm font-medium text-on-primary disabled:opacity-50"
+          >
+            {busy ? "Adding…" : "Add comment"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -572,6 +666,7 @@ function EditableCanvas({
   onContentChange,
   savePage,
   isEncrypted,
+  onInlineComment,
 }: {
   branchId: string;
   slug: string;
@@ -589,6 +684,7 @@ function EditableCanvas({
   // also enforced server-side at checkCollabEligibility; this prop just keeps
   // the affordance off the toolbar.
   isEncrypted?: boolean;
+  onInlineComment?: (sel: InlineCommentSelection) => void;
 }) {
   const editorRef = useRef<PageEditorHandle>(null);
 
@@ -649,6 +745,8 @@ function EditableCanvas({
         content={content}
         editable
         onUpdate={handleUpdate}
+        branchId={branchId}
+        onInlineComment={onInlineComment}
       />
       <div className="flex items-center justify-between border-t border-border px-4 py-1 text-xs text-text-muted">
         <span>{saveStateLabel(saveState)}</span>

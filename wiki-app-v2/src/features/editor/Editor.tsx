@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useMemo } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import type { Editor } from "@tiptap/react";
@@ -6,7 +6,7 @@ import { Collaboration } from "@tiptap/extension-collaboration";
 import { CollaborationCaret } from "@tiptap/extension-collaboration-caret";
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough, Heading1, Heading2, Heading3,
-  List, ListOrdered, Quote, Code, Undo2, Redo2, Workflow,
+  List, ListOrdered, Quote, Code, Undo2, Redo2, Workflow, Upload, Loader2, MessageSquare,
 } from "lucide-react";
 
 import { baseExtensions, stripWordHTML } from "./editorExtensions.js";
@@ -14,12 +14,41 @@ import { useCollab, type CollabUser } from "./useCollab.js";
 import { useTiptapExtensions, useToolbarItems } from "@/plugins/registry";
 import { SlashMenuExtension, SlashMenu } from "./SlashMenu.js";
 import { insertMermaidDiagram } from "./extensions/mermaidInsert.js";
+import { api } from "@/api/client";
 import { KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES, filterUnknownNodes } from "@/shared/blockIds";
 import type { JSONBlock } from "@/shared/blockIds";
 import { cn } from "@/lib/utils";
 
 export interface PageEditorHandle {
   getJSON: () => unknown;
+}
+
+export interface InlineCommentSelection {
+  blockId: string;
+  rangeFrom: number;
+  rangeTo: number;
+  selection: string;
+}
+
+function captureInlineComment(editor: Editor): InlineCommentSelection | null {
+  const { state } = editor;
+  const { from, to, empty } = state.selection;
+  if (empty) return null;
+  const $from = state.selection.$from;
+  for (let depth = $from.depth; depth > 0; depth--) {
+    const node = $from.node(depth);
+    const id = node.attrs?.id;
+    if (typeof id === "string") {
+      const blockStart = $from.before(depth);
+      return {
+        blockId: id,
+        rangeFrom: Math.max(0, from - blockStart),
+        rangeTo: Math.max(0, to - blockStart),
+        selection: state.doc.textBetween(from, to, " ").slice(0, 2000),
+      };
+    }
+  }
+  return null;
 }
 
 /**
@@ -39,8 +68,10 @@ export const PageEditor = forwardRef<PageEditorHandle, {
   content: unknown;
   editable: boolean;
   onUpdate?: () => void;
+  branchId?: string;
+  onInlineComment?: (sel: InlineCommentSelection) => void;
   extensions?: ReturnType<typeof baseExtensions>;
-}>(function PageEditor({ content, editable, onUpdate, extensions }, ref) {
+}>(function PageEditor({ content, editable, onUpdate, branchId, onInlineComment, extensions }, ref) {
   const registryExtensions = useTiptapExtensions();
   const toolbarItems = useToolbarItems();
 
@@ -81,11 +112,11 @@ export const PageEditor = forwardRef<PageEditorHandle, {
   return (
     <div className="flex min-h-0 flex-1 flex-col relative">
       {editable && editor && (
-        <EditorToolbar editor={editor} pluginItems={toolbarItems} />
+        <EditorToolbar editor={editor} pluginItems={toolbarItems} branchId={branchId} />
       )}
       {editable && editor && (
         <BubbleMenu editor={editor}>
-          <InlineToolbar editor={editor} />
+          <InlineToolbar editor={editor} onComment={onInlineComment} />
         </BubbleMenu>
       )}
       {editable && editor && <SlashMenu editor={editor} />}
@@ -186,7 +217,36 @@ function ToolbarButton({
   );
 }
 
-function EditorToolbar({ editor, pluginItems }: { editor: Editor; pluginItems: ReturnType<typeof useToolbarItems> }) {
+function EditorToolbar({ editor, pluginItems, branchId }: {
+  editor: Editor;
+  pluginItems: ReturnType<typeof useToolbarItems>;
+  branchId?: string;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file || !branchId) return;
+    setUploading(true);
+    try {
+      const { id, filename } = await api.uploadFile(branchId, file);
+      const url = `/api/branches/${branchId}/files/${id}`;
+      const isImage = file.type.startsWith("image/");
+      editor.chain().focus();
+      if (isImage) {
+        editor.chain().insertContent({ type: "image", attrs: { src: url, alt: filename, title: filename } }).run();
+      } else {
+        editor.chain().insertContent({ type: "text", text: filename, marks: [{ type: "link", attrs: { href: url } }] }).run();
+      }
+    } catch {
+      // The ApiError detail is surfaced via the autosave/error toast elsewhere;
+      // keep the editor usable if the upload fails.
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const buttons = (
     <>
       <ToolbarButton title="Undo" disabled={!editor.can().undo()} onClick={() => editor.chain().focus().undo().run()}>
@@ -196,6 +256,21 @@ function EditorToolbar({ editor, pluginItems }: { editor: Editor; pluginItems: R
         <Redo2 className="h-4 w-4" />
       </ToolbarButton>
       <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+      {branchId && (
+        <>
+          <ToolbarButton title="Upload file" onClick={() => fileInputRef.current?.click()}>
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+          </ToolbarButton>
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            aria-label="Upload file"
+            onChange={(e) => handleFile(e.target.files?.[0])}
+          />
+          <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+        </>
+      )}
       <ToolbarButton title="Heading 1" active={editor.isActive("heading", { level: 1 })}
         onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>
         <Heading1 className="h-4 w-4" />
@@ -261,7 +336,8 @@ function EditorToolbar({ editor, pluginItems }: { editor: Editor; pluginItems: R
   );
 }
 
-function InlineToolbar({ editor }: { editor: Editor }) {
+function InlineToolbar({ editor, onComment }: { editor: Editor; onComment?: (sel: InlineCommentSelection) => void }) {
+  const comment = captureInlineComment(editor);
   return (
     <div className="flex items-center gap-0.5 rounded-lg border border-border bg-surface-elevated px-1.5 py-1 shadow-lg">
       <ToolbarButton title="Bold" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>
@@ -276,6 +352,18 @@ function InlineToolbar({ editor }: { editor: Editor }) {
       <ToolbarButton title="Strikethrough" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}>
         <Strikethrough className="h-4 w-4" />
       </ToolbarButton>
+      {onComment && (
+        <>
+          <span className="mx-0.5 h-4 w-px bg-border" aria-hidden />
+          <ToolbarButton
+            title="Add comment"
+            disabled={!comment}
+            onClick={() => comment && onComment(comment)}
+          >
+            <MessageSquare className="h-4 w-4" />
+          </ToolbarButton>
+        </>
+      )}
     </div>
   );
 }

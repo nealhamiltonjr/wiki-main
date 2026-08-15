@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { safeLinkHref } from "@/shared/blockIds";
+import { safeLinkHref, safeImageSrc } from "@/shared/blockIds";
 import { MermaidRenderer } from "./extensions/MermaidRenderer.js";
 import { useEmbedTypeMap } from "@/plugins/registry";
 import { highlightCode } from "./codeHighlight.js";
@@ -49,6 +49,13 @@ function InlineNode({ node }: { node: PMNode }) {
     return <>{text}</>;
   }
   if (node.type === "hardBreak") return <br />;
+  if (node.type === "image") {
+    // Persist-time sanitization already neutralized unsafe srcs; this is the
+    // render-time guard for hand-edited/legacy docs.
+    const src = safeImageSrc((node.attrs?.src as string) ?? "");
+    if (src === "") return null;
+    return <img src={src} alt={(node.attrs?.alt as string) ?? ""} title={(node.attrs?.title as string) ?? undefined} className="my-1 max-w-full rounded" loading="lazy" />;
+  }
   if (node.type === "mention") {
     // A mention node must never be invisible in read view — the editor shows
     // it as "@Name", so View mode renders the same label (the label is the

@@ -29,6 +29,39 @@ describe("ReadOnlyContent (read-mode renderer)", () => {
     expect(html).toContain("<strong>bit</strong>");
   });
 
+  it("renders inline images (regression: uploads previously had no renderer)", () => {
+    const html = renderToStaticMarkup(
+      <ReadOnlyContent
+        content={doc([
+          {
+            type: "paragraph",
+            content: [
+              { type: "text", text: "before " },
+              { type: "image", attrs: { src: "/api/branches/b1/files/f1", alt: "diagram.png" } },
+              { type: "text", text: " after" },
+            ],
+          },
+        ])}
+      />
+    );
+    expect(html).toContain('<img src="/api/branches/b1/files/f1" alt="diagram.png"');
+    expect(html).toContain('loading="lazy"');
+  });
+
+  it("drops an unsafe image src instead of rendering it", () => {
+    const html = renderToStaticMarkup(
+      <ReadOnlyContent
+        content={doc([
+          {
+            type: "paragraph",
+            content: [{ type: "image", attrs: { src: "javascript:alert(1)", alt: "x" } }],
+          },
+        ])}
+      />
+    );
+    expect(html).not.toContain("<img");
+  });
+
   it("renders mention nodes as readable @Name text (regression: they were invisible)", () => {
     const html = renderToStaticMarkup(
       <ReadOnlyContent

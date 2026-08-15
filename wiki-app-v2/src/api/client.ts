@@ -255,6 +255,23 @@ export const api = {
     }),
   deletePage: (branchId: string) =>
     request<{ ok: true }>(`/api/branches/${branchId}/page`, { method: "DELETE" }),
+  // §3.2 uploads — multipart form-data, so this bypasses the JSON request()
+  // helper (which would set an incorrect Content-Type).
+  uploadFile: async (branchId: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`/api/branches/${branchId}/files`, {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+    if (!res.ok) {
+      let body: unknown = null;
+      try { body = await res.json(); } catch { /* no body */ }
+      throw new ApiError(res.status, body);
+    }
+    return res.json() as Promise<{ id: string; filename: string }>;
+  },
   listTrash: (spaceId: string) => request<TrashEntry[]>(`/api/spaces/${spaceId}/trash`),
   restorePage: (spaceId: string, pageId: string) =>
     request<{ ok: true }>(`/api/spaces/${spaceId}/trash/restore`, {

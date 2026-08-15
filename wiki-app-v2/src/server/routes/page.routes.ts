@@ -38,7 +38,7 @@ export async function pageRoutes(app: FastifyInstance) {
   // authoritative Tiptap JSON — the editor renders it directly.
   app.get(
     "/api/branches/:branchId/page",
-    { config: { access: { branchParam: "branchId", minRole: "viewer" } } },
+    { config: { access: { branchParam: "branchId", minRole: "viewer", allowShareToken: true } } },
     async (request, reply) => {
       const { branchId } = request.params as { branchId: string };
       const row = await getPageByBranchId(branchId);

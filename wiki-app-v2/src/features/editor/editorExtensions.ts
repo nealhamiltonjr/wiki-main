@@ -4,6 +4,7 @@ import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import UniqueID from "@tiptap/extension-unique-id";
 import { MermaidNode } from "./extensions/mermaid.js";
+import { Image } from "./extensions/image.js";
 import type { Extensions } from "@tiptap/react";
 
 /**
@@ -65,5 +66,6 @@ export function baseExtensions(): Extensions {
       placeholder: "Write something…",
     }),
     MermaidNode,
+    Image,
   ];
 }

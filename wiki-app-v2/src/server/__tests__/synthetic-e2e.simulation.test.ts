@@ -226,6 +226,21 @@ describe("synthetic end-to-end simulation", () => {
       ),
     ).toBe(true);
 
+    // Public (anonymous) page read through the share token. The password the
+    // link was created with must be supplied alongside it.
+    const publicRead = await app.inject({
+      method: "GET",
+      url: `/api/branches/${page.branchId}/page?shareToken=${share.token}&sharePassword=hunter2`,
+    });
+    expect(publicRead.statusCode).toBe(200);
+    expect((publicRead.json() as { title: string }).title).toBe("From Template");
+    // Wrong password is rejected.
+    const wrongPassword = await app.inject({
+      method: "GET",
+      url: `/api/branches/${page.branchId}/page?shareToken=${share.token}&sharePassword=wrong`,
+    });
+    expect(wrongPassword.statusCode).toBe(401);
+
     const revoke = await app.inject({ method: "DELETE", url: `/api/shares/${share.id}`, headers: { cookie: editor.cookie } });
     expect(revoke.statusCode).toBe(200);
 
