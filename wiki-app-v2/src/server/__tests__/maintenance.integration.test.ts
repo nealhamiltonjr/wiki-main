@@ -60,6 +60,7 @@ async function createPageWithBranch(
   slug: string,
   title: string,
   parentId: string | null = null,
+  content: unknown = { type: "doc", content: [{ type: "paragraph" }] },
 ): Promise<{ pageId: string; branchId: string }> {
   const db = getDb().db;
   const pageId = crypto.randomUUID();
@@ -69,7 +70,7 @@ async function createPageWithBranch(
     slug,
     title,
     ownerId: adminId,
-    content: { type: "doc", content: [{ type: "paragraph" }] },
+    content,
   });
   await db.insert(branches).values({
     id: branchId,
@@ -89,6 +90,10 @@ async function createBacklink(sourcePageId: string, targetBranchId: string): Pro
     targetBranchId,
     targetBlockId: null,
   });
+}
+
+function textDoc(text: string) {
+  return { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] };
 }
 
 beforeAll(async () => {
@@ -134,6 +139,8 @@ describe("maintenance report (brief §12.7)", () => {
     const report = await buildMaintenanceReport(spaceId);
     expect(report.orphanedPages).toEqual([]);
     expect(report.brokenRedirects).toEqual([]);
+    expect(report.brokenWikilinks).toEqual([]);
+    expect(report.similarPages).toEqual([]);
     expect(report.generatedAt).toBeInstanceOf(Date);
   });
 
@@ -237,6 +244,8 @@ describe("maintenance report (brief §12.7)", () => {
     const body = res.json();
     expect(body.orphanedPages).toBeInstanceOf(Array);
     expect(body.brokenRedirects).toBeInstanceOf(Array);
+    expect(body.brokenWikilinks).toBeInstanceOf(Array);
+    expect(body.similarPages).toBeInstanceOf(Array);
     expect(typeof body.generatedAt).toBe("string");
   });
 
@@ -256,5 +265,97 @@ describe("maintenance report (brief §12.7)", () => {
     await renamePage(pageId, "perm-deleted-renamed");
     expect(await deleteAlias(spaceId, "perm-deleted")).toBe(true);
     expect(await deleteAlias(spaceId, "perm-deleted")).toBe(false);
+  });
+
+  it("flags a backlink whose target branch was deleted", async () => {
+    const src = await createPageWithBranch("broken-src", "Broken Source");
+    const tgt = await createPageWithBranch("broken-tgt", "Broken Target");
+    await createBacklink(src.pageId, tgt.branchId);
+
+    const { db } = getDb();
+    await db.delete(branches).where(eq(branches.id, tgt.branchId)).run();
+
+    const report = await buildMaintenanceReport(spaceId);
+    expect(
+      report.brokenWikilinks.find(
+        (b) => b.sourcePageId === src.pageId && b.targetBranchId === tgt.branchId,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("flags a backlink whose target page is in trash", async () => {
+    const src = await createPageWithBranch("trashed-src", "Trashed Source");
+    const tgt = await createPageWithBranch("trashed-tgt", "Trashed Target");
+    await createBacklink(src.pageId, tgt.branchId);
+
+    const { db } = getDb();
+    await db.update(pages).set({ deletedAt: new Date() }).where(eq(pages.id, tgt.pageId)).run();
+
+    const report = await buildMaintenanceReport(spaceId);
+    expect(
+      report.brokenWikilinks.find(
+        (b) => b.sourcePageId === src.pageId && b.targetBranchId === tgt.branchId,
+      ),
+    ).toBeTruthy();
+  });
+
+  it("does not flag a backlink whose target page is live", async () => {
+    const src = await createPageWithBranch("live-src", "Live Source");
+    const tgt = await createPageWithBranch("live-tgt", "Live Target");
+    await createBacklink(src.pageId, tgt.branchId);
+
+    const report = await buildMaintenanceReport(spaceId);
+    expect(
+      report.brokenWikilinks.find(
+        (b) => b.sourcePageId === src.pageId && b.targetBranchId === tgt.branchId,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("detects near-duplicate pages by trigram similarity", async () => {
+    const a = await createPageWithBranch(
+      "dup-a",
+      "Duplicate A",
+      null,
+      textDoc("The quick brown fox jumps over the lazy dog near the river bank while the sun sets slowly in the west over the hills."),
+    );
+    const b = await createPageWithBranch(
+      "dup-b",
+      "Duplicate B",
+      null,
+      textDoc("The quick brown fox jumps over the lazy dog near the river bank while the moon rises slowly in the east over the hills."),
+    );
+
+    const report = await buildMaintenanceReport(spaceId);
+    const pair = report.similarPages.find(
+      (p) =>
+        (p.a.pageId === a.pageId && p.b.pageId === b.pageId) ||
+        (p.a.pageId === b.pageId && p.b.pageId === a.pageId),
+    );
+    expect(pair).toBeTruthy();
+    expect(pair!.score).toBeGreaterThan(0.35);
+  });
+
+  it("does not flag unrelated pages as similar", async () => {
+    const a = await createPageWithBranch(
+      "diff-a",
+      "Different A",
+      null,
+      textDoc("homesteading chickens and building a backyard coop with recycled wood and a metal roof"),
+    );
+    const b = await createPageWithBranch(
+      "diff-b",
+      "Different B",
+      null,
+      textDoc("brewing a lager and managing fermentation temperature during the hot summer months"),
+    );
+
+    const report = await buildMaintenanceReport(spaceId);
+    const pair = report.similarPages.find(
+      (p) =>
+        (p.a.pageId === a.pageId && p.b.pageId === b.pageId) ||
+        (p.a.pageId === b.pageId && p.b.pageId === a.pageId),
+    );
+    expect(pair).toBeUndefined();
   });
 });

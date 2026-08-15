@@ -77,6 +77,29 @@ test("typing content survives page reload", async ({ page }) => {
   await expect(prose).toContainText("Quick brown fox jumps over the lazy dog.");
 });
 
+test("drag handle is a sibling of the ProseMirror root, not a wrapper (§6.2)", async ({ page }) => {
+  await login(page);
+  await openPage(page, "welcome");
+  await enterEditMode(page);
+
+  const editor = page.locator(".ProseMirror");
+  await expect(editor).toBeVisible();
+
+  // Hover a paragraph to summon the block drag handle in the left gutter.
+  await editor.locator("p").first().hover();
+
+  const handle = page.locator(".editor-canvas > .drag-handle");
+  await expect(handle).toBeVisible({ timeout: 5_000 });
+
+  // The handle must live directly under .editor-canvas (sibling of the
+  // ProseMirror root) — never inside the content it is dragging (§6.2).
+  await expect(page.locator(".ProseMirror .drag-handle")).toHaveCount(0);
+
+  // Single-pane invariant is preserved while the handle is visible.
+  await expect(page.locator(".ProseMirror")).toHaveCount(1);
+  await expect(page.locator(".editor-canvas")).toHaveCount(1);
+});
+
 test("editing existing content preserves DOM structure", async ({ page }) => {
   await login(page);
   await openPage(page, "welcome");

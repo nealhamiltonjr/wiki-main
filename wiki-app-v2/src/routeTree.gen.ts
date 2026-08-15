@@ -23,6 +23,7 @@ import { Route as AuthenticatedSettingsAppearanceRouteImport } from './routes/_a
 import { Route as AuthenticatedSettingsDangerRouteImport } from './routes/_authenticated/settings/danger'
 import { Route as AuthenticatedSettingsGroupsRouteImport } from './routes/_authenticated/settings/groups'
 import { Route as AuthenticatedSettingsIntegrationsRouteImport } from './routes/_authenticated/settings/integrations'
+import { Route as AuthenticatedSettingsMaintenanceRouteImport } from './routes/_authenticated/settings/maintenance'
 import { Route as AuthenticatedSettingsPluginsRouteImport } from './routes/_authenticated/settings/plugins'
 import { Route as AuthenticatedSettingsProfileRouteImport } from './routes/_authenticated/settings/profile'
 import { Route as AuthenticatedSettingsSpacesRouteImport } from './routes/_authenticated/settings/spaces'
@@ -107,6 +108,12 @@ const AuthenticatedSettingsIntegrationsRoute =
     path: '/integrations',
     getParentRoute: () => AuthenticatedSettingsRoute,
   } as any)
+const AuthenticatedSettingsMaintenanceRoute =
+  AuthenticatedSettingsMaintenanceRouteImport.update({
+    id: '/maintenance',
+    path: '/maintenance',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
 const AuthenticatedSettingsPluginsRoute =
   AuthenticatedSettingsPluginsRouteImport.update({
     id: '/plugins',
@@ -166,6 +173,7 @@ export interface FileRoutesByFullPath {
   '/settings/danger': typeof AuthenticatedSettingsDangerRoute
   '/settings/groups': typeof AuthenticatedSettingsGroupsRoute
   '/settings/integrations': typeof AuthenticatedSettingsIntegrationsRoute
+  '/settings/maintenance': typeof AuthenticatedSettingsMaintenanceRoute
   '/settings/plugins': typeof AuthenticatedSettingsPluginsRoute
   '/settings/profile': typeof AuthenticatedSettingsProfileRoute
   '/settings/spaces': typeof AuthenticatedSettingsSpacesRoute
@@ -187,6 +195,7 @@ export interface FileRoutesByTo {
   '/settings/danger': typeof AuthenticatedSettingsDangerRoute
   '/settings/groups': typeof AuthenticatedSettingsGroupsRoute
   '/settings/integrations': typeof AuthenticatedSettingsIntegrationsRoute
+  '/settings/maintenance': typeof AuthenticatedSettingsMaintenanceRoute
   '/settings/plugins': typeof AuthenticatedSettingsPluginsRoute
   '/settings/profile': typeof AuthenticatedSettingsProfileRoute
   '/settings/spaces': typeof AuthenticatedSettingsSpacesRoute
@@ -212,6 +221,7 @@ export interface FileRoutesById {
   '/_authenticated/settings/danger': typeof AuthenticatedSettingsDangerRoute
   '/_authenticated/settings/groups': typeof AuthenticatedSettingsGroupsRoute
   '/_authenticated/settings/integrations': typeof AuthenticatedSettingsIntegrationsRoute
+  '/_authenticated/settings/maintenance': typeof AuthenticatedSettingsMaintenanceRoute
   '/_authenticated/settings/plugins': typeof AuthenticatedSettingsPluginsRoute
   '/_authenticated/settings/profile': typeof AuthenticatedSettingsProfileRoute
   '/_authenticated/settings/spaces': typeof AuthenticatedSettingsSpacesRoute
@@ -236,6 +246,7 @@ export interface FileRouteTypes {
     | '/settings/danger'
     | '/settings/groups'
     | '/settings/integrations'
+    | '/settings/maintenance'
     | '/settings/plugins'
     | '/settings/profile'
     | '/settings/spaces'
@@ -257,6 +268,7 @@ export interface FileRouteTypes {
     | '/settings/danger'
     | '/settings/groups'
     | '/settings/integrations'
+    | '/settings/maintenance'
     | '/settings/plugins'
     | '/settings/profile'
     | '/settings/spaces'
@@ -281,6 +293,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings/danger'
     | '/_authenticated/settings/groups'
     | '/_authenticated/settings/integrations'
+    | '/_authenticated/settings/maintenance'
     | '/_authenticated/settings/plugins'
     | '/_authenticated/settings/profile'
     | '/_authenticated/settings/spaces'
@@ -398,6 +411,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsIntegrationsRouteImport
       parentRoute: typeof AuthenticatedSettingsRoute
     }
+    '/_authenticated/settings/maintenance': {
+      id: '/_authenticated/settings/maintenance'
+      path: '/maintenance'
+      fullPath: '/settings/maintenance'
+      preLoaderRoute: typeof AuthenticatedSettingsMaintenanceRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
     '/_authenticated/settings/plugins': {
       id: '/_authenticated/settings/plugins'
       path: '/plugins'
@@ -462,6 +482,7 @@ interface AuthenticatedSettingsRouteChildren {
   AuthenticatedSettingsDangerRoute: typeof AuthenticatedSettingsDangerRoute
   AuthenticatedSettingsGroupsRoute: typeof AuthenticatedSettingsGroupsRoute
   AuthenticatedSettingsIntegrationsRoute: typeof AuthenticatedSettingsIntegrationsRoute
+  AuthenticatedSettingsMaintenanceRoute: typeof AuthenticatedSettingsMaintenanceRoute
   AuthenticatedSettingsPluginsRoute: typeof AuthenticatedSettingsPluginsRoute
   AuthenticatedSettingsProfileRoute: typeof AuthenticatedSettingsProfileRoute
   AuthenticatedSettingsSpacesRoute: typeof AuthenticatedSettingsSpacesRoute
@@ -477,6 +498,7 @@ const AuthenticatedSettingsRouteChildren: AuthenticatedSettingsRouteChildren = {
   AuthenticatedSettingsGroupsRoute: AuthenticatedSettingsGroupsRoute,
   AuthenticatedSettingsIntegrationsRoute:
     AuthenticatedSettingsIntegrationsRoute,
+  AuthenticatedSettingsMaintenanceRoute: AuthenticatedSettingsMaintenanceRoute,
   AuthenticatedSettingsPluginsRoute: AuthenticatedSettingsPluginsRoute,
   AuthenticatedSettingsProfileRoute: AuthenticatedSettingsProfileRoute,
   AuthenticatedSettingsSpacesRoute: AuthenticatedSettingsSpacesRoute,

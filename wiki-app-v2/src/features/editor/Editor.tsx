@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { baseExtensions, stripWordHTML } from "./editorExtensions.js";
+import { editingExtensions } from "./editingExtensions.js";
 import { useCollab, type CollabUser } from "./useCollab.js";
 import { useTiptapExtensions, useToolbarItems } from "@/plugins/registry";
 import { SlashMenuExtension, SlashMenu } from "./SlashMenu.js";
@@ -90,7 +91,8 @@ export const PageEditor = forwardRef<PageEditorHandle, {
     ...(extensions ?? baseExtensions()),
     ...registryExtensions,
     SlashMenuExtension,
-  ], [extensions, registryExtensions]);
+    ...(editable ? editingExtensions() : []),
+  ], [extensions, registryExtensions, editable]);
 
   const editor = useEditor({
     extensions: allExtensions,

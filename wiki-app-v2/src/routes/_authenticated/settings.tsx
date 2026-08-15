@@ -42,6 +42,7 @@ const SECTIONS = [
   { to: "/settings/appearance", label: "Appearance", adminOnly: false },
   { to: "/settings/tokens", label: "Tokens", adminOnly: false },
   { to: "/settings/spaces", label: "Spaces", adminOnly: true },
+  { to: "/settings/maintenance", label: "Maintenance", adminOnly: true },
   { to: "/settings/groups", label: "Groups & Permissions", adminOnly: true },
   { to: "/settings/users", label: "Users", adminOnly: true },
   { to: "/settings/plugins", label: "Plugins", adminOnly: true },

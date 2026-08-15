@@ -43,11 +43,15 @@ export function baseExtensions(): Extensions {
   return [
     StarterKit.configure({
       heading: { levels: [1, 2, 3, 4] },
-      // Tiptap v3's StarterKit already bundles Link and Underline; the custom
-      // instances below carry the app's specific config (openOnClick,
-      // isAllowedUri) and must not be shadowed by StarterKit's defaults.
+      // Tiptap v3's StarterKit already bundles Link, Underline and Dropcursor;
+      // the custom instances below carry the app's specific config and must not
+      // be shadowed by StarterKit's defaults.
       link: false,
       underline: false,
+      // §7.13: the dropcursor draws the blue drop-position line while a block
+      // is dragged via the global drag handle. Keep it on StarterKit (not a
+      // separate instance) so there is exactly one dropcursor plugin.
+      dropcursor: { color: "var(--color-primary)", width: 2 },
     }),
     Underline,
     // "all" = every node except doc/text, mirroring ensureBlockIds — block ids
