@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { sanitizeMermaidSvg } from "./sanitizeSvg.js";
 
 /**
  * Renders a Mermaid diagram from source text as an inline SVG (§13.6).
  * Only used in read mode — in edit mode, the Tiptap Editor renders the node
  * as a pre/code block natively.
+ *
+ * The output of `mermaid.render()` is sanitized via DOMPurify before being
+ * injected into the DOM (see `sanitizeSvg.ts`). Defense-in-depth against the
+ * CVE pattern that hits Docmost, GitLab, Dify, and OneUptime — see the comment
+ * in `sanitizeSvg.ts` for the full reasoning.
  */
 export function MermaidRenderer({ source }: { source: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -22,7 +28,7 @@ export function MermaidRenderer({ source }: { source: string }) {
 
         mermaid.initialize({ startOnLoad: false, theme: "neutral" });
         const { svg: result } = await mermaid.render(`mermaid-${id}`, source);
-        if (!cancelled) setSvg(result);
+        if (!cancelled) setSvg(sanitizeMermaidSvg(result));
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Diagram render error");

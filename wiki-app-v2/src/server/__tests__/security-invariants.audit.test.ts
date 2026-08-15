@@ -218,10 +218,11 @@ describe("§9.2 / §7.2 mechanical invariants", () => {
   });
 
   it("§9.2 — dangerouslySetInnerHTML is restricted to sanctioned escape paths", () => {
-    // The four justified call sites are: Prism-highlighted code blocks
+    // The justified call sites are: Prism-highlighted code blocks
     // (safe by construction: Prism escapes input), Mermaid-rendered SVG
-    // (server-side rendered, CSP blocks inline scripts), and Prism
-    // highlighted code pages. New callers MUST be reviewed.
+    // (sanitized via DOMPurify before reaching dangerouslySetInnerHTML —
+    // see sanitizeSvg.ts and the audit test below), and Prism-highlighted
+    // code pages. New callers MUST be reviewed.
     const ALLOWED = [
       "src/features/editor/codeHighlight.ts",
       "src/features/editor/extensions/MermaidRenderer.tsx",
@@ -268,5 +269,21 @@ describe("§9.2 / §7.2 mechanical invariants", () => {
     expect(fileRoutes).toMatch(/X-Content-Type-Options[^]*nosniff/);
     const pluginRoutes = readFileSync(join(SRC_ROOT, "server", "routes", "plugin.routes.ts"), "utf8");
     expect(pluginRoutes).toMatch(/X-Content-Type-Options[^]*nosniff/);
+  });
+
+  it("§9.2 — Mermaid renderer passes its output through DOMPurify before the DOM", () => {
+    // The compiler-side counterpart of the unit tests in
+    // src/features/editor/extensions/__tests__/sanitizeSvg.test.ts. If a
+    // future refactor drops the sanitize call, this fails the audit
+    // before the unit test even runs.
+    const renderer = readFileSync(
+      join(SRC_ROOT, "features", "editor", "extensions", "MermaidRenderer.tsx"),
+      "utf8",
+    );
+    // The renderer must import the sanitizer
+    expect(renderer).toMatch(/import\s*\{[^}]*sanitizeMermaidSvg[^}]*\}\s*from/);
+    // The rendered SVG must be sanitized before it is set (i.e. between
+    // mermaid.render() and the setState call).
+    expect(renderer).toMatch(/mermaid\.render\([^)]*\)\s*;?\s*[\s\S]*?sanitizeMermaidSvg/);
   });
 });

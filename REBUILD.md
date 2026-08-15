@@ -364,11 +364,13 @@ Assuming your background is "personal wiki," the V2 app gives you:
 
 The app is at this gate today:
 
-- **Vitest: 81 files / 619 tests** green.
+- **Vitest: 82 files / 626 tests** green.
 - **Typecheck (`tsc --noEmit`) clean.**
 - **`vite build` clean.**
 - **Playwright e2e: 22 / 22** green (happy path, editor, tree, plugins, first-party, TOC, trash, favorites / comments / notifications, skeleton).
 - **Synthetic end-to-end HTTP simulation** green.
+
+**Caveat:** the 22 Playwright specs are mostly smoke-level checks (a page loads without crashing). They do **not** come close to the brief's §9.4 "click every button" checklist. The four missing client wrappers in §7.12 are not exercised by any spec, and the e2e layer would not have caught them. See §7.12 for the honest accounting.
 
 ---
 
@@ -426,6 +428,50 @@ The last-admin guard prevents the obvious lockout. The exhaustive "I have no adm
 - Real-time cross-page notifications (the `/api/notifications` endpoint is read-on-load; live updates via the WebSocket are not wired).
 - A native desktop wrapper (Electron / Tauri). The app is a web app; the user runs it via Vite dev or production node.
 - Plugin marketplace / plugin discovery. The plugin engine is real; the marketplace is not.
+
+### 7.12 Verified gaps after the doc was originally written
+
+This section is the honest erratum. The original draft of this document claimed §6 was "feature-complete against the brief." A subsequent audit by a careful reader cross-referenced every server route against the client and against the test layer, and surfaced the following real gaps. They are written here so the next agent does not trust the closing line.
+
+**Missing client wrappers (server routes exist, are tested, but no client UI calls them).**
+
+- `clonePage` — server endpoint exists, fully tested, no client wrapper. Cannot clone a page from the UI.
+- `moveBranch` — same shape. Cannot move a branch between parents / spaces from the UI.
+- `renamePage` — same. The slug stays what it was created at.
+- `removeBranch` — same. (`deletePage` *has* a client function but it is never called from anywhere — that's a separate dead-code issue.)
+
+None of these are hard to fix; each is a small vertical slice (client wrapper + Tiptap/React handler + one e2e that actually clicks the button). They are real work, not one-liners.
+
+**Missing / unwired UI layers.**
+
+- **Tree context menu.** The brief's §9.4 checklist explicitly says "right-click a tree node — the context menu appears and every action in it actually works." There is no e2e anywhere that does this.
+- **Search UI.** The `/api/search` endpoint exists and is wired through the client; the in-app search surface is shallow relative to what the brief expected.
+
+**E2E depth is shallower than the test count suggests.**
+
+The Vitest suite is genuinely green (82 files / 626 tests as of this section's writing). The Playwright suite is **22 specs across 10 files** and most files have 1–2 tests — smoke-level checks that a page loads without crashing, not the click-every-button interaction testing the brief's §9.4 checklist called for. The `tree.spec.ts` file has exactly one test (`"tree renders after login"`). The existing e2e layer would not have caught the missing client wrappers above.
+
+**Mermaid SVG sanitization was missing as DOMPurify.** (Discovered and fixed in the same commit as this section.)
+
+The original `MermaidRenderer.tsx` took `mermaid.render()` output and pushed it into `dangerouslySetInnerHTML` with no sanitization pass. The brief's §9.2 audit allow-list comment called this "safe — CSP blocks inline scripts," which is wrong: SVG can carry `<script>`, `<foreignObject>`, and event handlers that the browser parses and executes; the CSP does not catch them.
+
+This is the **same shape** as a real, disclosed CVE in Docmost (GHSA-r4hj-mc62-jmwj) and similar issues in GitLab, Dify, and OneUptime. The mermaid version pinned here is patched against the named CVEs we know about, but the next bypass would land here unprotected. The fix:
+
+- `src/features/editor/extensions/sanitizeSvg.ts` — DOMPurify helper, SVG profile, `FORBID_TAGS` + `FORBID_ATTR` belt-and-suspenders.
+- `MermaidRenderer.tsx` — calls `sanitizeMermaidSvg(result)` before `setSvg`.
+- `__tests__/sanitizeSvg.test.ts` — 6 unit tests against adversarial SVGs (script, event handlers, foreignObject, iframe/object/embed, defends legitimate geometry, returns a string).
+- `security-invariants.audit.test.ts` — adds a static guard that fails the audit if a future refactor drops the `sanitizeMermaidSvg` call from the renderer.
+
+**What the "619 passing tests" actually exercised, and what it did not.**
+
+The Vitest count is real and the integration tests are real (permission algorithm, plugin engine, git pipeline, hooks, plugin admin round-trip). The doc never claimed the integration tests were shallow; it claimed the app was feature-complete. The honest summary is: the integration layer is solid; the e2e layer is shallow; the cross-route-vs-client audit hadn't been done until after the doc was written; the brief's §9.4 "click every button" check is still ahead.
+
+The remaining work this surfaces, in priority order:
+
+1. The four missing client wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`) and the `deletePage` dead-code review.
+2. The tree context menu and its e2e.
+3. The search UI depth and its e2e.
+4. Playwright spec depth in general — most files need 2-5 more tests each to approach the brief's §9.4 checklist.
 
 ---
 
@@ -539,15 +585,26 @@ The git log on `rebuild-v2`. The commit messages are dense and intentional — t
 
 ### 9.6 The honest current state
 
-The V2 rebuild is feature-complete against the brief. The remaining work is:
+The V2 rebuild is **mostly** feature-complete against the brief, but the closing line of an earlier draft of this document was overconfident. The honest statement is:
 
-- **Multi-placement collab** (the brief's stated target scenario, not currently implemented).
-- **Bundle-size polish** (lazy chunks; the Mermaid + KaTeX + Cytoscape renderer chunks are large).
-- **A real production-data migration** when the user has production data to migrate.
-- **Mobile experience** (a non-goal; not in scope).
-- **CPU / memory sandboxing for plugin code** (not in brief; would require a worker process or WASM).
+- **Solid:** the integration layer (permission algorithm, plugin engine, git pipeline, hooks, plugin admin round-trip, lens system, page lifecycle, trash, redirects, diff, maintenance, relations, graph, templates, code pages, encryption, markdown round-trip, file uploads, search endpoint, settings audit). 82 files / 626 Vitest tests green; typecheck clean; `vite build` clean; 22/22 Playwright specs green.
+- **Verified gaps** (see §7.12): the four missing client wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`); the tree context menu; the search UI depth; the e2e depth in general — 22 specs is not enough to claim the §9.4 "click every button" checklist has been exercised.
+- **The "feature-complete" line was wrong.** The Mermaid XSS gap and the missing client wrappers and the missing tree context menu are real, observed gaps. They were not in the original draft of this document. They are now documented in §7.12.
 
-Everything else is documented, tested, and shipped.
+The remaining work, in priority order:
+
+1. **Mermaid XSS** — ✅ shipped (DOMPurify sanitization + 6 unit tests + 1 audit guard).
+2. **The four missing client wrappers** plus the `deletePage` dead-code review. Each is a small vertical slice.
+3. **The tree context menu** and its e2e.
+4. **The search UI depth** and its e2e.
+5. **Playwright spec depth** in general — most files need 2–5 more tests each to approach the brief's §9.4 checklist.
+6. **Multi-placement collab** (the brief's stated target scenario, not currently implemented).
+7. **Bundle-size polish** (lazy chunks; the Mermaid + KaTeX + Cytoscape renderer chunks are large).
+8. **A real production-data migration** when the user has production data to migrate.
+9. **Mobile experience** (a non-goal; not in scope).
+10. **CPU / memory sandboxing for plugin code** (not in brief; would require a worker process or WASM).
+
+The integration layer is solid. The docs-and-tests layer is not yet a complete mirror of the user-facing surface. The next agent's job is to close items 2–5 before claiming the whole thing is done.
 
 ---
 
