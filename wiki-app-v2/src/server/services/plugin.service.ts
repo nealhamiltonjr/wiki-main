@@ -361,7 +361,7 @@ export async function setPluginEnabled(pluginId: string, enabled: boolean, actor
   // boot isn't required (unlike serverRoutes, which Fastify locks at
   // boot — that's why boot already registered every serverRoutes
   // plugin; hooks don't share that constraint).
-  if (enabled) {
+  if (enabled && existing.capabilities.hooks) {
     await loadPluginHookModule(pluginId);
   } else {
     unregisterPluginHooks(pluginId);

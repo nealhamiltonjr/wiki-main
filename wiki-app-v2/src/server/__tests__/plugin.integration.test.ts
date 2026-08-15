@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { randomBytes } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -130,6 +130,33 @@ describe("plugin engine (slice-12) integration", () => {
     expect(readFileSync(path.join(pluginDir, "plugin.json"), "utf-8")).toContain('"hello-world"');
     expect(readFileSync(path.join(pluginDir, "client/index.js"), "utf-8")).toContain("HelloWorldNode");
     expect(readFileSync(path.join(pluginDir, "server/index.js"), "utf-8")).toContain("helloWorldPlugin");
+  });
+
+  it("enabling a serverRoutes-only plugin does not load it as a hook module (regression)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { totalHookSubscriptionCount } = await import("../hooks.js");
+      const before = totalHookSubscriptionCount();
+
+      const res = await app.inject({
+        method: "PUT",
+        url: "/api/plugins/hello-world/enabled",
+        headers: { cookie: adminCookie },
+        payload: { enabled: true },
+      });
+      expect(res.statusCode).toBe(200);
+
+      // hello-world declares serverRoutes, not hooks — it must NOT be imported
+      // through the hook-module path (which would call its Fastify plugin with
+      // a bare {registerHook} API and throw "app.get is not a function").
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('[hooks] Failed to load hook handlers for plugin "hello-world"'),
+        expect.anything(),
+      );
+      expect(totalHookSubscriptionCount()).toBe(before);
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it("rejects a second install of the same plugin id", async () => {
