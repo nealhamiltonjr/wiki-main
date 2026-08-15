@@ -2414,4 +2414,63 @@ write paths that the audit flagged as having stale-read races.
   Discourse tier) applies on every reply; count + insert are
   wrapped in a single transaction so two concurrent replies on the
   same thread can't both observe "below cap" and both insert.
+- Slice-52 (e2e selector tightening): 21/21 e2e. The plugins e2e
+  spec's "Settings" link matcher was a substring match; slice-47's
+  home page added "Settings → Spaces" which now collides. Switched
+  to `exact: true` so a future copy change doesn't quietly reopen
+  the bug.
+- Slice-53 (purgePage disk cleanup): 75 files / 591 tests.
+  `purgePage` removed the pages row but the on-disk
+  `data/files/<pageId>/` directory was never reaped. The slice
+  resolves the per-page directory under FILES_ROOT and removes
+  it with `rm -rf` (asserting the resolved path stays inside the
+  root) so a future regression that drops a `..` segment into
+  `pageId` can't escalate to an arbitrary-directory rm.
+- Slice-54 (slug uniqueness within a space): 75 files / 595 tests.
+  Neither `createPage` nor `renamePage` checked for another live
+  page sharing the same slug in the same space — the two pages
+  both exported to `<spaceSlug>/<slug>.md` and silently raced the
+  git flush pipeline. Added a shared `slugTakenInSpace` helper
+  used by both create and rename; cross-space collisions are
+  allowed because slugs are per-space at runtime.
+- Slice-55 (cross-space mention-spam filter): 76 files / 598 tests.
+  `processMentions` previously delivered a notification for any
+  registered user named in a `mention` node, regardless of whether
+  they had any relationship to the page's space. A registered user
+  could spam another with notifications linking to a page they
+  couldn't open. New `mentionableRecipients` filter requires (a)
+  the user exists in `users` and (b) shares a space with the page.
+  The slice-9 mention-delivery tests updated to add the mentioned
+  user to the author's space first (production flow).
+- Slice-56 (share-link passwords with scrypt): 77 files / 602 tests.
+  Share-link passwords were hashed with the same SHA-256 the URL
+  token uses — fine for the random token, brute-forced in seconds
+  for any short user-supplied password. Now hashed with scrypt
+  (N=2^14, r=8, p=1, per-row random salt) and stored as
+  `scrypt$<salt-hex>$<key-hex>`; verified with `timingSafeEqual`.
+  Legacy SHA-256 format is rejected by the new check so a
+  pre-slice-56 row surfaces as a clean auth failure.
+- Slice-57 (mass-assignment hardening): 77 files / 602 tests.
+  Every writable zod body schema now uses `.strict()` so unknown
+  keys are a 400 instead of being silently stripped. The
+  hooks-events test helper was passing `{ slug, name: slug }` to
+  `/api/spaces` (a leftover from an earlier schema) — `.strict()`
+  forced it to drop the bogus key.
+- Slice-58 (web-clipper SSRF redirect bypass): 21/21 e2e.
+  `web-clipper-plugin/server/index.js` validated the user-supplied
+  URL once against a private-IP blocklist, then fetched with
+  `redirect: "follow"`. An attacker could host
+  `https://attacker.example/redirect` which 302s to
+  `http://192.168.1.1/admin` and the guard never ran on the
+  redirect target. After fetch resolves, the plugin re-validates
+  `res.url` against the same `isPrivateTarget` helper. Web clipper
+  / drawio embed XSS surface reviewed; both render user-supplied
+  data via Tiptap's `renderHTML` (DOM array, not HTML string) — safe
+  by construction. Plugin zip rebuilt from source; firstparty e2e
+  suite still 100% green with `ALLOW_PRIVATE_CLIP_HOSTS=1`.
+- Slice-59 (cookie/CSRF posture verified): 78 files / 604 tests.
+  The session cookie's `Set-Cookie` already carries HttpOnly +
+  SameSite=Lax + Path=/ thanks to better-auth's defaults; the
+  `cookie-security.audit.test.ts` regression-locks those attributes
+  so an upstream default change can't silently regress them.
 
