@@ -3928,3 +3928,13 @@ Gotchas worth remembering:
 - First sign-up is auto-promoted to admin (bootstrap hook in `auth/config.ts`).
 
 Verification: `tsc --noEmit` clean, full Vitest suite 80 files / 609 tests green, `npm run build` green.
+
+## Session note (2026-08-01, second pass) — remaining V14 gaps closed
+
+- **Public share read** — `GET /api/branches/:branchId/page` now accepts `allowShareToken: true` so an anonymous password-protected share link can read the page body (regression: the link UI worked but the page GET 401'd). Covered in the synthetic e2e simulation.
+- **Upload file UI (Slice 25)** — `api.uploadFile` (multipart fetch), an `Upload` toolbar button in `EditorToolbar`, and a custom inline `image` Tiptap node (`features/editor/extensions/image.ts`) so uploaded raster images render inline (§9.4). Non-images insert as a download link. `ReadOnlyContent` now renders inline images with `safeImageSrc` (drops `javascript:`/`data:`/`svg` srcs).
+- **Inline comments (Slice 33)** — the floating bubble menu gains an "Add comment" button that captures the selection's containing `blockId` + character `rangeFrom/rangeTo` + text, then `w/$branchId.tsx` opens a small composer and calls `createCommentThread` with the full anchor. No schema change: the server already persists blockId-anchored ranges.
+- Tests: added ReadOnlyContent image render/drop cases. Full suite now **80 files / 611 tests green**; `tsc --noEmit` and `npm run build` green. Committed as `74d9637`.
+
+Still deferred (confirmed Docmost-style extras, not V14 parity): Slice 34 paragraph drag/move + comment-range highlight decorations. Do not implement without explicit request — they risk the §6 single-pane invariant.
+
