@@ -11,12 +11,12 @@ import { getSystemHealth } from "../services/system-health.service.js";
 const setSettingBody = z.object({
   value: z.unknown(),
   isSecret: z.boolean().optional(),
-});
+}).strict();
 
 const gitRemoteBody = z.object({
   url: z.string().max(500),
   branch: z.string().max(200).optional(),
-});
+}).strict();
 
 export async function setSystemSetting(
   key: string,

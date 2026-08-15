@@ -7,7 +7,7 @@ import { auditLog, users } from "../db/schema.js";
 const updateUserBody = z.object({
   isAdmin: z.boolean().optional(),
   suspended: z.boolean().optional(),
-});
+}).strict();
 
 /**
  * §7.1 Users (admin). better-auth owns identity; this surface is the two

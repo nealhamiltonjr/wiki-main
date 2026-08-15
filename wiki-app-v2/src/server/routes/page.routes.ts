@@ -151,7 +151,7 @@ export async function pageRoutes(app: FastifyInstance) {
     expectedUpdatedAt: z.coerce.date(),
     // §13.7: true means `content` is a CryptoEnvelope to persist verbatim.
     encrypted: z.boolean().optional(),
-  });
+  }).strict();
 
   app.put(
     "/api/branches/:branchId/page/content",
@@ -235,7 +235,7 @@ export async function pageRoutes(app: FastifyInstance) {
     // highlighting + the git file extension; absent → wiki page.
     pageType: z.enum(["wiki", "code"]).optional(),
     language: z.string().max(40).nullable().optional(),
-  });
+  }).strict();
 
   app.post(
     "/api/spaces/:spaceId/pages",
@@ -284,7 +284,7 @@ export async function pageRoutes(app: FastifyInstance) {
     }
   );
 
-  const trashBody = z.object({ pageId: z.string().min(1) });
+  const trashBody = z.object({ pageId: z.string().min(1) }).strict();
 
   /** Loads the page row and verifies it has a placement in THIS space's trash (a
    *  page id from another space must not be restorable/purgeable through this
@@ -352,7 +352,7 @@ export async function pageRoutes(app: FastifyInstance) {
   // exactly like content saves.
   // -------------------------------------------------------------------------
 
-  const renameBody = z.object({ slug: z.string().min(1).max(120).regex(PAGE_SLUG_RE) });
+  const renameBody = z.object({ slug: z.string().min(1).max(120).regex(PAGE_SLUG_RE) }).strict();
 
   app.put(
     "/api/pages/:pageId/branches/:branchId/slug",
@@ -428,7 +428,7 @@ export async function pageRoutes(app: FastifyInstance) {
     }
   );
 
-  const snapshotBody = z.object({ message: z.string().min(1).max(200) });
+  const snapshotBody = z.object({ message: z.string().min(1).max(200) }).strict();
 
   app.post(
     "/api/pages/:pageId/branches/:branchId/snapshot",
@@ -457,7 +457,7 @@ export async function pageRoutes(app: FastifyInstance) {
 
   // commitHash is passed into git commands (diff-tree/show). Validate it as
   // hex so a value like "--output=/tmp/x" can never be parsed as a git option.
-  const restoreBody = z.object({ commitHash: z.string().regex(/^[0-9a-f]{7,64}$/i) });
+  const restoreBody = z.object({ commitHash: z.string().regex(/^[0-9a-f]{7,64}$/i) }).strict();
 
   app.post(
     "/api/pages/:pageId/branches/:branchId/restore",

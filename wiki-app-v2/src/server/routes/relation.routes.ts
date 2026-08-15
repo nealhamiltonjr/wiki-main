@@ -19,7 +19,7 @@ const createSchema = z.object({
   type: z.string().min(1).max(64),
   toPageId: z.string().min(1),
   position: z.number().int().optional(),
-});
+}).strict();
 
 function caller(request: unknown): UserContext | null {
   const r = request as { userContext?: UserContext };

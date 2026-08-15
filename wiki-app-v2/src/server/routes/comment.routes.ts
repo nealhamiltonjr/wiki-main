@@ -99,15 +99,15 @@ const createThreadBody = z.object({
   blockId: z.string().max(64).optional(),
   body: z.string().min(1), // size-enforced inside the route via commentBodySchema
   selection: z.string().max(2000).optional(),
-});
+}).strict();
 
 const addReplyBody = z.object({
   body: z.string().min(1), // size-enforced inside the route
-});
+}).strict();
 
 const updateBody = z.object({
   body: z.string().min(1), // size-enforced inside the route
-});
+}).strict();
 
 // ---- helpers ----
 

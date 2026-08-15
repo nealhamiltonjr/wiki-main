@@ -15,14 +15,14 @@ import {
 const createGroupBody = z.object({
   name: z.string().min(1).max(100),
   capabilities: z.array(z.string()).optional(),
-});
+}).strict();
 
 const updateGroupBody = z.object({
   name: z.string().min(1).max(100).optional(),
   capabilities: z.array(z.string()).optional(),
-});
+}).strict();
 
-const addMemberBody = z.object({ userId: z.string().min(1) });
+const addMemberBody = z.object({ userId: z.string().min(1) }).strict();
 
 /**
  * §7.1 Groups & Permissions (admin). Groups are the SOLE permission-granting

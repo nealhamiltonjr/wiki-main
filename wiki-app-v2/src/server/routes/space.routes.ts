@@ -10,7 +10,7 @@ import { buildMaintenanceReport, deleteAlias } from "../services/maintenance.ser
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
 
-const createSpaceBody = z.object({ name: z.string().min(1) });
+const createSpaceBody = z.object({ name: z.string().min(1) }).strict();
 
 export async function spaceRoutes(app: FastifyInstance) {
   app.post("/api/spaces", { config: { access: "authenticated" } }, async (request, reply) => {
@@ -139,7 +139,7 @@ export async function spaceRoutes(app: FastifyInstance) {
       const blocked = await spaceAdminGuard(request, reply);
       if (blocked) return blocked;
       const { spaceId } = request.params as { spaceId: string };
-      const body = z.object({ userId: z.string().min(1), role: z.enum(["viewer", "editor", "admin"]) }).parse(request.body);
+      const body = z.object({ userId: z.string().min(1), role: z.enum(["viewer", "editor", "admin"]) }).strict().parse(request.body);
 
       const { db } = getDb();
       // Validate the user exists up front — a bogus id would otherwise surface
@@ -178,7 +178,7 @@ export async function spaceRoutes(app: FastifyInstance) {
       const blocked = await spaceAdminGuard(request, reply);
       if (blocked) return blocked;
       const { spaceId } = request.params as { spaceId: string };
-      const body = z.object({ groupId: z.string().min(1), role: z.enum(["viewer", "editor", "admin"]) }).parse(request.body);
+      const body = z.object({ groupId: z.string().min(1), role: z.enum(["viewer", "editor", "admin"]) }).strict().parse(request.body);
 
       const { db } = getDb();
       // Validate the group exists up front — a bogus id would otherwise surface
@@ -219,7 +219,7 @@ export async function spaceRoutes(app: FastifyInstance) {
       const blocked = await spaceAdminGuard(request, reply);
       if (blocked) return blocked;
       const { spaceId } = request.params as { spaceId: string };
-      const body = z.object({ defaultRole: z.enum(["editor", "viewer", "none"]) }).parse(request.body);
+      const body = z.object({ defaultRole: z.enum(["editor", "viewer", "none"]) }).strict().parse(request.body);
 
       const { db } = getDb();
       await db.update(spaces).set({ defaultRole: body.defaultRole }).where(eq(spaces.id, spaceId));

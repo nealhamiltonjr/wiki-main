@@ -11,7 +11,7 @@ const createTokenBody = z.object({
   scopeId: z.string().nullable().optional(),
   permission: z.enum(["view", "edit", "admin"]),
   expiresAt: z.string().datetime().nullable().optional(), // ISO; null = no expiration
-});
+}).strict();
 
 function toPublicToken(row: typeof tokens.$inferSelect) {
   return {

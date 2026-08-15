@@ -64,7 +64,7 @@ const criteriaSchema = z.object({
   ownerScope: ownerScopeSchema.optional(),
   spaceIds: z.array(z.string().min(1)).max(100).optional(),
   includeTrash: z.boolean().optional(),
-});
+}).strict();
 
 const visibilitySchema = z.enum(["private", "unlisted", "public"]);
 
@@ -73,7 +73,7 @@ const createSchema = z.object({
   description: z.string().max(280).nullish(),
   criteria: criteriaSchema,
   visibility: visibilitySchema.optional(),
-});
+}).strict();
 
 const patchSchema = z
   .object({
@@ -82,6 +82,7 @@ const patchSchema = z
     criteria: criteriaSchema.optional(),
     visibility: visibilitySchema.optional(),
   })
+  .strict()
   .refine((v) => Object.keys(v).length > 0, { message: "no fields to update" });
 
 function caller(request: unknown): UserContext | null {

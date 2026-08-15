@@ -59,7 +59,7 @@ async function createSpace(cookie: string, slug: string): Promise<{ id: string }
     method: "POST",
     url: "/api/spaces",
     headers: { cookie },
-    payload: { slug, name: slug },
+    payload: { name: slug },
   });
   expect(res.statusCode).toBe(201);
   return res.json() as { id: string };

@@ -13,11 +13,11 @@ import type { UserContext } from "../../shared/types.js";
 const cloneBody = z.object({
   targetSpaceId: z.string().min(1),
   targetParentBranchId: z.string().min(1).nullable(),
-});
+}).strict();
 
 const moveBody = z.object({
   newParentBranchId: z.string().min(1).nullable(),
-});
+}).strict();
 
 /**
  * Can this user create-or-keep an editor-level placement under the given parent
