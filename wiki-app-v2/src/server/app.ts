@@ -29,6 +29,7 @@ import { recordSystemLog } from "./services/system-logger.service.js";
 import { debugRoutes } from "./routes/debug.routes.js";
 import { templateRoutes } from "./routes/template.routes.js";
 import { shareRoutes } from "./routes/share.routes.js";
+import { attributeRoutes } from "./routes/attribute.routes.js";
 import multipart from "@fastify/multipart";
 
 /**
@@ -130,6 +131,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(debugRoutes);
   await app.register(templateRoutes);
   await app.register(shareRoutes);
+  await app.register(attributeRoutes);
 
   // Slice 35 — record every completed HTTP request for the debug capture ring
   // (only persisted while capture is enabled). Registered after routes so the

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Pencil, Eye, Loader2, MessageSquare, History, Link2, Network, Lock, LockOpen } from "lucide-react";
+import { Pencil, Eye, Loader2, MessageSquare, History, Link2, Network, Lock, LockOpen, Share2, Tags } from "lucide-react";
 
 import { api, type PageData } from "@/api/client";
 import { CollabEditor, PageEditor, type PageEditorHandle } from "@/features/editor/Editor";
@@ -13,6 +13,8 @@ import { TableOfContents } from "@/features/editor/TableOfContents";
 import { CodePageReadOnly } from "@/features/editor/CodePageReadOnly";
 import { CodePageEditor } from "@/features/editor/CodePageEditor";
 import { EncryptedPageLock } from "@/features/encryption/EncryptedPageLock";
+import { ShareDialog } from "@/features/sharing/ShareDialog";
+import { PagePropertiesPanel } from "@/features/properties/PagePropertiesPanel";
 import { ProtectPageDialog } from "@/features/encryption/ProtectPageDialog";
 import { createEnvelope, sealContent, type CryptoEnvelope } from "@/shared/cryptoEnvelope";
 import { CommentsPanel } from "@/features/comments/CommentsPanel";
@@ -59,6 +61,8 @@ function PageView() {
   const [unlock, setUnlock] = useState<{ plaintext: unknown; dek: CryptoKey; updatedAt: string } | null>(null);
   const [showProtect, setShowProtect] = useState(false);
   const [protectBusy, setProtectBusy] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [showProperties, setShowProperties] = useState(false);
 
   const { data: page, loading, error, reload } = useQuery(
     () => api.getPage(branchId),
@@ -109,6 +113,8 @@ function PageView() {
     setCollabOn(false);
     setUnlock(null);
     setShowProtect(false);
+    setShowShare(false);
+    setShowProperties(false);
   }, [branchId]);
 
   // Derive the star's initial state from the user's favorites list (refetched
@@ -230,6 +236,10 @@ function PageView() {
         onToggleRelations={() => setShowRelations((s) => !s)}
         showGraph={showGraph}
         onToggleGraph={() => setShowGraph((s) => !s)}
+        showShare={showShare}
+        onToggleShare={() => setShowShare((s) => !s)}
+        showProperties={showProperties}
+        onToggleProperties={() => setShowProperties((s) => !s)}
         initiallyFavorited={favoriteBranchIds?.has(page.branchId) ?? false}
         initiallyPinned={pinnedBranchIds?.has(page.branchId) ?? false}
         isEncrypted={isEncrypted}
@@ -331,6 +341,13 @@ function PageView() {
             pageId={page.id}
           />
         )}
+        {showProperties && (
+          <PagePropertiesPanel
+            key={page.id}
+            pageId={page.id}
+            canEdit={page.access === "editor" || page.access === "admin"}
+          />
+        )}
       </div>
       {showProtect && (
         <ProtectPageDialog
@@ -338,6 +355,9 @@ function PageView() {
           onCancel={() => setShowProtect(false)}
           onConfirm={handleProtectConfirm}
         />
+      )}
+      {showShare && (
+        <ShareDialog branchId={branchId} onClose={() => setShowShare(false)} />
       )}
     </div>
   );
@@ -356,6 +376,10 @@ function PageHeader({
   onToggleRelations,
   showGraph,
   onToggleGraph,
+  showShare,
+  onToggleShare,
+  showProperties,
+  onToggleProperties,
   initiallyFavorited,
   initiallyPinned,
   isEncrypted,
@@ -375,6 +399,10 @@ function PageHeader({
   onToggleRelations: () => void;
   showGraph: boolean;
   onToggleGraph: () => void;
+  showShare: boolean;
+  onToggleShare: () => void;
+  showProperties: boolean;
+  onToggleProperties: () => void;
   initiallyFavorited: boolean;
   initiallyPinned: boolean;
   isEncrypted: boolean;
@@ -405,6 +433,19 @@ function PageHeader({
       <div className="flex items-center gap-1">
         <FavoriteButton branchId={page.branchId} initiallyFavorited={initiallyFavorited} />
         <PinButton branchId={page.branchId} initiallyPinned={initiallyPinned} />
+        <button
+          type="button"
+          onClick={onToggleShare}
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-md border border-border transition-colors",
+            showShare ? "bg-accent text-primary" : "text-text-secondary hover:bg-surface-hover"
+          )}
+          aria-label={showShare ? "Hide share" : "Share this page"}
+          aria-pressed={showShare}
+          data-testid="share-toggle"
+        >
+          <Share2 className="h-4 w-4" />
+        </button>
         {!editMode && (page.access === "editor" || page.access === "admin") ? (
           isEncrypted && unlocked ? (
             <button
@@ -484,6 +525,19 @@ function PageHeader({
         >
           <Network className="h-4 w-4" />
         </button>
+        <button
+          type="button"
+          onClick={onToggleProperties}
+          className={cn(
+            "flex h-8 w-8 items-center justify-center rounded-md border border-border transition-colors",
+            showProperties ? "bg-accent text-primary" : "text-text-secondary hover:bg-surface-hover"
+          )}
+          aria-label={showProperties ? "Hide page properties" : "Show page properties"}
+          aria-pressed={showProperties}
+          data-testid="properties-toggle"
+        >
+          <Tags className="h-4 w-4" />
+        </button>
         {page.access === "editor" || page.access === "admin" ? (
           <button
             type="button"
@@ -560,6 +614,19 @@ function EditableCanvas({
   const handleUpdate = useCallback(() => {
     if (!collabOn) scheduleSave();
   }, [collabOn, scheduleSave]);
+
+  // Slice 30 — warn before the browser tears down the page while a save is
+  // dirty/in-flight. The autosave controller also flushes on unmount, so this
+  // is a belt-and-suspenders guard for hard refreshes / tab close.
+  useEffect(() => {
+    if (saveState !== "dirty" && saveState !== "saving") return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [saveState]);
 
   if (collabOn) {
     return (
@@ -657,6 +724,16 @@ function CodeEditableCanvas({ branchId, slug, content, language, updatedAt, onCo
     setValue(next);
     scheduleSave();
   }, [scheduleSave]);
+
+  useEffect(() => {
+    if (saveState !== "dirty" && saveState !== "saving") return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [saveState]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

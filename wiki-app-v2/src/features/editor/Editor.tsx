@@ -5,7 +5,7 @@ import type { Editor } from "@tiptap/react";
 import { Collaboration } from "@tiptap/extension-collaboration";
 import { CollaborationCaret } from "@tiptap/extension-collaboration-caret";
 import {
-  Bold, Italic, Underline as UnderlineIcon, Strikethrough, Heading1, Heading2,
+  Bold, Italic, Underline as UnderlineIcon, Strikethrough, Heading1, Heading2, Heading3,
   List, ListOrdered, Quote, Code, Undo2, Redo2, Workflow,
 } from "lucide-react";
 
@@ -204,12 +204,19 @@ function EditorToolbar({ editor, pluginItems }: { editor: Editor; pluginItems: R
         onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
         <Heading2 className="h-4 w-4" />
       </ToolbarButton>
+      <ToolbarButton title="Heading 3" active={editor.isActive("heading", { level: 3 })}
+        onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>
+        <Heading3 className="h-4 w-4" />
+      </ToolbarButton>
       <span className="mx-1 h-4 w-px bg-border" aria-hidden />
       <ToolbarButton title="Bold" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>
         <Bold className="h-4 w-4" />
       </ToolbarButton>
       <ToolbarButton title="Italic" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}>
         <Italic className="h-4 w-4" />
+      </ToolbarButton>
+      <ToolbarButton title="Inline code" active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()}>
+        <Code className="h-4 w-4" />
       </ToolbarButton>
       <ToolbarButton title="Underline" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}>
         <UnderlineIcon className="h-4 w-4" />

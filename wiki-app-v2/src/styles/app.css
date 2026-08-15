@@ -168,7 +168,7 @@
  * ------------------------------------------------------------------------- */
 .wiki-prose {
   padding: var(--space-8) var(--space-8) var(--space-16);
-  max-width: 72ch;
+  max-width: var(--editor-width, 72ch);
   margin: 0 auto;
   font-size: var(--text-base);
   line-height: var(--leading-relaxed);

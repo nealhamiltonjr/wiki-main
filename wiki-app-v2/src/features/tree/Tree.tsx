@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Tree as ArboristTree, type NodeRendererProps } from "react-arborist";
-import { ChevronRight, Pin, Trash2 } from "lucide-react";
+import { ChevronRight, Pin, Trash2, Plus } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 
 import { api, type SpaceSummary, type TreeNode } from "../../api/client.js";
@@ -73,19 +73,49 @@ export function Tree() {
     if (activeSpace) api.getSpaceTree(activeSpace).then(setTree).catch(() => setTree([]));
   }, [activeSpace]);
 
+  // Slice 27 — one-step "new page" affordance from the sidebar. Slug is
+  // user-supplied (validated server-side); navigate straight into the editor.
+  async function handleCreatePage() {
+    if (!activeSpace) return;
+    const slug = window.prompt("New page slug (letters, digits, - _ .):");
+    if (!slug) return;
+    try {
+      const { branchId } = await api.createPage(activeSpace, { slug });
+      const fresh = await api.getSpaceTree(activeSpace);
+      setTree(fresh);
+      navigate({ to: "/w/$branchId", params: { branchId } });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not create page";
+      window.alert(message);
+    }
+  }
+
   return (
     <div className="wiki-sidebar">
       <div className="wiki-sidebar-controls">
-        <select
-          className="w-full rounded-md border bg-background px-2 py-1 text-sm"
-          value={activeSpace ?? ""}
-          onChange={(e) => setActiveSpace(e.target.value)}
-          aria-label="Active space"
-        >
-          {spaces.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
+        <div className="flex gap-1">
+          <select
+            className="w-full rounded-md border bg-background px-2 py-1 text-sm"
+            value={activeSpace ?? ""}
+            onChange={(e) => setActiveSpace(e.target.value)}
+            aria-label="Active space"
+          >
+            {spaces.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={handleCreatePage}
+            disabled={!activeSpace}
+            className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium hover:bg-surface-hover disabled:opacity-50"
+            title="New page in this space"
+            data-testid="sidebar-new-page"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New
+          </button>
+        </div>
       </div>
 
       <div className="wiki-tree" ref={containerRef}>

@@ -95,3 +95,38 @@ export async function countErrorsSince(since: Date): Promise<number> {
     .where(and(eq(systemLogs.level, "error"), gte(systemLogs.createdAt, since)));
   return rows[0]?.n ?? 0;
 }
+
+/**
+ * Slice 28 — full recent log stream (all levels), newest-first, bounded.
+ * The admin Logs page renders this; errors are also surfaced on Health.
+ */
+export async function getRecentSystemLogs(limit = 100): Promise<{
+  id: string;
+  level: SystemLogLevel;
+  source: string;
+  message: string;
+  meta: unknown;
+  createdAt: string;
+}[]> {
+  const { db } = getDb();
+  const rows = await db
+    .select({
+      id: systemLogs.id,
+      level: systemLogs.level,
+      source: systemLogs.source,
+      message: systemLogs.message,
+      meta: systemLogs.meta,
+      createdAt: systemLogs.createdAt,
+    })
+    .from(systemLogs)
+    .orderBy(desc(systemLogs.createdAt))
+    .limit(limit);
+  return rows.map((r) => ({
+    id: r.id,
+    level: r.level as SystemLogLevel,
+    source: r.source,
+    message: r.message,
+    meta: r.meta,
+    createdAt: r.createdAt.toISOString(),
+  }));
+}

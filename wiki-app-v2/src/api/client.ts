@@ -328,4 +328,33 @@ export const api = {
     request<{ lens: LensDetail; hits: LensHit[] }>(
       `/api/lenses/by-token/${token}/results${opts.includeAttributes ? "?include=attributes" : ""}`,
     ),
+
+  // Slice 21 — per-user settings (editor width, etc.).
+  getUserSettings: () => request<{ key: string; value: unknown }[]>("/api/user-settings"),
+  setUserSetting: (key: string, value: unknown) =>
+    request<{ key: string; value: unknown }>(`/api/user-settings/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    }),
+
+  // Slice 24 — branch-scoped share links.
+  listShares: (branchId: string) =>
+    request<{ id: string; name: string | null; permission: "view" | "edit"; expiresAt: string | null; passwordProtected: boolean }[]>(
+      `/api/branches/${branchId}/shares`,
+    ),
+  createShare: (branchId: string, body: { permission: "view" | "edit"; password?: string; name?: string }) =>
+    request<{ id: string; token: string; shareUrl: string }>(`/api/branches/${branchId}/shares`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  revokeShare: (id: string) => request<{ ok: true }>(`/api/shares/${id}`, { method: "DELETE" }),
+
+  // Slice 22 — page properties (attributes).
+  listAttributes: (pageId: string) =>
+    request<{ id: string; pageId: string; name: string; value: string; valuePageId: string | null; isPromoted: boolean; position: number }[]>(
+      `/api/pages/${pageId}/attributes`,
+    ),
+  addAttribute: (pageId: string, body: { name: string; value?: string; isPromoted?: boolean }) =>
+    request(`/api/pages/${pageId}/attributes`, { method: "POST", body: JSON.stringify(body) }),
+  removeAttribute: (id: string) => request<{ ok: true }>(`/api/attributes/${id}`, { method: "DELETE" }),
 };

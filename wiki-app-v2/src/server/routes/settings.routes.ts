@@ -4,6 +4,7 @@ import { eq, and } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { systemSettings, userSettings } from "../db/schema.js";
 import { getSystemHealth } from "../services/system-health.service.js";
+import { getRecentSystemLogs } from "../services/system-logger.service.js";
 
 // Slice-14 settings surface (§7.1 System / Integrations). `systemSettings`
 // (brief §3.9) is admin-only config; secret values are written through
@@ -149,6 +150,18 @@ export async function settingsRoutes(app: FastifyInstance) {
     async (_request, reply) => {
       const report = await getSystemHealth();
       return reply.send(report);
+    }
+  );
+
+  // Slice 28 — recent system log stream (all levels), newest-first.
+  app.get(
+    "/api/settings/system-logs",
+    { config: { access: "admin" } },
+    async (request, reply) => {
+      const limitRaw = (request.query as { limit?: string }).limit;
+      const parsed = limitRaw ? Number(limitRaw) : 100;
+      const limit = Number.isFinite(parsed) ? Math.min(Math.max(Math.floor(parsed), 1), 500) : 100;
+      return reply.send(await getRecentSystemLogs(limit));
     }
   );
 

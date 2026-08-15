@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { request } from "@/api/client";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/settings/system")({
   component: SystemSettingsPage,
@@ -21,6 +22,15 @@ interface SystemHealth {
   database: { path: string; sizeBytes: number | null; journalMode: string | null; pageCount: number | null; note?: string };
   plugins: { failing: { id: string; name: string; failureCount: number; lastError: string | null; autoDisabled: boolean }[]; note?: string };
   runtime: { uptimeSec: number; node: string; pid: number };
+}
+
+interface SystemLogEntry {
+  id: string;
+  level: "debug" | "info" | "warn" | "error";
+  source: string;
+  message: string;
+  meta: unknown;
+  createdAt: string;
 }
 
 function formatBytes(n: number | null): string {
@@ -50,6 +60,16 @@ function SystemSettingsPage() {
   const [error, setError] = useState("");
   const [healthError, setHealthError] = useState("");
   const [healthLoading, setHealthLoading] = useState(false);
+  const [logs, setLogs] = useState<SystemLogEntry[]>([]);
+
+  const loadLogs = useCallback(async () => {
+    try {
+      const rows = await request<SystemLogEntry[]>("/api/settings/system-logs");
+      setLogs(rows);
+    } catch {
+      setLogs([]);
+    }
+  }, []);
 
   const loadHealth = useCallback(async () => {
     setHealthLoading(true);
@@ -70,8 +90,9 @@ function SystemSettingsPage() {
       .then((i) => { if (!cancelled) setInfo(i); })
       .catch(() => { if (!cancelled) setError("Failed to load system info"); });
     loadHealth();
+    loadLogs();
     return () => { cancelled = true; };
-  }, [loadHealth]);
+  }, [loadHealth, loadLogs]);
 
   if (error) return <div className="text-sm text-danger">{error}</div>;
   if (!info) return <p className="text-sm text-text-muted">Loading…</p>;
@@ -258,6 +279,47 @@ function SystemSettingsPage() {
               </div>
             )}
           </>
+        )}
+      </section>
+
+      {/* Slice 28 — full system log stream. Kept separate from Health so the
+          "last 20 errors" aggregate stays compact while an operator can still
+          page through recent debug/info/warn rows. */}
+      <section className="space-y-3 border-t border-border pt-6">
+        <div className="flex items-baseline justify-between">
+          <div>
+            <h3 className="text-sm font-medium text-text-secondary">Logs</h3>
+            <p className="text-xs text-text-muted">Recent system events across all levels.</p>
+          </div>
+          <button
+            type="button"
+            onClick={loadLogs}
+            className="text-xs px-2 py-1 border border-border rounded hover:bg-bg-muted"
+          >
+            Refresh
+          </button>
+        </div>
+        {logs.length === 0 ? (
+          <p className="text-xs text-text-muted">No system log entries recorded yet.</p>
+        ) : (
+          <ul className="space-y-1 text-xs font-mono">
+            {logs.map((l) => (
+              <li key={l.id} className="border-l-2 border-border pl-2">
+                <div className="flex items-center gap-2">
+                  <span className={cn(
+                    "uppercase tracking-wide",
+                    l.level === "error" && "text-danger",
+                    l.level === "warn" && "text-warning",
+                    l.level === "info" && "text-link",
+                    l.level === "debug" && "text-text-muted",
+                  )}>{l.level}</span>
+                  <span className="text-text-muted">{formatAgo(l.createdAt)}</span>
+                  <span className="text-text-secondary">{l.source}</span>
+                </div>
+                <div className="text-text-secondary break-words">{l.message}</div>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
     </div>
