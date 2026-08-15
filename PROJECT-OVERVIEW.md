@@ -4,6 +4,8 @@ USER_CONTEXT: Continue building wiki-app-v2 following WIKI-REDESIGN-BRIEF-V2.md 
 
 ## Task tracking
 
+- **slice-34 (Docmost-style paragraph drag handle, section 6.2):** completed - vendored/adapted drag-handle plugin (key `globalDragHandle`) anchored to `.editor-canvas` as a sibling of the ProseMirror root; `editingExtensions.ts` wiring; token-clean CSS; unit + e2e sibling-not-wrapper assertion. 81 files / 618 tests green; typecheck + build clean; `e2e/editor.spec.ts` 4/4.
+- **slice G (G-light maintenance report, section 12.7):** completed - `buildMaintenanceReport` extended with `brokenWikilinks` (stale backlinks) and `similarPages` (deterministic trigram/Dice near-duplicates, no AI/embeddings); admin-only `/settings/maintenance` UI; `maintenance.integration.test.ts` 17 tests. 81 files / 618 tests green; synthetic e2e simulation green.
 - **slice-10 (Git flush pipeline):** completed.
 - **slice-11 (Collab via Hocuspocus):** completed — root-cause bug fixed, all gate tests green, full manual lifecycle verified.
 - **slice-12 (Plugin engine):** completed — code + E2E gate green (10/10 e2e parallel, 176/176 unit/integration).

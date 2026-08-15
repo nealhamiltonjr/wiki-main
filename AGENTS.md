@@ -533,3 +533,84 @@ The backend is complete; the **client side is not wired**:
   set of pages rendered from promoted attributes).
 - §13.5: event-driven automation through the plugin engine (no raw
   per-page scripting).
+
+## Slice-34: Docmost-style paragraph drag handle (§6.2, commit acbd2c7)
+
+### What landed
+- `src/features/editor/extensions/dragHandle.ts` — vendored/adapted Docmost
+  block drag-handle as a ProseMirror plugin (key `globalDragHandle`). The
+  handle element is appended to the nearest `.editor-canvas` ancestor (not the
+  ProseMirror root and never a wrapper), with a `view.dom.parentElement`
+  fallback. Drag preview + drop indicator re-create the Docmost/Siyuan feel
+  using CSS tokens only.
+- `src/features/editor/editingExtensions.ts` — new module exporting the
+  editing-only extension list (the drag handle). Kept separate from
+  `editorExtensions.ts` so read-only rendering never mounts it.
+- `src/features/editor/Editor.tsx` — imports/wires the editing extensions.
+- `src/features/editor/editorExtensions.ts` — dropcursor stays on StarterKit
+  (single instance, no duplicate `dropCursor` plugin); color now reads
+  `var(--color-primary)`.
+- `src/styles/app.css` — `.editor-canvas` is the `position: relative` anchor;
+  `.drag-handle` is `position: absolute` and hover-revealed, sibling of the
+  content, never inside `.ProseMirror`.
+- e2e: `e2e/editor.spec.ts` "drag handle is a sibling of the ProseMirror
+  root, not a wrapper (§6.2)" — hovers a paragraph, asserts exactly one
+  handle under `.editor-canvas` and zero under `.ProseMirror`.
+- Unit: `src/features/editor/__tests__/editingExtensions.test.ts` (2 tests).
+
+### Invariants
+- **Exactly one dropcursor.** StarterKit owns it; `editingExtensions` must not
+  add a second `dropCursor` instance.
+- **Handle is a sibling of the ProseMirror root**, a child of `.editor-canvas`,
+  never inside the content it drags (§6.2 single-pane structural rule).
+- **No literal colors** — the drag preview/handle styles must read tokens.css
+  vars; `src/styles/__tests__/theme.test.ts` enforces this mechanically.
+
+### Pitfalls hit
+- `FileEditorAction` failed once because `old_str === new_str` (no-op edit);
+  the e2e test was instead inserted with the `insert` command at the correct
+  line.
+- Initial unit-test failure was a plugin-name mismatch (`dropcursor` vs
+  `dropCursor`).
+- Theming gate caught four literal-color violations in the new files
+  (dropcursor hex, preview background/border/shadow); all switched to tokens.
+
+## Slice G (G-light): maintenance report — similar pages + broken wikilinks (§12.7, commit acbd2c7)
+
+### Scope decision
+"G-light" = no AI/embeddings and no external services. Similar-page detection
+is deterministic trigram (Sørensen–Dice) similarity over `docToText` plain
+text; broken wikilinks reuse the existing `backlinks` index (no new schema).
+
+### What landed
+- `src/server/services/maintenance.service.ts` — `buildMaintenanceReport`
+  now returns four arrays:
+  - `orphanedPages` (unchanged)
+  - `brokenRedirects` (unchanged)
+  - `brokenWikilinks` — backlink rows out of this space's live pages whose
+    target branch no longer resolves to a live non-system page (deleted branch
+    or trashed page). Carries `sourceBranchId` for UI navigation.
+  - `similarPages` — pairwise near-duplicate pairs over live space pages with
+    ≥ 80 chars of rendered text, scored by trigram Dice coefficient (threshold
+    0.35), capped to 3 decimals. Pairs are sorted by score desc.
+- `src/routes/_authenticated/settings/maintenance.tsx` — admin-only settings
+  sub-page: space `<select>`, then four sections (orphaned, broken wikilinks,
+  stale redirects, near-duplicates) with branch links into `/w/$branchId`.
+- `src/routes/_authenticated/settings.tsx` — added the "Maintenance" nav entry
+  (adminOnly). The TanStack route tree regenerates on `vite build`; typecheck
+  resolves the new route only after that regen.
+
+### Invariants
+- **Admin-only** (matches the existing §12.7 maintenance route): broken
+  redirect/wikilink metadata would leak page slugs/titles to non-admins.
+- **No new schema** — the report is a pure read over `pages`, `branches`,
+  `backlinks`, `pageRedirects`; no AI, embeddings, or network calls.
+- **Similarity is deterministic and server-side** — no `Math.random`, so SSR
+  hydration stays stable.
+
+### Tests
+- `src/server/__tests__/maintenance.integration.test.ts` extended from 11 →
+  17 tests: broken (deleted branch / trashed page) vs live backlinks, near-
+  duplicate detection above threshold, unrelated pages below threshold, and
+  both new fields asserted in the empty-report and admin-GET cases.
+
