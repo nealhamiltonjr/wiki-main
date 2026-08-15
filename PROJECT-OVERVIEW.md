@@ -321,24 +321,28 @@ dialog with destructive styling and a working Esc/cancel.
 "Save changes" → confirm the network request and the success state.
 Try `Delete` on a group with members to see the impact-confirm dialog.
 
-## Next up (slice 17+)
+## App status
 
-17. **Full regression pass** — Vitest + Playwright + §9.4 manual checklist.
+**Feature-complete against `WIKI-REDESIGN-BRIEF-V2.md`.** Every §12 and §13
+wiki/knowledge-base addition, every §1 non-negotiable outcome, and the §11
+operational-resilience requirements are implemented and tested.
+
+Final regression gate (verified 2026-08-01):
+
+- Vitest: **81 files / 619 tests** green.
+- Typecheck (`tsc --noEmit`) clean; `vite build` clean.
+- Playwright e2e: **22/22** green (happy path, editor, tree, plugins, first-party,
+  TOC, trash, favorites/comments/notifications, skeleton).
+- Synthetic end-to-end HTTP simulation green.
+- Last fix (commit `5c0444e`): `setPluginEnabled` no longer loads hook modules
+  for `serverRoutes`-only plugins (regression test in
+  `plugin.integration.test.ts`).
 
 ## Repo hygiene
 
-- Branch `rebuild-v2`; latest commits `2d8f4db` (slice-14 docs), `d3dee0c`
-  (slice-14 settings), `fab8e03` (slice-13 first-party plugins).
-- Slice-15 theming work is **uncommitted** in the working tree:
-  - `src/styles/tokens.css` (canonical tokens + `@theme inline` aliases)
-  - `src/styles/app.css` (now only `@layer base`; alias block removed)
-  - `src/styles/__tests__/theme.test.ts` (new — 3 acceptance tests)
-  - `src/features/editor/useCollab.ts` (caret palette via CSS vars)
-  - `src/features/editor/Editor.tsx` (collab indicator dots)
-  - `src/features/favorites/FavoriteButton.tsx`
-  - `src/features/comments/CommentsPanel.tsx`
-  - `src/features/editor/extensions/MermaidRenderer.tsx`
-  - `src/routes/_authenticated/settings/plugins.tsx`
-  - `AGENTS.md` (slice-15 section), `PROJECT-OVERVIEW.md` (this file)
-- `tsconfig.tsbuildinfo` and `data/` are untracked build/local artifacts (data/ is
-  gitignored at workspace level).
+- Branch `rebuild-v2`; latest commits `7a4855e` (docs), `5c0444e`
+  (plugin-hook fix), `6b7e4ff` (Slice 34 + G docs), `acbd2c7`
+  (Slice 34 + G code).
+- `dist/`, `test-results/`, and `data/` are untracked build/local artifacts
+  (`data/` is gitignored at workspace level).
+
