@@ -525,14 +525,12 @@ The backend is complete; the **client side is not wired**:
   panel's internal surface.
 
 ### Next-up
-- §13.3: template pages via attribute inheritance (`template:<page>`
-  attribute that propagates a template's attribute set to all pages
-  using it). The attribute infrastructure already exists; this slice
-  is the read-side resolution at page-render time.
-- §13.4: attribute-driven table / kanban views (saved views over a
-  set of pages rendered from promoted attributes).
-- §13.5: event-driven automation through the plugin engine (no raw
-  per-page scripting).
+- §13.3 template inheritance, §13.4 attribute-driven table/board views, and
+  §13.5 plugin event hooks are all implemented and tested (see
+  `template.service.ts`, `lens.service.ts` + `features/lenses/*`,
+  `hooks.ts` + `hookTypes.ts`, and `hooks.events.test.ts`). The remaining
+  brief items (§12.1–12.7, §13.1–13.7) are likewise complete — the app is
+  feature-complete against `WIKI-REDESIGN-BRIEF-V2.md`.
 
 ## Slice-34: Docmost-style paragraph drag handle (§6.2, commit acbd2c7)
 
@@ -613,4 +611,17 @@ text; broken wikilinks reuse the existing `backlinks` index (no new schema).
   17 tests: broken (deleted branch / trashed page) vs live backlinks, near-
   duplicate detection above threshold, unrelated pages below threshold, and
   both new fields asserted in the empty-report and admin-GET cases.
+
+## Final regression pass (commit 5c0444e)
+
+- Fixed a real plugin-engine bug: `setPluginEnabled` unconditionally called
+  `loadPluginHookModule` on every enable, so a `serverRoutes`-only plugin
+  (hello-world) had its Fastify plugin invoked with a bare `{registerHook}`
+  API and logged `[hooks] Failed to load hook handlers ... app.get is not a
+  function`. Now gated on `existing.capabilities.hooks` (matching
+  `registerPluginHookHandlers`), plus a regression test in
+  `plugin.integration.test.ts` (console.error spy + hook-count invariant).
+- Full gate: 81 files / 619 vitest tests, typecheck, `vite build`, and
+  Playwright 22/22 all green; synthetic e2e simulation green.
+
 
