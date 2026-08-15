@@ -367,10 +367,10 @@ The app is at this gate today:
 - **Vitest: 82 files / 626 tests** green.
 - **Typecheck (`tsc --noEmit`) clean.**
 - **`vite build` clean.**
-- **Playwright e2e: 22 / 22** green (happy path, editor, tree, plugins, first-party, TOC, trash, favorites / comments / notifications, skeleton).
+- **Playwright e2e: 28 / 28** green (happy path, editor, tree, plugins, first-party, TOC, trash, favorites / comments / notifications, skeleton, tree-context-menu).
 - **Synthetic end-to-end HTTP simulation** green.
 
-**Caveat:** the 22 Playwright specs are mostly smoke-level checks (a page loads without crashing). They do **not** come close to the brief's §9.4 "click every button" checklist. The four missing client wrappers in §7.12 are not exercised by any spec, and the e2e layer would not have caught them. See §7.12 for the honest accounting.
+**Caveat:** the 28 Playwright specs are still mostly smoke-level checks (a page loads without crashing). They do **not** come close to the brief's §9.4 "click every button" checklist, but they now exercise the four previously-missing client wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`) via `e2e/tree-context-menu.spec.ts`. The e2e layer would have caught the missing-client-wrapper gap it was previously blind to; it would not catch an analogous gap in, e.g., the editor toolbar. See §7.12 for the honest accounting.
 
 ---
 
@@ -433,23 +433,21 @@ The last-admin guard prevents the obvious lockout. The exhaustive "I have no adm
 
 This section is the honest erratum. The original draft of this document claimed §6 was "feature-complete against the brief." A subsequent audit by a careful reader cross-referenced every server route against the client and against the test layer, and surfaced the following real gaps. They are written here so the next agent does not trust the closing line.
 
-**Missing client wrappers (server routes exist, are tested, but no client UI calls them).**
+**Missing client wrappers (server routes exist, are tested, but no client UI calls them).** *(Resolved — see "Slice: client wrappers + tree context menu" below.)*
 
-- `clonePage` — server endpoint exists, fully tested, no client wrapper. Cannot clone a page from the UI.
-- `moveBranch` — same shape. Cannot move a branch between parents / spaces from the UI.
-- `renamePage` — same. The slug stays what it was created at.
-- `removeBranch` — same. (`deletePage` *has* a client function but it is never called from anywhere — that's a separate dead-code issue.)
-
-None of these are hard to fix; each is a small vertical slice (client wrapper + Tiptap/React handler + one e2e that actually clicks the button). They are real work, not one-liners.
+- `clonePage` — server endpoint exists, fully tested, no client wrapper. Cannot clone a page from the UI. **NOW WRAPPED.**
+- `moveBranch` — same shape. Cannot move a branch between parents / spaces from the UI. **NOW WRAPPED.**
+- `renamePage` — same. The slug stays what it was created at. **NOW WRAPPED.**
+- `removeBranch` — same. (`deletePage` *has* a client function but it is never called from anywhere — that's a separate dead-code issue.) **NOW WRAPPED.** `deletePage` was removed outright because (a) it had the wrong URL shape, (b) it had no callers, and (c) shipping a wrapper that points at the wrong endpoint invites misuse — the wrapper comes back when the "delete page everywhere" UI lands, with the correct `?branchId=` access-witness query-string.
 
 **Missing / unwired UI layers.**
 
-- **Tree context menu.** The brief's §9.4 checklist explicitly says "right-click a tree node — the context menu appears and every action in it actually works." There is no e2e anywhere that does this.
-- **Search UI.** The `/api/search` endpoint exists and is wired through the client; the in-app search surface is shallow relative to what the brief expected.
+- **Tree context menu.** The brief's §9.4 checklist explicitly says "right-click a tree node — the context menu appears and every action in it actually works." There is no e2e anywhere that does this. **NOW WIRED.** See "Slice: client wrappers + tree context menu" below.
+- **Search UI.** The `/api/search` endpoint exists and is wired through the client; the in-app search surface is shallow relative to what the brief expected. *(Still pending.)*
 
 **E2E depth is shallower than the test count suggests.**
 
-The Vitest suite is genuinely green (82 files / 626 tests as of this section's writing). The Playwright suite is **22 specs across 10 files** and most files have 1–2 tests — smoke-level checks that a page loads without crashing, not the click-every-button interaction testing the brief's §9.4 checklist called for. The `tree.spec.ts` file has exactly one test (`"tree renders after login"`). The existing e2e layer would not have caught the missing client wrappers above.
+The Vitest suite is genuinely green (82 files / 626 tests as of this section's writing). The Playwright suite is **28 specs across 11 files** and most files still have 1–2 tests — the tree context-menu spec is the exception (6 tests in one file: rename, duplicate, move, delete, cancel, delete-disabled), so the four missing client wrappers are now exercised end-to-end, but the rest of the surface is still smoke-level. The existing e2e layer would have caught the missing client wrappers now that they're wired, but it would not catch an analogous gap in, e.g., the editor toolbar.
 
 **Mermaid SVG sanitization was missing as DOMPurify.** (Discovered and fixed in the same commit as this section.)
 
@@ -468,10 +466,20 @@ The Vitest count is real and the integration tests are real (permission algorith
 
 The remaining work this surfaces, in priority order:
 
-1. The four missing client wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`) and the `deletePage` dead-code review.
-2. The tree context menu and its e2e.
+1. ~~The four missing client wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`) and the `deletePage` dead-code review.~~ **DONE.**
+2. ~~The tree context menu and its e2e.~~ **DONE** (six new e2e tests in `e2e/tree-context-menu.spec.ts`).
 3. The search UI depth and its e2e.
 4. Playwright spec depth in general — most files need 2-5 more tests each to approach the brief's §9.4 checklist.
+
+**Slice: client wrappers + tree context menu.** *(Adds items 1 and 2 to the resolved column.)*
+
+Commit on `rebuild-v2` that closes both items at once:
+
+- `src/api/client.ts` — added `clonePage`, `moveBranch`, `renamePage`, `removeBranch` matching the existing server contracts (`/api/branches/:id/clone`, `/api/branches/:id/move`, `/api/pages/:pageId/branches/:branchId/slug`, `/api/branches/:id`). Removed the unused `deletePage` wrapper; rationale in the inline comment.
+- `src/features/tree/Tree.tsx` — `WikiTreeNode` now captures right-click → `onContextMenu({ branchId, pageId, slug, hasChildren, x, y })`. The Tree parent renders a portal-positioned `<div role="menu" aria-label="Page actions">` with Rename / Duplicate / Move to... / Delete menuitems. Each menuitem (except Duplicate, which is one-click) opens a portal-rendered `<div role="dialog">` with the appropriate form: text input (rename), parent picker (move), confirmation (delete). After every commit the tree refreshes via the existing `getSpaceTree` call. Errors surface through `sonner` toasts. Escape and click-outside both close menu + dialog.
+- `e2e/tree-context-menu.spec.ts` — six new tests in one file: rename (slug change visible), duplicate (count goes up by 1), move (placement re-roots under the picked parent), delete (placement disappears), cancel (Escape closes menu, tree intact), delete-disabled (`welcome` has children so Delete is `disabled`). Each test seeds its own throw-away page via the API so the spec is order-independent — destructive tests don't leak state into non-destructive ones. The seeded tree stays untouched and only serves as navigation backdrop.
+
+Verification: `npm run typecheck` clean; `npx vitest run` 82 files / 626 tests green; `npm run build` clean; `npx playwright test` 28 / 28 green; live app healthy at `192.168.1.13:5173` (FE 200, API 401 unauthenticated — expected).
 
 ---
 
@@ -508,8 +516,8 @@ For LAN access from another machine on the network, the container/host must publ
 
 ```sh
 npm run typecheck    # tsc --noEmit
-npm run test         # vitest (81 files, 619 tests)
-npm run e2e          # Playwright (22 specs)
+npm run test         # vitest (82 files, 626 tests)
+npm run e2e          # Playwright (28 specs, 11 files)
 npm run build        # typecheck + vite build
 ```
 
@@ -587,15 +595,15 @@ The git log on `rebuild-v2`. The commit messages are dense and intentional — t
 
 The V2 rebuild is **mostly** feature-complete against the brief, but the closing line of an earlier draft of this document was overconfident. The honest statement is:
 
-- **Solid:** the integration layer (permission algorithm, plugin engine, git pipeline, hooks, plugin admin round-trip, lens system, page lifecycle, trash, redirects, diff, maintenance, relations, graph, templates, code pages, encryption, markdown round-trip, file uploads, search endpoint, settings audit). 82 files / 626 Vitest tests green; typecheck clean; `vite build` clean; 22/22 Playwright specs green.
-- **Verified gaps** (see §7.12): the four missing client wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`); the tree context menu; the search UI depth; the e2e depth in general — 22 specs is not enough to claim the §9.4 "click every button" checklist has been exercised.
+- **Solid:** the integration layer (permission algorithm, plugin engine, git pipeline, hooks, plugin admin round-trip, lens system, page lifecycle, trash, redirects, diff, maintenance, relations, graph, templates, code pages, encryption, markdown round-trip, file uploads, search endpoint, settings audit). 82 files / 626 Vitest tests green; typecheck clean; `vite build` clean; 28/28 Playwright specs green.
+- **Verified gaps** (see §7.12): the four missing client wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`); the tree context menu; the search UI depth; the e2e depth in general — 28 specs (6 of them in `tree-context-menu.spec.ts`) is not enough to claim the §9.4 "click every button" checklist has been exercised. **The first two are resolved as of this revision;** the search UI depth and the broader e2e depth remain.
 - **The "feature-complete" line was wrong.** The Mermaid XSS gap and the missing client wrappers and the missing tree context menu are real, observed gaps. They were not in the original draft of this document. They are now documented in §7.12.
 
 The remaining work, in priority order:
 
 1. **Mermaid XSS** — ✅ shipped (DOMPurify sanitization + 6 unit tests + 1 audit guard).
-2. **The four missing client wrappers** plus the `deletePage` dead-code review. Each is a small vertical slice.
-3. **The tree context menu** and its e2e.
+2. **The four missing client wrappers** plus the `deletePage` dead-code review. Each is a small vertical slice. **✅ shipped** (see §7.12 "Slice: client wrappers + tree context menu"). `deletePage` was removed outright — see §7.12 for the rationale — and the four real wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`) are now in `src/api/client.ts`.
+3. **The tree context menu** and its e2e. **✅ shipped** (six e2e tests in `e2e/tree-context-menu.spec.ts`).
 4. **The search UI depth** and its e2e.
 5. **Playwright spec depth** in general — most files need 2–5 more tests each to approach the brief's §9.4 checklist.
 6. **Multi-placement collab** (the brief's stated target scenario, not currently implemented).
@@ -604,7 +612,7 @@ The remaining work, in priority order:
 9. **Mobile experience** (a non-goal; not in scope).
 10. **CPU / memory sandboxing for plugin code** (not in brief; would require a worker process or WASM).
 
-The integration layer is solid. The docs-and-tests layer is not yet a complete mirror of the user-facing surface. The next agent's job is to close items 2–5 before claiming the whole thing is done.
+The integration layer is solid. The docs-and-tests layer is not yet a complete mirror of the user-facing surface. The next agent's job is to close items 4 and 5 before claiming the whole thing is done.
 
 ---
 

@@ -253,8 +253,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  deletePage: (branchId: string) =>
-    request<{ ok: true }>(`/api/branches/${branchId}/page`, { method: "DELETE" }),
+  // §3.1 + §9.3 — branch / page lifecycle from the tree context menu.
+  // The four endpoints here were previously tested server-side but unwired
+  // on the client (REBUILD.md §7.12). When the "delete page everywhere" UI
+  // lands it gets its own wrapper here, calling
+  // DELETE /api/pages/:pageId?branchId=<witness> — the previous `deletePage`
+  // was removed because (a) it had the wrong URL shape, (b) it had no
+  // callers, and (c) shipping a wrapper that points at the wrong endpoint
+  // invites misuse.
+  clonePage: (branchId: string, body: { targetSpaceId: string; targetParentBranchId: string | null }) =>
+    request<{ branchId: string; pageId: string }>(`/api/branches/${branchId}/clone`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  moveBranch: (branchId: string, body: { newParentBranchId: string | null }) =>
+    request<{ ok: true }>(`/api/branches/${branchId}/move`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  renamePage: (pageId: string, branchId: string, slug: string) =>
+    request<{ ok: true; slug: string }>(`/api/pages/${pageId}/branches/${branchId}/slug`, {
+      method: "PUT",
+      body: JSON.stringify({ slug }),
+    }),
+  removeBranch: (branchId: string) =>
+    request<{ ok: true }>(`/api/branches/${branchId}`, { method: "DELETE" }),
   // §3.2 uploads — multipart form-data, so this bypasses the JSON request()
   // helper (which would set an incorrect Content-Type).
   uploadFile: async (branchId: string, file: File) => {
