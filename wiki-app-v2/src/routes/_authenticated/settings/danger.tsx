@@ -6,7 +6,7 @@ export const Route = createFileRoute("/_authenticated/settings/danger")({
 
 // §7.1 Admin / Danger zone. Deliberately empty for now: destructive,
 // instance-wide actions (repo re-sync, full wipe, encryption-key rotation)
-// land with the admin-polish slice — see AGENTS.md "Known limitations". The
+// land with the admin-polish slice — see REBUILD.md §7 "Known limits". The
 // section exists so the IA from §7.1 has an unambiguous home for them and no
 // destructive control ends up scattered across other pages (§7.2).
 function DangerZoneSettingsPage() {
