@@ -25,9 +25,9 @@ Cross-session memory for the wiki-main monorepo. Read REBUILD.md before touching
 ## Test layers
 
 - `npm run typecheck` — `tsc --noEmit`, strict.
-- `npx vitest run` — 82 files / 626 tests as of `dd47843`. Configure fileParallelism=false for the integration suite (`data/` + SQLite singleton per worker).
+- `npx vitest run` — **83 files / 629 tests** (after the tree leaf-click + slash-menu slice added `blocksSlashCommands.test.ts`). Configure fileParallelism=false for the integration suite (`data/` + SQLite singleton per worker).
 - `npm run build` — typecheck + `vite build`.
-- `npx playwright test` — 28 specs across 11 files as of `dd47843` (six of them in `e2e/tree-context-menu.spec.ts`).
+- `npx playwright test` — 28 specs across 11 files. Local runs use a focused subset (`tree.spec.ts`, `firstparty.spec.ts`, `happy-path.spec.ts`, `tree-context-menu.spec.ts`, `editor.spec.ts`, `plugins.spec.ts`, `codepage.spec.ts`); the wider suite is exercised in CI. Login in e2e requires the seeded `data/e2e.db` — the locally-running dev server (which uses `data/wiki.db`) won't accept `e2e@test.local`, so e2e must spawn its own stack via `CI=1 npx playwright test ...` (this forces fresh servers + a fresh `data/e2e.db`).
 - Integration tests must set `process.env.DB_PATH` **before any import of `getDb` or services** or the singleton locks onto the default path.
 
 ## Server route shape (for the next slice)
@@ -53,9 +53,19 @@ When you need to wire a UI to an existing server route:
 
 If you're extending this surface, the e2e in `e2e/tree-context-menu.spec.ts` shows the test pattern: each test seeds its own throw-away page via `page.request.post` so destructive tests don't leak state into non-destructive ones.
 
+## Tree leaf-click + first-party slash menu (the slice just shipped)
+
+`src/features/tree/Tree.tsx` — `WikiTreeNode`'s `onClick` now does `node.select(); node.activate();` (previously it only called `node.toggle()` for internal nodes, leaving every leaf inert). The chevron's own click handler stops propagation, so internal expand/collapse still works; every other row click selects AND fires `onActivate` (which navigates).
+
+`src/features/editor/extensions/blocksSlashCommands.ts` — new file registering the §13.6 first-party block commands: `heading-1`..`heading-4`, `bullet-list`, `numbered-list`, `quote`, `code`, `divider`. Each is a Tiptap chain (`editor.chain().focus().toggleHeading({ level: N })`, etc.). Registration is idempotent (a duplicate call is a no-op, so React's dev double-mount can't double-register). Wired into `src/plugins/coreCommands.ts` next to `registerMermaidSlashCommand`.
+
+`src/features/editor/__tests__/blocksSlashCommands.test.ts` — three unit tests: expected names registered, every `run()` is callable, idempotency.
+
+The registry + `<SlashMenu />` already supported dynamic commands, so no UI changes were needed. The slash menu now lists 10 items.
+
 ## Remaining gap items (in priority order)
 
-After `dd47843`, the only remaining "Verified gaps" from REBUILD.md §7.12 are:
+After the leaf-click + slash-menu slice, the only remaining "Verified gaps" from REBUILD.md §7.12 are:
 
 1. **Search UI depth** — the `/api/search` endpoint is wired through the client but the in-app search surface is shallow relative to what the brief expected.
 2. **Playwright spec depth in general** — most files still have 1–2 tests (smoke level). The `tree-context-menu.spec.ts` file is the right shape to copy from (6 tests in one file).

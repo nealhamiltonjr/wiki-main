@@ -60,7 +60,15 @@ function WikiTreeNode({
     <div
       style={{ ...style, margin: 0, display: "flex", alignItems: "center" }}
       className={cn("wiki-tree-item", node.isSelected && "selected")}
-      onClick={() => { if (node.isInternal) node.toggle(); }}
+      onClick={() => {
+        // Don't fight the chevron — it stops propagation so toggling still works.
+        // For every other click on the row, mimic react-arborist's default
+        // handleClick: select the node and fire onActivate (which navigates).
+        // The previous `if (node.isInternal) node.toggle()` left LEAF nodes
+        // completely inert — clicking "notes" did nothing.
+        node.select();
+        node.activate();
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         node.select();

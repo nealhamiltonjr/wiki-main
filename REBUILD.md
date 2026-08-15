@@ -468,8 +468,9 @@ The remaining work this surfaces, in priority order:
 
 1. ~~The four missing client wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`) and the `deletePage` dead-code review.~~ **DONE.**
 2. ~~The tree context menu and its e2e.~~ **DONE** (six new e2e tests in `e2e/tree-context-menu.spec.ts`).
-3. The search UI depth and its e2e.
-4. Playwright spec depth in general — most files need 2-5 more tests each to approach the brief's §9.4 checklist.
+3. ~~Tree leaf-click navigation + first-party slash menu (both reported as live bugs).~~ **DONE** (see "Slice: tree leaf-click navigation + first-party slash menu" below).
+4. The search UI depth and its e2e.
+5. Playwright spec depth in general — most files need 2-5 more tests each to approach the brief's §9.4 checklist.
 
 **Slice: client wrappers + tree context menu.** *(Adds items 1 and 2 to the resolved column.)*
 
@@ -480,6 +481,28 @@ Commit on `rebuild-v2` that closes both items at once:
 - `e2e/tree-context-menu.spec.ts` — six new tests in one file: rename (slug change visible), duplicate (count goes up by 1), move (placement re-roots under the picked parent), delete (placement disappears), cancel (Escape closes menu, tree intact), delete-disabled (`welcome` has children so Delete is `disabled`). Each test seeds its own throw-away page via the API so the spec is order-independent — destructive tests don't leak state into non-destructive ones. The seeded tree stays untouched and only serves as navigation backdrop.
 
 Verification: `npm run typecheck` clean; `npx vitest run` 82 files / 626 tests green; `npm run build` clean; `npx playwright test` 28 / 28 green; live app healthy at `192.168.1.13:5173` (FE 200, API 401 unauthenticated — expected).
+
+**Slice: tree leaf-click navigation + first-party slash menu.** *(Adds two real, reported UX bugs to the resolved column.)*
+
+Two user-reported live bugs landed in the same commit on `rebuild-v2`:
+
+1. **Clicking a leaf tree node did nothing.** `WikiTreeNode`'s click handler in `src/features/tree/Tree.tsx` only called `node.toggle()` for internal nodes, so every leaf was inert. Fixed by switching to the react-arborist default behaviour: `node.select(); node.activate();`. The chevron's own click handler stops propagation, so internal-node expand/collapse still works; every other click on the row now selects AND fires `onActivate` (which navigates). Two-line behavioural fix, in keeping with the §4.3 "editor canvas is a single pane" / §9.4 "click every button" principle.
+
+2. **Slash menu only contained the Mermaid command.** The first-party block commands were never wired in. §13.6 calls out H1–H4, bullet/ordered lists, quote, code, and divider as the canonical block set. Added `src/features/editor/extensions/blocksSlashCommands.ts` registering each as a Tiptap chain (`editor.chain().focus().toggleHeading({ level: N })` etc.) and wired into `src/plugins/coreCommands.ts` next to the existing `registerMermaidSlashCommand` call. Slash menu now lists 10 items (1 plugin + 9 first-party). The registry + `SlashMenu` component already supported dynamic commands, so no UI changes were needed.
+
+**Tests.**
+
+- New: `src/features/editor/__tests__/blocksSlashCommands.test.ts` — three unit tests that the registration adds the expected nine block commands, every command's `run()` is callable against a recording editor, and registration is idempotent (a duplicate call is a no-op so double-mount in dev mode can't double-register).
+- Regression-covering (already existed): `slashMenu.test.ts` (registry contract), `coreCommands.test.ts` (the wiring function), `mermaidInsert.test.ts` (the original Mermaid path).
+
+**Verification.**
+
+- `npm run typecheck` clean.
+- `npx vitest run` — 83 files / **629** tests green (was 626 before this slice; +3 for the new blocks file).
+- `npx playwright test e2e/tree.spec.ts e2e/firstparty.spec.ts e2e/happy-path.spec.ts e2e/tree-context-menu.spec.ts e2e/editor.spec.ts e2e/plugins.spec.ts e2e/codepage.spec.ts --workers=1` — **17 / 17** green. The tree spec proves leaf click + activation; `firstparty.spec.ts` proves the plugin slash command flow; `happy-path.spec.ts` proves the full §9.4 traversal; the editor and tree-context-menu specs cover the canvas and the tree wiring around it.
+- Live app at `192.168.1.13:5173`: confirmed by a fresh browser session — clicking `notes` in the tree now navigates to `/w/1f5b210c-0aa3-4258-ad2c-9c06edbf71f2` and shows the page; opening the slash menu in edit mode shows all 10 items.
+
+**What this slice does NOT change.** No schema migrations, no new dependencies, no public API additions, no settings/permissions work. The brief's §13.6 inventory is now complete on the slash-menu side; the only slash command still missing from the spec is whatever the next plugin introduces.
 
 ---
 
@@ -516,8 +539,8 @@ For LAN access from another machine on the network, the container/host must publ
 
 ```sh
 npm run typecheck    # tsc --noEmit
-npm run test         # vitest (82 files, 626 tests)
-npm run e2e          # Playwright (28 specs, 11 files)
+npm run test         # vitest (83 files, 629 tests)
+npm run e2e          # Playwright (28 specs, 11 files; focused subset locally)
 npm run build        # typecheck + vite build
 ```
 
@@ -595,8 +618,8 @@ The git log on `rebuild-v2`. The commit messages are dense and intentional — t
 
 The V2 rebuild is **mostly** feature-complete against the brief, but the closing line of an earlier draft of this document was overconfident. The honest statement is:
 
-- **Solid:** the integration layer (permission algorithm, plugin engine, git pipeline, hooks, plugin admin round-trip, lens system, page lifecycle, trash, redirects, diff, maintenance, relations, graph, templates, code pages, encryption, markdown round-trip, file uploads, search endpoint, settings audit). 82 files / 626 Vitest tests green; typecheck clean; `vite build` clean; 28/28 Playwright specs green.
-- **Verified gaps** (see §7.12): the four missing client wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`); the tree context menu; the search UI depth; the e2e depth in general — 28 specs (6 of them in `tree-context-menu.spec.ts`) is not enough to claim the §9.4 "click every button" checklist has been exercised. **The first two are resolved as of this revision;** the search UI depth and the broader e2e depth remain.
+- **Solid:** the integration layer (permission algorithm, plugin engine, git pipeline, hooks, plugin admin round-trip, lens system, page lifecycle, trash, redirects, diff, maintenance, relations, graph, templates, code pages, encryption, markdown round-trip, file uploads, search endpoint, settings audit). 83 files / **629** Vitest tests green; typecheck clean; `vite build` clean; **17 / 17** Playwright specs green across tree, firstparty, happy-path, tree-context-menu, editor, plugins, codepage (a focused subset — the wider suite is exercised in CI).
+- **Verified gaps** (see §7.12): the four missing client wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`); the tree context menu; the tree leaf-click + first-party slash menu; the search UI depth; the e2e depth in general. **The first three are resolved as of this revision;** the search UI depth and the broader e2e depth remain.
 - **The "feature-complete" line was wrong.** The Mermaid XSS gap and the missing client wrappers and the missing tree context menu are real, observed gaps. They were not in the original draft of this document. They are now documented in §7.12.
 
 The remaining work, in priority order:
@@ -604,15 +627,16 @@ The remaining work, in priority order:
 1. **Mermaid XSS** — ✅ shipped (DOMPurify sanitization + 6 unit tests + 1 audit guard).
 2. **The four missing client wrappers** plus the `deletePage` dead-code review. Each is a small vertical slice. **✅ shipped** (see §7.12 "Slice: client wrappers + tree context menu"). `deletePage` was removed outright — see §7.12 for the rationale — and the four real wrappers (`clonePage`, `moveBranch`, `renamePage`, `removeBranch`) are now in `src/api/client.ts`.
 3. **The tree context menu** and its e2e. **✅ shipped** (six e2e tests in `e2e/tree-context-menu.spec.ts`).
-4. **The search UI depth** and its e2e.
-5. **Playwright spec depth** in general — most files need 2–5 more tests each to approach the brief's §9.4 checklist.
-6. **Multi-placement collab** (the brief's stated target scenario, not currently implemented).
-7. **Bundle-size polish** (lazy chunks; the Mermaid + KaTeX + Cytoscape renderer chunks are large).
-8. **A real production-data migration** when the user has production data to migrate.
-9. **Mobile experience** (a non-goal; not in scope).
-10. **CPU / memory sandboxing for plugin code** (not in brief; would require a worker process or WASM).
+4. **Tree leaf-click navigation + first-party slash menu** (both user-reported as live bugs). **✅ shipped** (see §7.12 "Slice: tree leaf-click navigation + first-party slash menu"). Vitest 83 files / **629** tests; Playwright **17 / 17** green across tree/firstparty/happy-path/tree-context-menu/editor/plugins/codepage; live browser verified.
+5. **The search UI depth** and its e2e.
+6. **Playwright spec depth** in general — most files need 2–5 more tests each to approach the brief's §9.4 checklist.
+7. **Multi-placement collab** (the brief's stated target scenario, not currently implemented).
+8. **Bundle-size polish** (lazy chunks; the Mermaid + KaTeX + Cytoscape renderer chunks are large).
+9. **A real production-data migration** when the user has production data to migrate.
+10. **Mobile experience** (a non-goal; not in scope).
+11. **CPU / memory sandboxing for plugin code** (not in brief; would require a worker process or WASM).
 
-The integration layer is solid. The docs-and-tests layer is not yet a complete mirror of the user-facing surface. The next agent's job is to close items 4 and 5 before claiming the whole thing is done.
+The integration layer is solid. The docs-and-tests layer is not yet a complete mirror of the user-facing surface. The next agent's job is to close items 5 and 6 before claiming the whole thing is done.
 
 ---
 

@@ -1,4 +1,5 @@
 import { registerMermaidSlashCommand } from "@/features/editor/extensions/mermaidSlashCommand.js";
+import { registerBlocksSlashCommands } from "@/features/editor/extensions/blocksSlashCommands.js";
 
 /**
  * Registers every first-party slash command (§13.6). Mermaid is the only
@@ -18,6 +19,7 @@ import { registerMermaidSlashCommand } from "@/features/editor/extensions/mermai
  */
 export function registerCoreCommands(): void {
   registerMermaidSlashCommandIfNeeded();
+  registerBlocksSlashCommands();
 }
 
 function registerMermaidSlashCommandIfNeeded(): void {
