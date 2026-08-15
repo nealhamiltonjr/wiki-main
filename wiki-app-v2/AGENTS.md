@@ -3910,3 +3910,21 @@ State recap:
 - 9 slices had over-estimates corrected (saves ~5+ days).
 - Execution order revised to maximize debug-instrumentation value (Slice 35 up early).
 - No code modified, no commits, no test runs this turn. Awaiting user approval before slice-A branch creation.
+
+---
+
+## Session note (2026-08-01) — implementation pass complete
+
+Relevant work done this session (wiki-app-v2, branch `rebuild-v2`):
+
+- **Admin Logs stream** — `getRecentSystemLogs` in `system-logger.service.ts`; `GET /api/settings/system-logs` in `settings.routes.ts`; rendered in `routes/_authenticated/settings/system.tsx`.
+- **Share UI** — `features/sharing/ShareDialog.tsx` + `Share2` toolbar button wired through `w/$branchId.tsx`; API methods `listShares/createShare/revokeShare` in `api/client.ts`.
+- **Page properties (Slice 22)** — `attribute.routes.ts` (GET/POST/PUT/DELETE), `PagePropertiesPanel.tsx`, `Tags` toolbar button, `listAttributes/addAttribute/removeAttribute` API methods.
+- **Synthetic e2e simulation** — `src/server/__tests__/synthetic-e2e.simulation.test.ts` drives the whole product lifecycle over `.inject()`.
+
+Gotchas worth remembering:
+- `createShareLink` throws `NO_EXPIRATION_NOT_PERMITTED` for non-`link-managers` users when `expiresAt` is null — send an explicit `expiresAt` in tests.
+- `savePageOCC` auto-assigns block ids on first save; assert structure/marks, not exact equality.
+- First sign-up is auto-promoted to admin (bootstrap hook in `auth/config.ts`).
+
+Verification: `tsc --noEmit` clean, full Vitest suite 80 files / 609 tests green, `npm run build` green.
