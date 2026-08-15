@@ -16,15 +16,22 @@ import { assertSafeRegex } from "../utils/regex-safety.js";
 // isolated file before the first import chain resolves.
 // ---------------------------------------------------------------------------
 
-let state: { db: Db; sqlite: Database.Database } | undefined;
+let state: { db: Db; sqlite: Database.Database; dbPath: string } | undefined;
+
+/** Resolve the SQLite database file path the singleton uses. Exported so the
+ *  git snapshot/restore services can copy/restore the same file. */
+export function getDbPath(): string {
+  const projectRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../..");
+  const rawPath = process.env.DB_PATH ?? "data/wiki.db";
+  return resolve(projectRoot, rawPath);
+}
 
 export function getDb() {
   if (state) return state;
 
   // src/server/db/ -> wiki-app-v2 root (3 hops, verified against resolve()).
   const projectRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../..");
-  const rawPath = process.env.DB_PATH ?? "data/wiki.db";
-  const dbPath = resolve(projectRoot, rawPath);
+  const dbPath = getDbPath();
 
   mkdirSync(resolve(projectRoot, "data"), { recursive: true });
 
@@ -76,7 +83,7 @@ export function getDb() {
     }
   });
 
-  state = { db, sqlite };
+  state = { db, sqlite, dbPath };
   return state;
 }
 

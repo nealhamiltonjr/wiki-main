@@ -1,8 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { getDb } from "../db/index.js";
-import { branches } from "../db/schema.js";
+import { branches, files } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { storeFile, getFileForBranch, isInlineSafeMime } from "../services/file.service.js";
+import { removeFileBlob } from "../services/git.service.js";
 import { getSystemSetting } from "./settings.routes.js";
 
 /**
@@ -97,6 +98,35 @@ export async function fileRoutes(app: FastifyInstance) {
         reply.header("Content-Disposition", `attachment; filename="${safeName}"`);
       }
       return reply.send(result.data);
+    }
+  );
+
+  // Delete a file. Editor-or-higher on the branch; removes the DB row and
+  // schedules the blob removal from git. Content-addressable storage means the
+  // blob is only actually removed when no other row references the same hash
+  // (we keep the file on disk if any reference remains — the git rm commit is
+  // only enqueued when the last reference goes away).
+  app.delete(
+    "/api/branches/:branchId/files/:fileId",
+    { config: { access: { branchParam: "branchId", minRole: "editor" } } },
+    async (request, reply) => {
+      const { branchId, fileId } = request.params as { branchId: string; fileId: string };
+      const { db } = getDb();
+      const [file] = await db.select().from(files).where(eq(files.id, fileId));
+      if (!file) return reply.code(404).send({ error: "File not found" });
+      const [branch] = await db.select().from(branches).where(eq(branches.id, branchId));
+      if (!branch || file.pageId !== branch.pageId) return reply.code(404).send({ error: "File not found" });
+
+      await db.delete(files).where(eq(files.id, fileId));
+
+      // Only drop the blob from git if no other file row shares this
+      // content-addressed path (dedup semantics).
+      const remaining = await db.select({ id: files.id }).from(files).where(eq(files.storagePath, file.storagePath));
+      if (remaining.length === 0 && file.storagePath.startsWith("_files/")) {
+        await removeFileBlob(file.storagePath);
+      }
+
+      return reply.send({ ok: true });
     }
   );
 }

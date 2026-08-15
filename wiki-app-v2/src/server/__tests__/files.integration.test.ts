@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 
 // Slice-7 gate (brief §3.2 file-hardening): uploads and downloads through a
@@ -15,9 +16,11 @@ import type { FastifyInstance } from "fastify";
 // Env vars MUST be set before the app module is imported.
 const DB_PATH = `data/test-files-${randomBytes(4).toString("hex")}.db`;
 const FILES_ROOT = `data/test-files-root-${randomBytes(4).toString("hex")}`;
+const REPO_ROOT = `data/test-files-repo-${randomBytes(4).toString("hex")}`;
 
 process.env.DB_PATH = DB_PATH;
 process.env.FILES_ROOT = FILES_ROOT;
+process.env.GIT_REPO_ROOT = REPO_ROOT;
 process.env.BETTER_AUTH_SECRET = "test-only-secret-do-not-use-in-real-deployment-aaaaaaaaaaaaaaaa";
 process.env.BETTER_AUTH_URL = "http://localhost:3000";
 process.env.BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES = JSON.stringify({
@@ -95,7 +98,7 @@ async function setupSpace(): Promise<{ cookie: string; branchId: string; pageId:
 
 beforeAll(async () => {
   mkdirSync("data", { recursive: true });
-  for (const p of [DB_PATH, `${DB_PATH}-wal`, `${DB_PATH}-shm`, FILES_ROOT]) {
+  for (const p of [DB_PATH, `${DB_PATH}-wal`, `${DB_PATH}-shm`, FILES_ROOT, REPO_ROOT]) {
     if (existsSync(p)) rmSync(p, { recursive: true, force: true });
   }
   // Reset singletons from a previous test file (vitest runs sequentially).
@@ -115,7 +118,7 @@ afterAll(async () => {
   const { resetAuth } = await import("../auth/config.js");
   closeDb();
   resetAuth();
-  for (const p of [DB_PATH, `${DB_PATH}-wal`, `${DB_PATH}-shm`, FILES_ROOT]) {
+  for (const p of [DB_PATH, `${DB_PATH}-wal`, `${DB_PATH}-shm`, FILES_ROOT, REPO_ROOT]) {
     if (existsSync(p)) rmSync(p, { recursive: true, force: true });
   }
 });
@@ -213,5 +216,37 @@ describe("file upload + serving hardening", () => {
 
     const anon = await app.inject({ method: "GET", url: `/api/branches/${branchId}/files/${fileId}` });
     expect(anon.statusCode).toBe(401);
+  });
+
+  it("deduplicates identical content to one blob path and allows deletion", async () => {
+    const { cookie, branchId } = await setupSpace();
+    const data = Buffer.from("dedup-me-content");
+
+    const up1 = await uploadFile(cookie, branchId, "a.bin", "application/octet-stream", data);
+    const up2 = await uploadFile(cookie, branchId, "b.bin", "application/octet-stream", data);
+    expect(up1.statusCode).toBe(201);
+    expect(up2.statusCode).toBe(201);
+
+    const { getDb } = await import("../db/index.js");
+    const { files, branches } = await import("../db/schema.js");
+    const [b] = await getDb().db.select().from(branches).where(eq(branches.id, branchId));
+    const pageId = b!.pageId;
+
+    const rows = await getDb().db.select().from(files).where(eq(files.pageId, pageId));
+    expect(rows.length).toBe(2);
+    // Same content → same content-addressed storagePath.
+    expect(rows[0]!.storagePath).toBe(rows[1]!.storagePath);
+    expect(rows[0]!.storagePath.startsWith("_files/")).toBe(true);
+
+    // Delete one row: the blob must remain (the other row still references it).
+    const del1 = await app.inject({ method: "DELETE", url: `/api/branches/${branchId}/files/${up1.json().id}`, headers: { cookie } });
+    expect(del1.statusCode).toBe(200);
+
+    // Delete the second row: the blob may now be removed from git.
+    const del2 = await app.inject({ method: "DELETE", url: `/api/branches/${branchId}/files/${up2.json().id}`, headers: { cookie } });
+    expect(del2.statusCode).toBe(200);
+
+    const after = await getDb().db.select().from(files).where(eq(files.pageId, pageId));
+    expect(after.length).toBe(0);
   });
 });

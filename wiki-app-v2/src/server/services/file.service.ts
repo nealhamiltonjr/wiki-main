@@ -1,14 +1,16 @@
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, writeFile, readFile, access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { files, branches } from "../db/schema.js";
+import { getRepoRoot, commitFileBlob } from "./git.service.js";
 
-// Resolve relative to the project root, mirroring db/index.ts (services/ ->
-// server/ -> src/ -> root is 3 hops). Must use fileURLToPath (URL-unescapes
-// the path) and the directory itself — dirname() of the URL pathname would
-// strip one level too many and point FILES_ROOT outside the project.
+// Legacy FILES_ROOT retained for reading rows written before the git-backed
+// content store (Slice A). New uploads are content-addressed blobs under the
+// git repo (`data/repo/_files/<sha256>`); old rows still point at
+// `data/files/...` and are served from there until migrated.
 const projectRoot = resolveProjectRoot();
 function resolveProjectRoot(): string {
   const here = fileURLToPath(new URL(".", import.meta.url));
@@ -17,6 +19,8 @@ function resolveProjectRoot(): string {
 export const FILES_ROOT = process.env.FILES_ROOT
   ? path.resolve(projectRoot, process.env.FILES_ROOT)
   : path.resolve(projectRoot, "data/files");
+
+const GIT_FILES_DIR = "_files";
 
 // ---------------------------------------------------------------------------
 // File-serving hardening (brief §3.2): an inline-safe MIME allowlist. Raster
@@ -41,6 +45,20 @@ export function isInlineSafeMime(mimeType: string): boolean {
   return INLINE_SAFE_MIME_TYPES.has(mimeType.toLowerCase());
 }
 
+/** Content hash used as the storage key — identical bytes dedupe to one blob. */
+export function hashContent(data: Buffer): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
+/** Resolve a `files.storagePath` to an on-disk path, handling both the new
+ *  git-backed `_files/<hash>` form and the legacy `data/files/...` form. */
+function resolveStoragePath(storagePath: string): string {
+  if (storagePath.startsWith(GIT_FILES_DIR + "/")) {
+    return path.join(getRepoRoot(), storagePath);
+  }
+  return path.join(FILES_ROOT, storagePath);
+}
+
 export async function storeFile(opts: {
   pageId: string;
   filename: string;
@@ -49,11 +67,19 @@ export async function storeFile(opts: {
   uploadedBy: string;
 }) {
   const id = crypto.randomUUID();
-  const storagePath = path.join(opts.pageId, `${id}-${sanitize(opts.filename)}`);
-  const fullPath = path.join(FILES_ROOT, storagePath);
+  // Content-addressable: the path is the SHA-256 of the payload. Uploading the
+  // same bytes twice produces the same blob path → automatic dedup and a no-op
+  // second commit.
+  const hash = hashContent(opts.data);
+  const storagePath = path.join(GIT_FILES_DIR, hash);
+  const fullPath = resolveStoragePath(storagePath);
 
-  await mkdir(path.dirname(fullPath), { recursive: true });
-  await writeFile(fullPath, opts.data);
+  let exists = false;
+  try { await access(fullPath); exists = true; } catch { /* not written yet */ }
+  if (!exists) {
+    await mkdir(path.dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, opts.data);
+  }
 
   const { db } = getDb();
   await db.insert(files).values({
@@ -65,6 +91,16 @@ export async function storeFile(opts: {
     storagePath,
     uploadedBy: opts.uploadedBy,
   });
+
+  // Track the blob in git (dedup: same hash never commits twice).
+  try {
+    await commitFileBlob(storagePath);
+  } catch (err) {
+    // A git failure must not fail the upload itself — the blob is already on
+    // disk and in the DB; the next page save will pick it up if we retry the
+    // commit. Log and move on so the user gets their file.
+    console.error("[file] failed to commit blob to git:", err);
+  }
 
   return id;
 }
@@ -86,10 +122,6 @@ export async function getFileForBranch(fileId: string, branchId: string) {
 
   if (file.pageId !== branch.pageId) return null; // the actual security check
 
-  const data = await readFile(path.join(FILES_ROOT, file.storagePath));
+  const data = await readFile(resolveStoragePath(file.storagePath));
   return { file, data };
-}
-
-function sanitize(filename: string): string {
-  return filename.replace(/[^a-zA-Z0-9._-]/g, "_");
 }

@@ -1,7 +1,7 @@
 import { eq, and, lte } from "drizzle-orm";
 import { getDb } from "../db/index.js";
-import { jobQueue } from "../db/schema.js";
-import { commitPageChange, commitManualSnapshot } from "./git.service.js";
+import { jobQueue, systemSettings } from "../db/schema.js";
+import { commitPageChange, commitManualSnapshot, commitDatabaseSnapshot, listSnapshots } from "./git.service.js";
 
 const POLL_INTERVAL_MS = 1000;
 const MAX_ATTEMPTS = 5;
@@ -92,6 +92,11 @@ async function runJob(kind: string, payload: unknown) {
       }
       return;
     }
+    case "git_db_snapshot": {
+      const p = payload as { trigger: "manual" | "scheduled"; message?: string; userId?: string };
+      await commitDatabaseSnapshot({ trigger: p.trigger, message: p.message, userId: p.userId });
+      return;
+    }
     default:
       throw new Error(`Unknown job kind: ${kind}`);
   }
@@ -105,6 +110,53 @@ async function runJob(kind: string, payload: unknown) {
  * commit.
  */
 let workerRunning = false;
+let lastSnapshotCheck = 0;
+let lastScheduledSnapshotAt = 0;
+
+/** Reads the snapshot schedule settings and enqueues a `git_db_snapshot` job
+ *  when the interval has elapsed. Throttled to once per 60s to avoid a git log
+ *  call on every 1s worker tick. Smart trigger (only snap if dirty) is honored
+ *  by checking the repo dirty count before enqueueing. */
+async function maybeScheduleSnapshot(): Promise<void> {
+  const now = Date.now();
+  if (now - lastSnapshotCheck < 60_000) return;
+  lastSnapshotCheck = now;
+
+  try {
+    const { db } = getDb();
+    const rows = await db.select().from(systemSettings);
+    const valueOf = <T>(key: string, def: T): T => {
+      const r = rows.find((x) => x.key === key);
+      return (r?.value ?? def) as T;
+    };
+    if (valueOf("snapshot.enabled", true) !== true) return;
+
+    const intervalHours = Number(valueOf("snapshot.intervalHours", 6));
+    const hours = Number.isFinite(intervalHours) && intervalHours > 0 ? intervalHours : 6;
+    const intervalMs = hours * 60 * 60 * 1000;
+
+    if (lastScheduledSnapshotAt === 0) {
+      const recent = await listSnapshots(1);
+      lastScheduledSnapshotAt = recent[0] ? new Date(recent[0].date).getTime() : 0;
+    }
+
+    if (now - lastScheduledSnapshotAt < intervalMs) return;
+
+    // Smart trigger: only snap if the repo is dirty (default ON).
+    if (valueOf("snapshot.smartTrigger", true) === true) {
+      const { getRepoStatus } = await import("./git.service.js");
+      const status = await getRepoStatus().catch(() => null);
+      const minChanges = Number(valueOf("snapshot.minChanges", 1)) || 1;
+      if ((status?.dirty ?? 0) < minChanges) return;
+    }
+
+    await enqueueJob("git_db_snapshot", { trigger: "scheduled" });
+    lastScheduledSnapshotAt = now;
+  } catch (err) {
+    console.error("[queue] maybeScheduleSnapshot failed", err);
+  }
+}
+
 export function startWorkerLoop() {
   // Retry anything a previous process left mid-flight (crash, deploy, test
   // teardown) before the poll loop starts claiming new work.
@@ -115,7 +167,9 @@ export function startWorkerLoop() {
   setInterval(() => {
     if (workerRunning) return;
     workerRunning = true;
-    processPendingJobs()
+    Promise.resolve()
+      .then(() => maybeScheduleSnapshot())
+      .then(() => processPendingJobs())
       .catch((err) => {
         // eslint-disable-next-line no-console
         console.error("[queue] worker loop error", err);
