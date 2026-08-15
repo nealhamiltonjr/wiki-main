@@ -128,6 +128,25 @@ export default function webClipperPlugin(app, opts, done) {
         return reply.code(502).send({ error: `Target returned HTTP ${res.status}` });
       }
 
+      // SSRF redirect bypass: `redirect: "follow"` will chase HTTP 3xx
+      // hops and reach private/loopback hosts without re-running the
+      // hostname guard. The redirect target isn't known until fetch
+      // resolves, so re-validate res.url (the final URL fetch followed
+      // to) against the same private-IP blocklist we applied to the
+      // initial hostname. Same response shape as the initial guard so
+      // the e2e/UI surfaces it the same way.
+      if (process.env.ALLOW_PRIVATE_CLIP_HOSTS !== "1" && res.url) {
+        let finalHost;
+        try {
+          finalHost = new URL(res.url).hostname;
+        } catch {
+          finalHost = "";
+        }
+        if (finalHost && (await isPrivateTarget(finalHost))) {
+          return reply.code(400).send({ error: "Target host is not routable (SSRF guard)" });
+        }
+      }
+
       const text = await res.text();
       if (text.length > MAX_BODY) {
         return reply.code(413).send({ error: "Target page is too large to clip" });
