@@ -235,6 +235,7 @@ export async function pageRoutes(app: FastifyInstance) {
     // highlighting + the git file extension; absent → wiki page.
     pageType: z.enum(["wiki", "code"]).optional(),
     language: z.string().max(40).nullable().optional(),
+    templateId: z.string().uuid().optional(),
   }).strict();
 
   app.post(
@@ -266,6 +267,7 @@ export async function pageRoutes(app: FastifyInstance) {
         parentBranchId: body.parentBranchId ?? null,
         pageType: body.pageType ?? "wiki",
         language: body.language ?? null,
+        templateId: body.templateId,
       });
       return reply.code(201).send({ branchId, pageId });
     }

@@ -83,6 +83,46 @@ export function getDb() {
     }
   });
 
+  // Slice 35 — debug capture: wrap `prepare` so every SQLite statement
+  // execution can be observed (while debug capture is enabled). Drizzle
+  // creates statements via prepare and calls .run/.get/.all/.iterate on them.
+  // The wrapper is a pass-through that only adds timing when the debug
+  // capture ring is enabled (checked inside recordDbCall), so the overhead is
+  // a single boolean branch per statement call.
+  const originalPrepare = sqlite.prepare.bind(sqlite);
+  (sqlite as unknown as { prepare: unknown }).prepare = (sql: string) => {
+    const stmt = originalPrepare(sql) as {
+      run: (...args: unknown[]) => unknown;
+      get: (...args: unknown[]) => unknown;
+      all: (...args: unknown[]) => unknown;
+      iterate: (...args: unknown[]) => unknown;
+    };
+    const time = (fn: () => unknown) => {
+      const start = performance.now();
+      let err: unknown;
+      try {
+        return fn();
+      } catch (e) {
+        err = e;
+        throw e;
+      } finally {
+        void import("../services/debug-capture.service.js").then((m) =>
+          m.recordDbCall(sql, performance.now() - start, err),
+        );
+      }
+    };
+    return new Proxy(stmt, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value !== "function") return value;
+        if (prop === "run" || prop === "get" || prop === "all" || prop === "iterate") {
+          return (...args: unknown[]) => time(() => value.apply(target, args));
+        }
+        return value.bind(target);
+      },
+    });
+  };
+
   state = { db, sqlite, dbPath };
   return state;
 }

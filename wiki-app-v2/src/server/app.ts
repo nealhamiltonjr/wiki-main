@@ -26,6 +26,9 @@ import { relationRoutes } from "./routes/relation.routes.js";
 import { graphRoutes } from "./routes/graph.routes.js";
 import { registerPluginServerRoutes, registerPluginHookHandlers, installPluginFailureHook } from "./services/plugin.service.js";
 import { recordSystemLog } from "./services/system-logger.service.js";
+import { debugRoutes } from "./routes/debug.routes.js";
+import { templateRoutes } from "./routes/template.routes.js";
+import { shareRoutes } from "./routes/share.routes.js";
 import multipart from "@fastify/multipart";
 
 /**
@@ -80,6 +83,15 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
         statusCode: error.statusCode ?? 500,
       },
     });
+    // Slice 35 — also feed the debug capture ring.
+    void import("./services/debug-capture.service.js").then(({ record }) =>
+      record({
+        kind: "error",
+        source: `http:${request.method}`,
+        message: error.message || "Internal server error",
+        meta: { url: request.url, statusCode: error.statusCode ?? 500 },
+      }),
+    );
     return reply.code(500).send({ error: "Internal server error" });
   });
 
@@ -115,6 +127,23 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(lensRoutes);
   await app.register(relationRoutes);
   await app.register(graphRoutes);
+  await app.register(debugRoutes);
+  await app.register(templateRoutes);
+  await app.register(shareRoutes);
+
+  // Slice 35 — record every completed HTTP request for the debug capture ring
+  // (only persisted while capture is enabled). Registered after routes so the
+  // hook sees the final route context; non-fatal by design.
+  app.addHook("onResponse", async (request, reply) => {
+    const { record } = await import("./services/debug-capture.service.js");
+    record({
+      kind: "http",
+      source: `${request.method}`,
+      message: request.url,
+      durationMs: reply.elapsedTime ? reply.elapsedTime / 1e6 : undefined,
+      meta: { statusCode: reply.statusCode },
+    });
+  });
 
   // Register server routes for every enabled plugin that declares the
   // serverRoutes capability. A failing plugin is logged and skipped; it never

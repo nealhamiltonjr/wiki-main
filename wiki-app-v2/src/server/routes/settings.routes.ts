@@ -1,7 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { eq, and } from "drizzle-orm";
 import { getDb } from "../db/index.js";
-import { systemSettings } from "../db/schema.js";
+import { systemSettings, userSettings } from "../db/schema.js";
 import { getSystemHealth } from "../services/system-health.service.js";
 
 // Slice-14 settings surface (§7.1 System / Integrations). `systemSettings`
@@ -11,6 +12,10 @@ import { getSystemHealth } from "../services/system-health.service.js";
 const setSettingBody = z.object({
   value: z.unknown(),
   isSecret: z.boolean().optional(),
+}).strict();
+
+const userSettingBody = z.object({
+  value: z.unknown(),
 }).strict();
 
 const gitRemoteBody = z.object({
@@ -146,4 +151,34 @@ export async function settingsRoutes(app: FastifyInstance) {
       return reply.send(report);
     }
   );
+
+  // Slice 21 — per-user settings. Scoped to the authenticated user; these are
+  // never admin-managed (unlike systemSettings). Stored as a JSON value keyed
+  // by (userId, key). Editor width etc. round-trip through here.
+  app.get("/api/user-settings", { config: { access: "authenticated" } }, async (request, reply) => {
+    const user = (request as any).userContext as { id: string };
+    const { db } = getDb();
+    const rows = await db.select().from(userSettings).where(eq(userSettings.userId, user.id));
+    return reply.send(rows.map((r) => ({ key: r.key, value: r.value })));
+  });
+
+  app.put("/api/user-settings/:key", { config: { access: "authenticated" } }, async (request, reply) => {
+    const user = (request as any).userContext as { id: string };
+    const { key } = request.params as { key: string };
+    const body = userSettingBody.parse(request.body ?? {});
+    const { db } = getDb();
+    await db
+      .insert(userSettings)
+      .values({ userId: user.id, key, value: body.value })
+      .onConflictDoUpdate({ target: [userSettings.userId, userSettings.key], set: { value: body.value } });
+    return reply.send({ key, value: body.value });
+  });
+
+  app.delete("/api/user-settings/:key", { config: { access: "authenticated" } }, async (request, reply) => {
+    const user = (request as any).userContext as { id: string };
+    const { key } = request.params as { key: string };
+    const { db } = getDb();
+    await db.delete(userSettings).where(and(eq(userSettings.userId, user.id), eq(userSettings.key, key)));
+    return reply.send({ ok: true });
+  });
 }

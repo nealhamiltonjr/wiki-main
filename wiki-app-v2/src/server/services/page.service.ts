@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { getDb } from "../db/index.js";
-import { pages, branches, pageRedirects } from "../db/schema.js";
+import { pages, branches, pageRedirects, attributes, templates } from "../db/schema.js";
 import { ensureBlockIds, validateContent, type JSONBlock } from "../../shared/blockIds.js";
 import { validateEnvelope } from "../../shared/cryptoEnvelope.js";
 import type { PageType } from "../../shared/types.js";
@@ -33,6 +33,7 @@ export async function createPage(opts: {
   initialContent?: unknown;
   pageType?: PageType;
   language?: string | null;
+  templateId?: string;
 }): Promise<{ pageId: string; branchId: string }> {
   // Slice-54: slugs must be unique within a space. Two pages with the same
   // slug in the same space both export to <spaceSlug>/<slug>.md and would
@@ -50,6 +51,40 @@ export async function createPage(opts: {
   const branchId = crypto.randomUUID();
   const pageType = opts.pageType ?? "wiki";
 
+  // Slice 26 — if a template was chosen, the new page starts from the
+  // template page's content, and its non-relation attributes (icon, label,
+  // etc.) are copied over so the blueprint is actually useful. The template
+  // page itself is unchanged.
+  let content = pageType === "code" ? newCodeContent(opts.initialContent) : newPageContent(opts.initialContent);
+  let templateAttrs: Array<{ pageId: string; name: string; value: string; valuePageId: string | null; isPromoted: boolean; position: number }> = [];
+  if (opts.templateId) {
+    const { db } = getDb();
+    const [tpl] = await db
+      .select({ pageId: templates.pageId })
+      .from(templates)
+      .where(eq(templates.id, opts.templateId));
+    if (!tpl) throw Object.assign(new Error("Template not found"), { statusCode: 404 });
+    const [tplPage] = await db.select().from(pages).where(eq(pages.id, tpl.pageId));
+    if (tplPage) {
+      if (pageType === "code" && typeof tplPage.content === "string") {
+        content = tplPage.content;
+      } else if (pageType !== "code" && typeof tplPage.content === "object") {
+        content = ensureBlockIds(tplPage.content as JSONBlock);
+      }
+      const tplAttrRows = await db.select().from(attributes).where(eq(attributes.pageId, tplPage.id));
+      templateAttrs = tplAttrRows
+        .filter((a) => !(a.name === "template" && a.valuePageId))
+        .map((a) => ({
+          pageId: a.pageId,
+          name: a.name,
+          value: a.value,
+          valuePageId: a.valuePageId,
+          isPromoted: a.isPromoted,
+          position: a.position,
+        }));
+    }
+  }
+
   const { db } = getDb();
   db.transaction((tx) => {
     tx.insert(pages).values({
@@ -57,7 +92,7 @@ export async function createPage(opts: {
       slug: opts.slug,
       title: opts.title?.trim() || opts.slug,
       ownerId: opts.ownerId,
-      content: pageType === "code" ? newCodeContent(opts.initialContent) : newPageContent(opts.initialContent),
+      content,
       pageType,
       language: pageType === "code" ? opts.language ?? null : null,
     }).run();
@@ -70,6 +105,17 @@ export async function createPage(opts: {
       isSystem: false,
       createdBy: opts.ownerId,
     }).run();
+    for (const a of templateAttrs) {
+      tx.insert(attributes).values({
+        id: crypto.randomUUID(),
+        pageId,
+        name: a.name,
+        value: a.value,
+        valuePageId: a.valuePageId,
+        isPromoted: a.isPromoted,
+        position: a.position,
+      }).run();
+    }
   });
 
   // Git flush pipeline (brief §8 step 10): the initial state of a new page is
