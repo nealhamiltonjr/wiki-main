@@ -186,7 +186,7 @@ export async function userRoutes(app: FastifyInstance) {
       await db.insert(auditLog).values({ actorUserId: actor.id, action: "user_delete", targetType: "user", targetId: id, meta: { mode, targetUserId: query.targetUserId, fallbackUserId: query.fallbackUserId } });
       await db.delete(users).where(eq(users.id, id));
       return reply.send({ ok: true });
-    } catch (err) { return reply.code(500).send({ error: (err as Error).message }); }
+    } catch (err) { reply.log.error(err); return reply.code(500).send({ error: "Internal server error" }); }
   });
 }
 

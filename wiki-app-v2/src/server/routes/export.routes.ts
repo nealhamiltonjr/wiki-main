@@ -13,7 +13,7 @@ export async function exportRoutes(app: FastifyInstance) {
       const zip = buildZip(files, assets);
       reply.header("Content-Type", "application/zip"); reply.header("Content-Disposition", `attachment; filename="page-${branchId.slice(0, 8)}.zip"`);
       return reply.send(Buffer.from(zip));
-    } catch (err) { return reply.code(500).send({ error: (err as Error).message }); }
+    } catch (err) { reply.log.error(err); return reply.code(500).send({ error: "Internal server error" }); }
   });
 
   app.get("/api/spaces/:spaceId/export", { config: { access: { spaceParam: "spaceId", minRole: "viewer" } } }, async (request, reply) => {
@@ -25,6 +25,6 @@ export async function exportRoutes(app: FastifyInstance) {
       const zip = buildZip(files, assets);
       reply.header("Content-Type", "application/zip"); reply.header("Content-Disposition", `attachment; filename="space-export.zip"`);
       return reply.send(Buffer.from(zip));
-    } catch (err) { return reply.code(500).send({ error: (err as Error).message }); }
+    } catch (err) { reply.log.error(err); return reply.code(500).send({ error: "Internal server error" }); }
   });
 }

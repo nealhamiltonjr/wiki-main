@@ -119,7 +119,7 @@ export const PageEditor = forwardRef<PageEditorHandle, {
       ...(editable ? editingExtensions() : []),
     ];
     return e;
-  }, [extensions, registryExtensions, editable, commentThreads, mentionExt]);
+  }, [extensions, registryExtensions, editable, mentionExt]);
 
   const editor = useEditor({
     extensions: allExtensions,

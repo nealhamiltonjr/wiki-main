@@ -60,11 +60,11 @@ function assertKeywords(keywords: string[] | undefined, kind: string): void {
   }
 }
 
-const tiptapExtensions: AnyExtension[] = [];
-const slashCommands: SlashCommandDef[] = [];
-const toolbarItems: ToolbarItemDef[] = [];
-const settingsPanels: SettingsPanelDef[] = [];
-const embedTypes: EmbedTypeDef[] = [];
+let tiptapExtensions: AnyExtension[] = [];
+let slashCommands: SlashCommandDef[] = [];
+let toolbarItems: ToolbarItemDef[] = [];
+let settingsPanels: SettingsPanelDef[] = [];
+let embedTypes: EmbedTypeDef[] = [];
 
 let listeners = new Set<() => void>();
 let _pluginsLoaded = false;
@@ -96,7 +96,7 @@ export function registerTiptapExtension(ext: AnyExtension) {
   // inside the AnyExtension object. A plugin's name collision with a core
   // type is a Tiptap-schema concern, not a registry concern; Tiptap itself
   // rejects it during editor construction with a clear error.
-  tiptapExtensions.push(ext);
+  tiptapExtensions = [...tiptapExtensions, ext];
   notify();
 }
 export function registerSlashCommand(def: SlashCommandDef) {

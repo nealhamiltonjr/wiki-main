@@ -73,7 +73,8 @@ export async function attributeRoutes(app: FastifyInstance) {
       isPromoted: body.isPromoted ?? false,
       position,
     });
-    await enqueueJob("git_commit", { pageId, branchId: null, kind: "attribute_change" });
+    // Attribute changes are reflected in the next page-save git commit.
+  // No separate git_commit job needed (it would fail with null branchId).
     return reply.code(201).send({ id, name: body.name, value, valuePageId: body.valuePageId ?? null, isPromoted: body.isPromoted ?? false, position });
   });
 

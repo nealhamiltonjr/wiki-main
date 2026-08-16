@@ -81,11 +81,11 @@ export function ShareDialog({ branchId, onClose }: { branchId: string; onClose: 
           </label>
           <label className="flex items-center gap-2 text-sm">
             <span className="w-20 text-text-muted">Password</span>
-            <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="optional" className="rounded border bg-background px-2 py-1 text-sm" />
+            <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="optional" className="rounded border bg-background px-2 py-1 text-sm" />
           </label>
           <label className="flex items-center gap-2 text-sm">
             <span className="w-20 text-text-muted">Label</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="optional" className="rounded border bg-background px-2 py-1 text-sm" />
+            <input value={name} onChange={(e) => setName(e.target.value)} type="password" placeholder="optional" className="rounded border bg-background px-2 py-1 text-sm" />
           </label>
           {error && <p className="text-sm text-danger">{error}</p>}
           <button type="button" onClick={create} disabled={busy} className="rounded-md bg-accent px-3 py-1.5 text-sm font-medium text-primary disabled:opacity-50">

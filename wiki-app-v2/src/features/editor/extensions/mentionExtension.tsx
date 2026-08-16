@@ -47,6 +47,7 @@ function ensurePopupEl(): HTMLDivElement {
 }
 function showMentionPopup(clientRect: (() => DOMRect | null) | null, items: MentionableUser[], selectedIndex: number, onSelect: (item: { id: string; label: string }) => void) {
   const el = ensurePopupEl();
+  el.style.display = "block";
   if (clientRect) { const rect = clientRect(); if (rect) { el.style.position = "fixed"; el.style.top = `${rect.bottom + 4}px`; el.style.left = `${rect.left}px`; el.style.display = "block"; } }
   el.innerHTML = "";
   if (items.length === 0) { const empty = document.createElement("div"); empty.className = "mention-popup-empty"; empty.textContent = "No users found"; el.appendChild(empty); return; }
@@ -57,4 +58,7 @@ function showMentionPopup(clientRect: (() => DOMRect | null) | null, items: Ment
   });
 }
 function hideMentionPopup() { if (popupEl) popupEl.style.display = "none"; }
+
+/** Remove the popup element from the DOM entirely. Call on editor unmount. */
+export function destroyMentionPopup() { if (popupEl) { popupEl.remove(); popupEl = null; } }
 function escapeHtml(s: string): string { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }

@@ -94,7 +94,7 @@ export async function gitRoutes(app: FastifyInstance) {
       await import("./settings.routes.js").then(({ setSystemSetting }) =>
         setSystemSetting("git.lastError", (err as Error).message, false, "system"),
       );
-      return reply.code(500).send({ error: (err as Error).message });
+      reply.log.error(err); return reply.code(500).send({ error: "Internal server error" });
     }
   });
 
@@ -109,7 +109,7 @@ export async function gitRoutes(app: FastifyInstance) {
       await import("./settings.routes.js").then(({ setSystemSetting }) =>
         setSystemSetting("git.lastError", (err as Error).message, false, "system"),
       );
-      return reply.code(500).send({ error: (err as Error).message });
+      reply.log.error(err); return reply.code(500).send({ error: "Internal server error" });
     }
   });
 
@@ -127,7 +127,7 @@ export async function gitRoutes(app: FastifyInstance) {
       await cloneFromRemote(body.url, body.branch);
       return reply.send({ ok: true });
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message });
+      reply.log.error(err); return reply.code(400).send({ error: "Bad request" });
     }
   });
 
@@ -136,7 +136,7 @@ export async function gitRoutes(app: FastifyInstance) {
       await restoreDbFromRepo();
       return reply.send({ ok: true });
     } catch (err) {
-      return reply.code(400).send({ error: (err as Error).message });
+      reply.log.error(err); return reply.code(400).send({ error: "Bad request" });
     }
   });
 }
