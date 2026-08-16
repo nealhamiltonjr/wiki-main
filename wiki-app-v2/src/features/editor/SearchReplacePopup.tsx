@@ -38,8 +38,12 @@ export function SearchReplacePopup({ editor, onClose }: Props) {
   }, [matches, currentIdx, replaceTerm, editor, term, caseSensitive]);
 
   const replaceAll = useCallback(() => {
-    if (matches.length === 0) return; const sorted = [...matches].sort((a, b) => b.pos - a.pos);
-    editor.chain().focus(); for (const m of sorted) { editor.chain().insertContentAt({ from: m.pos, to: m.end }, replaceTerm).run(); }
+    if (matches.length === 0) return;
+    // Replace from end to start so positions don't shift mid-replace.
+    const sorted = [...matches].sort((a, b) => b.pos - a.pos);
+    for (const m of sorted) {
+      editor.chain().focus().insertContentAt({ from: m.pos, to: m.end }, replaceTerm).run();
+    }
     setMatches([]); setCurrentIdx(0);
   }, [matches, replaceTerm, editor]);
 
