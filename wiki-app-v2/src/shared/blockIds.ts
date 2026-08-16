@@ -214,7 +214,7 @@ export function validateContent(
 }
 
 /** ProseMirror-style size of a node in the JSON tree. */
-function nodeSize(node: JSONBlock): number {
+export function nodeSize(node: JSONBlock): number {
   if (node.type === "text") return node.text?.length ?? 0;
   if (node.type === "hardBreak") return 1;
   if (Array.isArray(node.content)) {

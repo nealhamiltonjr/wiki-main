@@ -8,7 +8,18 @@ import { cn } from "@/lib/utils";
  * an editor create a new note (anchored to the whole page for the simple UI),
  * reply to a thread, and toggle resolution. Viewers can read only.
  */
-export function CommentsPanel({ branchId, canEdit }: { branchId: string; canEdit: boolean }) {
+export function CommentsPanel({
+  branchId,
+  canEdit,
+  onThreadsChanged,
+}: {
+  branchId: string;
+  canEdit: boolean;
+  /** Fired with the latest thread list whenever it changes. The route uses
+   *  this to feed the editor's highlight decoration without forcing a page
+   *  refresh. */
+  onThreadsChanged?: (threads: CommentThread[]) => void;
+}) {
   const [threads, setThreads] = useState<CommentThread[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
@@ -17,9 +28,12 @@ export function CommentsPanel({ branchId, canEdit }: { branchId: string; canEdit
 
   const refresh = async () => {
     try {
-      setThreads(await api.listComments(branchId));
+      const list = await api.listComments(branchId);
+      setThreads(list);
+      onThreadsChanged?.(list);
     } catch {
       setThreads([]);
+      onThreadsChanged?.([]);
     } finally {
       setLoading(false);
     }
@@ -140,7 +154,7 @@ function CommentsPanelBody({
           <p className="p-4 text-center text-xs text-text-muted">No comments yet</p>
         )}
         {threads?.map((t) => (
-          <div key={t.id} className="p-3" data-testid="comment-thread">
+          <div key={t.id} className="p-3" data-testid="comment-thread" data-thread-id={t.id}>
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium">
                 {t.authorName ?? "Unknown"}

@@ -504,6 +504,39 @@ Two user-reported live bugs landed in the same commit on `rebuild-v2`:
 
 **What this slice does NOT change.** No schema migrations, no new dependencies, no public API additions, no settings/permissions work. The brief's §13.6 inventory is now complete on the slash-menu side; the only slash command still missing from the spec is whatever the next plugin introduces.
 
+### 7.13 Slice: inline-comment highlight (read view + editor)
+
+**The live bug.** The user reported that commenting on text didn't show which text was commented. The selection happened, but the highlighted span was nowhere to be seen — neither in the read view nor under the cursor.
+
+**Why it was hard.** Three pieces of plumbing needed to be wired through one round trip:
+
+1. **Editor**: a Tiptap `DecorationSet` plugin keyed off the live `commentThreads` list, with the closure trick that an empty reconfigure transaction carries the new thread list in plugin-meta (Tiptap doesn't re-run an extension's `addProseMirrorPlugins` on option change).
+2. **Read view**: the JSON-tree walk already produces absolute ranges for the editor to apply. Adding a `data-thread-id` carrier through `sliceTextByHighlights` and a delegated click handler on the wrapper turned the existing math into a clickable highlight.
+3. **Panel↔route sync**: thread changes made through the panel need to refresh the route's `commentThreads` state or the new highlight won't paint.
+
+**Files touched.**
+
+- `wiki-app-v2/src/features/editor/extensions/commentHighlight.ts` — new ProseMirror `Plugin`/`DecorationSet` extension; clamps the range to the block; emits `<mark class="comment-highlight" data-thread-id="…">` inline decorations; click bubbles a `comment-highlight-click` CustomEvent for the editor host to route into `handleCommentThreadClick`.
+- `wiki-app-v2/src/features/editor/Editor.tsx` — wires `commentThreads` and `onCommentThreadClick` props; adds `editorHostRef` + a "threads-bumped" effect that dispatches a 0-length transaction carrying the latest threads; also listens for the `comment-highlight-click` event.
+- `wiki-app-v2/src/features/editor/ReadOnlyContent.tsx` — adds `commentThreads` + `onCommentThreadClick` props; computes per-block text offsets in JSON (`resolveHighlights`); renders `<mark>` wraps via `sliceTextByHighlights`; single delegated click handler routes to `onCommentThreadClick` via the closest `[data-thread-id]`.
+- `wiki-app-v2/src/routes/_authenticated/w/$branchId.tsx` — new `commentThreads` state, `refreshThreads()` helper, `handleCommentThreadClick()` handler; prop-drilled into the editor and the read view.
+- `wiki-app-v2/src/features/comments/CommentsPanel.tsx` — accepts optional `onThreadsChanged?: (threads: CommentThread[]) => void`; invokes it after creating a new thread.
+- `wiki-app-v2/src/shared/blockIds.ts` — exports `nodeSize` (was module-private) so the read view can walk JSON child offsets.
+- `wiki-app-v2/src/features/editor/extensions/__tests__/commentHighlight.test.ts` — new file. **7 unit tests** cover the decoration plugin: clamps, skips resolved threads, ignores missing `blockId`, uses `selection` as title, rebuilds on thread-bump transactions, and the no-threads smoke case.
+
+**What was deliberately not done.** No new dependencies, no public API additions, no schema migrations. The plugin is wired through Tiptap's existing `DecorationSet` plumbing and the route's existing `commentThreads` state — both already in the diff from earlier slices.
+
+**Verification.**
+
+- `npm run typecheck` (i.e. `tsc --noEmit`) — clean.
+- `npx vitest run src/features` — **22 files / 121 tests** green (was 21/114 before this slice; +1 file +7 tests for `commentHighlight`).
+- Live app at `192.168.1.13:5173`: per-task verification is in-progress as of this revision (see the task tracker for Task 4). Vite HMR returned 200 for every edit in this slice; no compile errors observed.
+
+**Known follow-ups.**
+
+- The browser-visible `data-thread-id` highlight color is the project default (`#fef08a`, see `.comment-highlight` in `app.css`); if a design refresh ships a different palette, only one selector needs to change.
+- The editor-click path (`handleCommentThreadClick` from a `comment-highlight-click` event) is wired but I did not yet add a unit test for the host-side rebinding — the editor integration test would need a full Tiptap harness. That is the natural next slice.
+
 ---
 
 ## 8. How to run, test, and extend the app

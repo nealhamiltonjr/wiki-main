@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import type { Editor } from "@tiptap/react";
@@ -15,6 +15,7 @@ import { useCollab, type CollabUser } from "./useCollab.js";
 import { useTiptapExtensions, useToolbarItems } from "@/plugins/registry";
 import { SlashMenuExtension, SlashMenu } from "./SlashMenu.js";
 import { insertMermaidDiagram } from "./extensions/mermaidInsert.js";
+import { CommentHighlight, bumpCommentHighlights, type CommentThreadLite } from "./extensions/commentHighlight.js";
 import { api } from "@/api/client";
 import { KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES, filterUnknownNodes } from "@/shared/blockIds";
 import type { JSONBlock } from "@/shared/blockIds";
@@ -71,8 +72,10 @@ export const PageEditor = forwardRef<PageEditorHandle, {
   onUpdate?: () => void;
   branchId?: string;
   onInlineComment?: (sel: InlineCommentSelection) => void;
+  commentThreads?: readonly CommentThreadLite[];
+  onCommentThreadClick?: (threadId: string) => void;
   extensions?: ReturnType<typeof baseExtensions>;
-}>(function PageEditor({ content, editable, onUpdate, branchId, onInlineComment, extensions }, ref) {
+}>(function PageEditor({ content, editable, onUpdate, branchId, onInlineComment, commentThreads, onCommentThreadClick, extensions }, ref) {
   const registryExtensions = useTiptapExtensions();
   const toolbarItems = useToolbarItems();
 
@@ -87,12 +90,21 @@ export const PageEditor = forwardRef<PageEditorHandle, {
     return filterUnknownNodes(doc, blockTypes, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES);
   }, [content, registryExtensions]);
 
-  const allExtensions = useMemo(() => [
-    ...(extensions ?? baseExtensions()),
-    ...registryExtensions,
-    SlashMenuExtension,
-    ...(editable ? editingExtensions() : []),
-  ], [extensions, registryExtensions, editable]);
+  const allExtensions = useMemo(() => {
+    const e = [
+      ...(extensions ?? baseExtensions()),
+      ...registryExtensions,
+      SlashMenuExtension,
+      CommentHighlight.configure({
+        // `commentThreads` is read live on every PM transaction so a just-added
+        // thread shows the highlight without an editor remount. The prop is
+        // captured in the closure; updates bump it on re-render.
+        getThreads: () => commentThreads ?? [],
+      }),
+      ...(editable ? editingExtensions() : []),
+    ];
+    return e;
+  }, [extensions, registryExtensions, editable, commentThreads]);
 
   const editor = useEditor({
     extensions: allExtensions,
@@ -111,6 +123,30 @@ export const PageEditor = forwardRef<PageEditorHandle, {
     getJSON: () => editor?.getJSON() ?? content,
   }), [editor, content]);
 
+  // Whenever the threads prop changes, nudge the plugin so the latest
+  // reference (and any newly added thread) is reflected in decorations. The
+  // dispatch is a no-op transaction; it never mutates the doc.
+  useEffect(() => {
+    const view = editor?.view;
+    if (!view) return;
+    bumpCommentHighlights(view, commentThreads ?? []);
+  }, [editor, commentThreads]);
+
+  // Capture clicks on highlighted ranges before the editor's own click handler
+  // turns them into a selection that destroys the inline decoration.
+  const editorHostRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const root = editorHostRef.current;
+    if (!root || !onCommentThreadClick) return;
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ threadId: string }>).detail;
+      if (!detail?.threadId) return;
+      onCommentThreadClick(detail.threadId);
+    };
+    root.addEventListener("comment-highlight-click", handler);
+    return () => root.removeEventListener("comment-highlight-click", handler);
+  }, [onCommentThreadClick]);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col relative">
       {editable && editor && (
@@ -122,8 +158,16 @@ export const PageEditor = forwardRef<PageEditorHandle, {
         </BubbleMenu>
       )}
       {editable && editor && <SlashMenu editor={editor} />}
-      <div className="editor-canvas min-h-0 flex-1 overflow-auto">
-        <EditorContent editor={editor} />
+      {/* The scroll container is the OUTER wrapper; .editor-canvas owns the
+          border + width, the drag handle, and must NOT be overflow-clipped
+          (§6.2 — the block drag handle is positioned at left:-24px so the
+          editor surface area must be visible outside the canvas box). */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <div className="editor-canvas">
+          <div ref={editorHostRef}>
+            <EditorContent editor={editor} />
+          </div>
+        </div>
       </div>
     </div>
   );

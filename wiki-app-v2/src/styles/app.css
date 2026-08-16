@@ -148,12 +148,23 @@
  * STRUCTURAL RULE: exactly one bordered container around the writing surface —
  * .editor-canvas. No second border may appear on focus/selection/typing. The
  * toolbar and bubble menu are siblings, never parents of the content.
+ *
+ * Width: .editor-canvas is the SINGLE box that respects the user's
+ * "editor width" setting (Appearance → Editor width). The inner .wiki-prose
+ * is a typography wrapper only — no max-width, no margin, no padding box —
+ * so the bordered canvas and the text column never look like two stacked
+ * boxes. The canvas is intentionally NOT the scroll container; the scroll
+ * happens on the outer wrapper so the block drag handle (positioned at
+ * left:-24px) is not clipped by overflow.
  * ------------------------------------------------------------------------- */
 .editor-canvas {
   position: relative; /* anchor for the absolutely-positioned block drag handle */
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-md);
   background: var(--background);
+  max-width: var(--editor-width, 72ch);
+  margin: 0 auto;
+  min-height: 100%;
   transition: border-color var(--duration-normal) var(--ease-default),
               box-shadow var(--duration-normal) var(--ease-default);
 }
@@ -188,7 +199,8 @@
   background: var(--surface-hover);
   color: var(--foreground);
 }
-.editor-canvas:hover .drag-handle {
+.editor-canvas:hover .drag-handle,
+.drag-handle:hover {
   opacity: 1;
   pointer-events: auto;
 }
@@ -204,18 +216,45 @@
 }
 
 /* ---------------------------------------------------------------------------
+ * Inline-comment highlight (slice 33 / brief §3.4).
+ *
+ * The decoration wraps the exact text the comment anchors to. Background
+ * is the only signal — never a border or underline, which would compete
+ * with selection / spell-check. Hover/tooltip is the native [title] attr
+ * so it works the same in editor and read-view without bespoke tooltip
+ * code. The matching <mark> tag in ReadOnlyContent gets the same class.
+ * color-mix lets us reuse --primary at 22% for the resting state and 38%
+ * for hover without an RGB-channel token.
+ * ------------------------------------------------------------------------- */
+.comment-highlight,
+mark.comment-highlight {
+  background-color: color-mix(in srgb, var(--primary) 22%, transparent);
+  border-radius: 2px;
+  padding: 0 1px;
+  margin: 0 -1px;
+  cursor: pointer;
+  transition: background-color var(--duration-fast, 100ms) var(--ease-default);
+}
+.comment-highlight:hover,
+mark.comment-highlight:hover {
+  background-color: color-mix(in srgb, var(--primary) 38%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
  * Prose styles for editor + read mode. Same tokens as the rest of the app —
  * no separate editor theme (§5.2).
+ *
+ * .wiki-prose is a TYPOGRAPHY WRAPPER ONLY: no max-width, no centering,
+ * no min-height. The single visible box is .editor-canvas (see above).
+ * Padding lives here so the text has comfortable breathing room inside the
+ * bordered canvas without the canvas itself looking like a second frame.
  * ------------------------------------------------------------------------- */
 .wiki-prose {
   padding: var(--space-8) var(--space-8) var(--space-16);
-  max-width: var(--editor-width, 72ch);
-  margin: 0 auto;
   font-size: var(--text-base);
   line-height: var(--leading-relaxed);
   color: var(--foreground);
   outline: none;
-  min-height: 100%;
 }
 
 .wiki-prose > * + * {

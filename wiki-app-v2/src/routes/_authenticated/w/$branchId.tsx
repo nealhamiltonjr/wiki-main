@@ -3,7 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
 import { Pencil, Eye, Loader2, MessageSquare, History, Link2, Network, Lock, LockOpen, Share2, Tags } from "lucide-react";
 
-import { api, type PageData } from "@/api/client";
+import { api, type CommentThread, type PageData } from "@/api/client";
 import { CollabEditor, PageEditor, type PageEditorHandle, type InlineCommentSelection } from "@/features/editor/Editor";
 import { useAutosave, saveStateLabel, type SavePageFn } from "@/features/editor/useAutosave";
 import { userColor, type CollabUser } from "@/features/editor/useCollab";
@@ -66,6 +66,37 @@ function PageView() {
   const [inlineComment, setInlineComment] = useState<InlineCommentSelection | null>(null);
   const [inlineDraft, setInlineDraft] = useState("");
   const [inlineBusy, setInlineBusy] = useState(false);
+  const [commentThreads, setCommentThreads] = useState<CommentThread[]>([]);
+  // Editor + read view decorate from the same source the CommentsPanel polls.
+  // Pulled here (not inside the panel) so the editor instance can read them
+  // without an HOC or context dance.
+  const refreshThreads = useCallback(async () => {
+    try {
+      const list = await api.listComments(branchId);
+      setCommentThreads(list ?? []);
+    } catch {
+      // Read paths fail closed (here: stay empty); the panel will surface
+      // a real error if the panel itself initiates the call (§11.2).
+    }
+  }, [branchId]);
+
+  useEffect(() => {
+    void refreshThreads();
+  }, [refreshThreads]);
+
+  // Click on a highlighted range (editor or read view) opens the comments
+  // panel and scrolls the matching thread into view.
+  const handleCommentThreadClick = useCallback((threadId: string) => {
+    setShowComments(true);
+    requestAnimationFrame(() => {
+      const el = document.querySelector(
+        `[data-testid="comment-thread"][data-thread-id="${threadId}"]`,
+      );
+      if (el && "scrollIntoView" in el) {
+        (el as HTMLElement).scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    });
+  }, []);
 
   const { data: page, loading, error, reload } = useQuery(
     () => api.getPage(branchId),
@@ -317,6 +348,8 @@ function PageView() {
                 savePage={isEncrypted ? encryptedSavePage : undefined}
                 isEncrypted={isEncrypted}
                 onInlineComment={setInlineComment}
+                onCommentThreads={commentThreads}
+                onCommentThreadClick={handleCommentThreadClick}
                 onContentChange={isEncrypted ? handleEncryptedContentChange : (nextContent, nextUpdatedAt) =>
                   setLivePage({ content: nextContent, updatedAt: nextUpdatedAt })
                 }
@@ -335,7 +368,11 @@ function PageView() {
               <div className="min-h-0 flex-1 overflow-auto">
                 <div className="editor-canvas">
                   <div className="wiki-prose">
-                    <ReadOnlyContent content={content} />
+                    <ReadOnlyContent
+                      content={content}
+                      commentThreads={commentThreads}
+                      onCommentThreadClick={handleCommentThreadClick}
+                    />
                   </div>
                 </div>
               </div>
@@ -348,6 +385,7 @@ function PageView() {
             key={page.branchId}
             branchId={branchId}
             canEdit={page.access === "editor" || page.access === "admin"}
+            onThreadsChanged={setCommentThreads}
           />
         )}
         {showHistory && (
@@ -667,6 +705,8 @@ function EditableCanvas({
   savePage,
   isEncrypted,
   onInlineComment,
+  onCommentThreads,
+  onCommentThreadClick,
 }: {
   branchId: string;
   slug: string;
@@ -685,6 +725,8 @@ function EditableCanvas({
   // the affordance off the toolbar.
   isEncrypted?: boolean;
   onInlineComment?: (sel: InlineCommentSelection) => void;
+  onCommentThreads?: CommentThread[];
+  onCommentThreadClick?: (threadId: string) => void;
 }) {
   const editorRef = useRef<PageEditorHandle>(null);
 
@@ -747,6 +789,8 @@ function EditableCanvas({
         onUpdate={handleUpdate}
         branchId={branchId}
         onInlineComment={onInlineComment}
+        commentThreads={onCommentThreads}
+        onCommentThreadClick={onCommentThreadClick}
       />
       <div className="flex items-center justify-between border-t border-border px-4 py-1 text-xs text-text-muted">
         <span>{saveStateLabel(saveState)}</span>
