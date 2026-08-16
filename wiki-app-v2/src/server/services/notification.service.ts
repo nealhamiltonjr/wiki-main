@@ -1,4 +1,4 @@
-import { eq, and, desc, isNull } from "drizzle-orm";
+import { eq, and, desc, isNull, count } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { notifications } from "../db/schema.js";
 
@@ -20,7 +20,7 @@ export async function createNotification(userId: string, kind: "mention" | "syst
     .insert(notifications)
     .values({ userId, kind, payload } as never)
     .returning({ id: notifications.id });
-  return row!.id;
+  if (!row) throw new Error("Failed to create notification"); return row.id;
 }
 
 /**
@@ -41,11 +41,11 @@ export async function getNotifications(userId: string, limit = 50) {
  */
 export async function unreadCount(userId: string): Promise<number> {
   const { db } = getDb();
-  const rows = await db
-    .select({ count: notifications.id })
+  const [row] = await db
+    .select({ n: count() })
     .from(notifications)
     .where(and(eq(notifications.userId, userId), isNull(notifications.readAt)));
-  return rows.length;
+  return row?.n ?? 0;
 }
 
 /**

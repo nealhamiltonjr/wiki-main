@@ -3,7 +3,6 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 export const Route = createRootRoute({
   component: RootComponent,
-  errorComponent: ({ error }) => <RouteErrorFallback error={error} />,
 });
 
 function RootComponent() {
@@ -25,7 +24,7 @@ class ErrorBoundary extends Component<Props, State> {
     console.error("[ErrorBoundary] render throw:", error, info.componentStack);
   }
   override render(): ReactNode {
-    if (this.state.error) return this.props.fallback;
+    if (this.state.error) return <RouteErrorFallback error={this.state.error} />;
     return this.props.children;
   }
 }

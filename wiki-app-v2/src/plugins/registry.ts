@@ -109,7 +109,7 @@ export function registerSlashCommand(def: SlashCommandDef) {
   if (slashCommands.some((c) => c.name === def.name)) {
     throw new Error(`Plugin registry: slash command "${def.name}" is already registered`);
   }
-  slashCommands.push(def);
+  slashCommands = [...slashCommands, def];
   notify();
 }
 export function registerToolbarItem(def: ToolbarItemDef) {
@@ -118,7 +118,7 @@ export function registerToolbarItem(def: ToolbarItemDef) {
   if (toolbarItems.some((t) => t.id === def.id)) {
     throw new Error(`Plugin registry: toolbar item "${def.id}" is already registered`);
   }
-  toolbarItems.push(def);
+  toolbarItems = [...toolbarItems, def];
   notify();
 }
 export function registerSettingsPanel(def: SettingsPanelDef) {
@@ -127,7 +127,7 @@ export function registerSettingsPanel(def: SettingsPanelDef) {
   if (settingsPanels.some((p) => p.id === def.id)) {
     throw new Error(`Plugin registry: settings panel "${def.id}" is already registered`);
   }
-  settingsPanels.push(def);
+  settingsPanels = [...settingsPanels, def];
   notify();
 }
 let _embedTypeMap: Map<string, EmbedTypeDef> | null = null;
@@ -154,7 +154,7 @@ export function registerEmbedType(def: EmbedTypeDef) {
   if (embedTypes.some((e) => e.name === def.name)) {
     throw new Error(`Plugin registry: embed type "${def.name}" is already registered`);
   }
-  embedTypes.push(def);
+  embedTypes = [...embedTypes, def];
   _embedTypeMap = null;
   notify();
 }

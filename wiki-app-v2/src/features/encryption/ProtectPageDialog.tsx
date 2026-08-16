@@ -33,7 +33,7 @@ export function ProtectPageDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+    <div role="dialog" aria-modal="true" aria-label="Protect page" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <form onSubmit={submit} className="w-full max-w-sm rounded-lg border border-border bg-surface p-6 shadow-lg">
         <div className="flex items-center gap-2">
           <Lock className="h-4 w-4 text-text-muted" />

@@ -17,7 +17,7 @@ import { getSystemSetting } from "./settings.routes.js";
 
 const restoreBody = z.object({ commitHash: z.string().min(7).max(64) }).strict();
 const snapshotBody = z.object({ message: z.string().max(500).optional() }).strict();
-const cloneBody = z.object({ url: z.string().min(1).max(500), branch: z.string().min(1).max(200) }).strict();
+const cloneBody = z.object({ url: z.string().min(1).max(500).regex(/^https?:\/\//, "URL must be http(s)"), branch: z.string().min(1).max(200) }).strict();
 
 /**
  * Admin git section (§8 step 10). Status/log are cheap and read-only. The

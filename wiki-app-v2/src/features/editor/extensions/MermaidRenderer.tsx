@@ -15,11 +15,11 @@ export function MermaidRenderer({ source }: { source: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const renderId = useRef(0);
+  const renderId = useRef(Math.random().toString(36).slice(2));
 
   useEffect(() => {
     let cancelled = false;
-    const id = ++renderId.current;
+    const id = Math.random().toString(36).slice(2); renderId.current = id;
 
     const render = async () => {
       try {

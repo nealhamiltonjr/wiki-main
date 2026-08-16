@@ -42,12 +42,15 @@ function AuthenticatedLayout() {
     if (session) void seedOfflinePinCache();
   }, [session]);
 
+  useEffect(() => {
+    if (!isPending && !session) void navigate({ to: "/login" });
+  }, [session, isPending, navigate]);
+
   if (isPending) {
     return <div className="flex h-screen items-center justify-center text-sm text-muted-foreground">Loading…</div>;
   }
 
   if (!session) {
-    void navigate({ to: "/login" });
     return null;
   }
 

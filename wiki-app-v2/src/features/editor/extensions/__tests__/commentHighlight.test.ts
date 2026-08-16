@@ -126,7 +126,8 @@ describe("CommentHighlight", () => {
     ]);
     const decos = getDecos(state);
     const d = decos.find()[0]! as unknown as { type: { attrs: Record<string, unknown> } };
-    expect(String(d.type.attrs.title)).toContain("Hello");
+    // Title attribute was removed (Phase 4 fix — CommentHoverBubble replaces native tooltip)
+    expect(d.type.attrs["data-thread-id"]).toBeDefined();
   });
 
   it("rebuilds decorations when a thread-bump transaction carries new threads", () => {

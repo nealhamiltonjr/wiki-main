@@ -36,14 +36,16 @@ const start = async () => {
           ws.on("close", (code, reason) => connection.handleClose({ code, reason: reason.toString() }));
           ws.on("error", (err) => app.log.error({ err }, "collab websocket error"));
         });
+      } else {
+        socket.destroy();
       }
     });
-
-    console.log(`\n🚀 API + WebSocket listening on http://${HOST}:${PORT}\n`);
   } catch (err) {
     app.log.error(err);
     process.exit(1);
   }
 };
+
+start();
 
 start();

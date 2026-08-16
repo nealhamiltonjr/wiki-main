@@ -67,11 +67,11 @@ export function PagePropertiesPanel({ pageId, canEdit }: { pageId: string; canEd
               <span className="text-text-secondary">
                 <span className="font-medium">{a.name}</span>
                 {a.value ? `: ${a.value}` : ""}
-                {a.valuePageId ? ` → ${a.valuePageId}` : ""}
+                {a.valuePageId ? " → linked" : ""}
                 {a.isPromoted ? " · promoted" : ""}
               </span>
               {canEdit && (
-                <button type="button" onClick={() => remove(a.id)} aria-label={`Remove ${a.name}`} className="text-danger">
+                <button type="button" onClick={() => void remove(a.id)} aria-label={`Remove ${a.name}`} className="text-danger">
                   <X className="h-3.5 w-3.5" />
                 </button>
               )}
@@ -89,7 +89,7 @@ export function PagePropertiesPanel({ pageId, canEdit }: { pageId: string; canEd
             Promoted (show in sidebar)
           </label>
           {error && <p className="text-xs text-danger">{error}</p>}
-          <button type="button" onClick={add} disabled={busy || !name.trim()} className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-surface-hover disabled:opacity-50">
+          <button type="button" onClick={() => void add()} disabled={busy || !name.trim()} className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-surface-hover disabled:opacity-50">
             <Plus className="h-3.5 w-3.5" /> Add property
           </button>
         </div>

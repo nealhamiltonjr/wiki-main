@@ -71,12 +71,19 @@ export function createAuth() {
       window: Number(process.env.BETTER_AUTH_RATE_LIMIT_WINDOW ?? 60),
       max: Number(process.env.BETTER_AUTH_RATE_LIMIT_MAX ?? 20),
       ...(process.env.BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES
-        ? {
-            customRules: JSON.parse(process.env.BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES) as Record<
-              string,
-              { window: number; max: number } | false
-            >,
-          }
+        ? (() => {
+            try {
+              return {
+                customRules: JSON.parse(process.env.BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES!) as Record<
+                  string,
+                  { window: number; max: number } | false
+                >,
+              };
+            } catch {
+              console.warn("[auth] BETTER_AUTH_RATE_LIMIT_CUSTOM_RULES is invalid JSON — ignoring");
+              return {};
+            }
+          })()
         : {}),
     },
     socialProviders: {

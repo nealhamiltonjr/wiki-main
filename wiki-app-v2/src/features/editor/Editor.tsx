@@ -19,7 +19,7 @@ import { insertMermaidDiagram } from "./extensions/mermaidInsert.js";
 import { CommentHighlight, bumpCommentHighlights, type CommentThreadLite } from "./extensions/commentHighlight.js";
 import { SearchReplacePopup } from "./SearchReplacePopup.js";
 import { CommentHoverBubble } from "./CommentHoverBubble.js";
-import { useMentionExtension } from "./extensions/mentionExtension.jsx";
+import { useMentionExtension, destroyMentionPopup } from "./extensions/mentionExtension.jsx";
 import type { CommentThread } from "@/api/client";
 import { api } from "@/api/client";
 import { KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES, filterUnknownNodes } from "@/shared/blockIds";
@@ -89,6 +89,11 @@ export const PageEditor = forwardRef<PageEditorHandle, {
   // seed paths). Here in the live editor we replace it with the popup-enabled
   // version so typing @ shows a user picker.
   const mentionExt = useMentionExtension();
+
+  // Clean up mention popup DOM element on unmount
+  useEffect(() => {
+    return () => { destroyMentionPopup(); };
+  }, []);
 
   // Sanitize content: convert node types unknown to the current schema into
   // paragraphs so Tiptap never throws on a disabled plugin's saved nodes (§4.4).
@@ -310,10 +315,12 @@ function EditorToolbar({ editor, pluginItems, branchId, onOpenSearch }: {
   // Editor width cycle: Narrow → Default → Wide → Full → Narrow
   const [editorWidth, setEditorWidth] = useState("72ch");
   useEffect(() => {
+    let cancelled = false;
     void api.getUserSettings().then((rows) => {
       const row = rows.find((r) => r.key === "editor.width");
-      if (row && typeof row.value === "string") setEditorWidth(row.value);
+      if (!cancelled && row && typeof row.value === "string") setEditorWidth(row.value);
     }).catch(() => {});
+    return () => { cancelled = true; };
   }, []);
   const cycleWidth = () => {
     const widths = ["60ch", "72ch", "90ch", "100%"];

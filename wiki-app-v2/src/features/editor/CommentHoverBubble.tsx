@@ -40,6 +40,10 @@ export function CommentHoverBubble({ editor, threads }: Props) {
   }, [clearHideTimer]);
 
   useEffect(() => {
+    return () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current); };
+  }, []);
+
+  useEffect(() => {
     const root = editor.view.dom;
     if (!root) return;
 

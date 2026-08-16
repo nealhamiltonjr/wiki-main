@@ -57,6 +57,7 @@ async function callTool(name: string, args: Record<string, unknown>, user: UserC
       if (!branch) throw new McpError(-32001, "Branch not found");
       const [page] = await db.select().from(pages).where(and(eq(pages.id, branch.pageId), isNull(pages.deletedAt)));
       if (!page) throw new McpError(-32001, "Page not found");
+      if (page.isEncrypted) throw new McpError(-32001, "Page is encrypted and cannot be accessed via MCP");
       return { pageId: page.id, branchId: branch.id, slug: page.slug, title: page.title, content: page.content, spaceId: branch.spaceId, access, updatedAt: page.updatedAt?.toISOString() };
     }
     case "search_pages": {

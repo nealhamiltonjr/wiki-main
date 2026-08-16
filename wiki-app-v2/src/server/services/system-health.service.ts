@@ -60,7 +60,7 @@ export interface SystemHealthReport {
  * report with a note instead of throwing the whole call away.
  */
 async function collectDatabaseStats(): Promise<SystemHealthReport["database"]> {
-  const dbPath = process.env.DB_PATH ?? "data/wiki.db";
+  const { getDbPath } = await import("../db/index.js"); const dbPath = getDbPath();
   const note: string | undefined = undefined;
   let sizeBytes: number | null = null;
   let journalMode: string | null = null;

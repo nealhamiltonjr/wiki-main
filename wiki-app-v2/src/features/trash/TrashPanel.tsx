@@ -81,7 +81,7 @@ export function TrashPanel({ spaceId }: { spaceId: string }) {
   if (error) {
     return (
       <section data-testid="trash-panel" className="p-6 text-sm text-danger">
-        Failed to load trash: {error.message}
+        Failed to load trash: {error}
         <Button variant="link" onClick={reload}>Retry</Button>
       </section>
     );

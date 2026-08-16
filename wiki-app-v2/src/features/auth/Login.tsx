@@ -85,7 +85,7 @@ export function Login({ onAuthed }: { onAuthed: () => void }) {
       </form>
       <button
         className="w-full text-sm text-primary underline-offset-4 hover:underline"
-        onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+        onClick={() => setMode(mode === "signin" ? "signup" : "signin")} aria-pressed={mode === "signup"}
       >
         {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
       </button>

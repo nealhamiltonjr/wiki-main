@@ -18,17 +18,20 @@ function ShareViewerPage() {
   const [passwordInput, setPasswordInput] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
     if (!search.shareToken) { setError("Missing share token"); setLoading(false); return; }
     const url = new URL(`/api/branches/${branchId}/page`, window.location.origin);
     url.searchParams.set("shareToken", search.shareToken);
     if (search.sharePassword) url.searchParams.set("sharePassword", search.sharePassword);
     request<PageData>(url.pathname + url.search)
-      .then((p) => { setPage(p); setLoading(false); })
+      .then((p) => { if (!cancelled) { setPage(p); setLoading(false); } })
       .catch((err) => {
+        if (cancelled) return;
         if (err.status === 401) { setNeedsPassword(true); setLoading(false); }
         else if (err.status === 404) { setError("This share link no longer exists or has been revoked."); setLoading(false); }
         else { setError(err.message ?? "Failed to load shared page"); setLoading(false); }
       });
+      return () => { cancelled = true; };
   }, [branchId, search.shareToken, search.sharePassword]);
 
   const submitPassword = (e: React.FormEvent) => {

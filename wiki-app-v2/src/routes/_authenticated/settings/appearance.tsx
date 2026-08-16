@@ -74,8 +74,11 @@ function AppearanceSettingsPage() {
               key={w.value}
               type="button"
               onClick={() => {
+                const prev = editorWidth;
                 setEditorWidth(w.value);
-                void api.setUserSetting("editor.width", w.value);
+                void api.setUserSetting("editor.width", w.value).catch(() => {
+                  setEditorWidth(prev);
+                });
               }}
               aria-pressed={editorWidth === w.value}
               className={cn(

@@ -47,18 +47,17 @@ function extractInternalLinks(doc: unknown): ExtractedLink[] {
 /** On each page save: drop existing backlinks for the source, scan and upsert. */
 export async function refreshBacklinks(sourcePageId: string, content: unknown) {
   const links = extractInternalLinks(content);
-  const { db } = getDb();
-  await db.delete(backlinks).where(eq(backlinks.sourcePageId, sourcePageId));
-
-  if (links.length === 0) return;
-
-  for (const link of links) {
-    await db.insert(backlinks).values({
-      sourcePageId,
-      targetBranchId: link.targetBranchId,
-      targetBlockId: link.targetBlockId,
-    });
-  }
+  const { db, sqlite } = getDb();
+  sqlite.transaction(() => {
+    db.delete(backlinks).where(eq(backlinks.sourcePageId, sourcePageId)).run();
+    if (links.length > 0) {
+      db.insert(backlinks).values(links.map(link => ({
+        sourcePageId,
+        targetBranchId: link.targetBranchId,
+        targetBlockId: link.targetBlockId,
+      }))).run();
+    }
+  })();
 }
 
 export interface BacklinkEntry {

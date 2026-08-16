@@ -267,11 +267,13 @@ export async function setBranchPermissions(
   branchId: string,
   grants: { groupId: string; role: BranchRole }[]
 ): Promise<void> {
-  const { db } = getDb();
-  await db.delete(groupPermissions).where(eq(groupPermissions.branchId, branchId));
-  for (const g of grants) {
-    await db.insert(groupPermissions).values({ branchId, groupId: g.groupId, role: g.role });
-  }
+  const { db, sqlite } = getDb();
+  sqlite.transaction(() => {
+    db.delete(groupPermissions).where(eq(groupPermissions.branchId, branchId)).run();
+    for (const g of grants) {
+      db.insert(groupPermissions).values({ branchId, groupId: g.groupId, role: g.role }).run();
+    }
+  })();
 }
 
 /** Removes a single group grant from a branch. Idempotent - missing grant is a no-op. */

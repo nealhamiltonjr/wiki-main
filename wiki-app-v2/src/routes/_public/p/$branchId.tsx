@@ -27,12 +27,15 @@ function PublicPageViewer() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
     request<PublicPage>(`/api/public/pages/${branchId}`)
-      .then((p) => { setPage(p); setLoading(false); })
+      .then((p) => { if (!cancelled) { setPage(p); setLoading(false); } })
       .catch((err) => {
-        setError(err.status === 404 ? "This page is not publicly available." : "Failed to load page.");
+        if (!cancelled) { setError(err.status === 404 ? "This page is not publicly available." : "Failed to load page.");
         setLoading(false);
+        }
       });
+    return () => { cancelled = true; };
   }, [branchId]);
 
   if (loading) return <div className="flex min-h-screen items-center justify-center"><p className="text-sm text-text-muted">Loading…</p></div>;

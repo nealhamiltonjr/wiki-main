@@ -158,7 +158,7 @@ export function ReadOnlyContent({
     >
       {children.map((node, i) => (
         <BlockNode
-          key={i}
+          key={String((node.attrs as Record<string, unknown>)?.id ?? i)}
           node={node}
           embedMap={embedMap}
           highlights={highlights}
@@ -168,7 +168,7 @@ export function ReadOnlyContent({
     </div>
   );
   if (!onCommentThreadClick) {
-    return <>{children.map((node, i) => <BlockNode key={i} node={node} embedMap={embedMap} highlights={[]} startOffset={childOffsetAt(children, i)} />)}</>;
+    return <>{children.map((node, i) => <BlockNode key={String((node.attrs as Record<string, unknown>)?.id ?? i)} node={node} embedMap={embedMap} highlights={[]} startOffset={childOffsetAt(children, i)} />)}</>;
   }
   return renderTop(onCommentThreadClick);
 }
@@ -266,7 +266,7 @@ function BlockNode({
         // `nodeSize` in `shared/blockIds.ts`.
         const off = startOffset + 1 + childOffsetAt(node.content!, i);
         return (
-          <InlineNode key={i} node={n} blockOffset={off} highlights={local} />
+          <InlineNode key={String((n?.attrs as Record<string, unknown>)?.id ?? i)} node={n} blockOffset={off} highlights={local} />
         );
       })
     : null;
@@ -286,7 +286,7 @@ function BlockNode({
         <ul>
           {node.content?.map((n, i) => (
             <BlockNode
-              key={i}
+              key={String((n?.attrs as Record<string, unknown>)?.id ?? i)}
               node={n}
               embedMap={embedMap}
               highlights={highlights}
@@ -300,7 +300,7 @@ function BlockNode({
         <ol>
           {node.content?.map((n, i) => (
             <BlockNode
-              key={i}
+              key={String((n?.attrs as Record<string, unknown>)?.id ?? i)}
               node={n}
               embedMap={embedMap}
               highlights={highlights}
@@ -316,7 +316,7 @@ function BlockNode({
         <blockquote>
           {node.content?.map((n, i) => (
             <BlockNode
-              key={i}
+              key={String((n?.attrs as Record<string, unknown>)?.id ?? i)}
               node={n}
               embedMap={embedMap}
               highlights={highlights}

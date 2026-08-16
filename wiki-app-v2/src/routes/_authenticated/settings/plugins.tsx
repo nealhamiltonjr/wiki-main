@@ -127,7 +127,7 @@ function PluginSettingsPage() {
                     <button
                       type="button"
                       className="text-xs px-2 py-0.5 rounded border border-border hover:bg-surface-hover transition-colors"
-                      onClick={() => toggle(p.id, !p.enabled)}
+                      onClick={() => void toggle(p.id, !p.enabled)}
                     >
                       {p.enabled ? "Disable" : "Enable"}
                     </button>

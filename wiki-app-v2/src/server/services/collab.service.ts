@@ -56,9 +56,10 @@ async function evictIfNeeded(): Promise<void> {
     // Persist the evicted doc's state to the durable store so reconnect works.
     if (doc) {
       try {
-        const { storeDocument } = await import("./collab.service.js");
-        await storeDocument(oldest, doc);
-      } catch { /* best-effort — the next reconnect will re-seed from disk */ }
+        const update = encodeStateAsUpdate(doc);
+        const { db } = getDb();
+        await db.update(collabDocuments).set({ data: Buffer.from(update).toString("base64"), updatedAt: new Date() }).where(eq(collabDocuments.name, oldest));
+      } catch { /* best-effort */ }
     }
   }
 }

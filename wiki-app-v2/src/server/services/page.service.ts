@@ -1,4 +1,4 @@
-import { eq, and, isNull, ne, count } from "drizzle-orm";
+import { eq, inArray, and, isNull, ne } from "drizzle-orm";
 import { rm } from "node:fs/promises";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -383,28 +383,17 @@ async function saveEncryptedPageOCC(opts: {
 
 /** Soft-deletes a branch placement. Last live placement -> the page itself goes to trash. */
 export async function softDeleteBranch(branchId: string): Promise<void> {
-  const { db } = getDb();
-  const [row] = await db
-    .select({ pageId: branches.pageId })
-    .from(branches)
-    .where(eq(branches.id, branchId));
-  if (!row) return;
-
-  const [liveCountRow] = await db
-    .select({ n: count() })
-    .from(branches)
-    .innerJoin(pages, eq(branches.pageId, pages.id))
-    .where(and(eq(branches.pageId, row.pageId), isNull(pages.deletedAt)));
-  const liveCount = liveCountRow?.n ?? 0;
-
-  if (liveCount <= 1) {
-    // Last live placement: trash the page (soft delete). Every placement of
-    // this page disappears from the tree with it; restoring revives all of them.
-    await db.update(pages).set({ deletedAt: new Date() }).where(eq(pages.id, row.pageId));
-  } else {
-    // More placements exist: remove just this placement.
-    await db.delete(branches).where(eq(branches.id, branchId));
-  }
+  const { sqlite } = getDb();
+  sqlite.transaction(() => {
+    const row = sqlite.prepare("SELECT page_id FROM branches WHERE id = ?").get(branchId) as { page_id: string } | undefined;
+    if (!row) return;
+    const liveCountRow = sqlite.prepare("SELECT COUNT(*) as n FROM branches b JOIN pages p ON p.id = b.page_id WHERE b.page_id = ? AND p.deleted_at IS NULL AND COALESCE(b.is_system, 0) = 0").get(row.page_id) as { n: number };
+    if ((liveCountRow?.n ?? 0) <= 1) {
+      sqlite.prepare("UPDATE pages SET deleted_at = ? WHERE id = ?").run(Date.now(), row.page_id);
+    } else {
+      sqlite.prepare("DELETE FROM branches WHERE id = ?").run(branchId);
+    }
+  })();
 }
 
 /** Restores a soft-deleted page (clears deletedAt on every placement). */
@@ -427,7 +416,11 @@ export async function purgePage(pageId: string): Promise<void> {
     .all();
   const pageBranchIdSet = new Set(pageBranchIds.map(b => b.id));
   if (pageBranchIdSet.size > 0) {
-    const allBranches = await db.select({ id: branches.id, parentBranchId: branches.parentBranchId }).from(branches);
+    const pageBranchIds = await db.select({ id: branches.id }).from(branches).where(eq(branches.pageId, pageId));
+    const pageBranchIdList = pageBranchIds.map(b => b.id);
+    const allBranches = pageBranchIdList.length > 0
+      ? await db.select({ id: branches.id, parentBranchId: branches.parentBranchId }).from(branches).where(inArray(branches.parentBranchId, pageBranchIdList))
+      : [];
     for (const b of allBranches) {
       if (b.parentBranchId && pageBranchIdSet.has(b.parentBranchId)) {
         await db.update(branches).set({ parentBranchId: null }).where(eq(branches.id, b.id));

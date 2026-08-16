@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { listPlugins, installPluginFromZip, setPluginEnabled, uninstallPlugin, getPluginDir } from "../services/plugin.service.js";
@@ -90,9 +91,10 @@ export async function pluginRoutes(app: FastifyInstance) {
   });
 
   // Enable/disable toggle. Admin-only.
+  const enableBody = z.object({ enabled: z.boolean() }).strict();
   app.put("/api/plugins/:id/enabled", { config: { access: "admin" } }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const { enabled } = request.body as { enabled: boolean };
+    const { enabled } = enableBody.parse(request.body);
     const user = (request as any).userContext as { id: string };
     const info = await setPluginEnabled(id, enabled, user.id);
     return reply.send(info);

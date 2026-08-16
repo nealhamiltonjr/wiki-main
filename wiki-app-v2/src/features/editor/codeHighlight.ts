@@ -30,17 +30,6 @@ export async function highlightCode(code: string, language: string | null | unde
   } catch { return null; }
 }
 
-export function highlightCodeSync(code: string, language: string | null | undefined): string | null {
-  if (!language) return null;
-  try {
-    if (!prismPromise) return null;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const Prism = require("prismjs");
-    const grammarId = resolveCodeLanguage(language).id;
-    return Prism.highlight(code, Prism.languages[grammarId] ?? Prism.languages.plaintext, grammarId);
-  } catch { return null; }
-}
-
 export async function preloadPrismLanguage(language: string): Promise<void> {
   const prism = await getPrism(); const grammarId = resolveCodeLanguage(language).id; await loadGrammar(prism, grammarId);
 }

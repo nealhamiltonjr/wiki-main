@@ -1,27 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
-
-// Skeleton health check: proves the client shell mounts and renders. Slice 2
-// wires this to the real Fastify /api/health endpoint and shows server state.
 export const Route = createFileRoute("/_authenticated/health")({
   component: HealthPage,
 });
 
 function HealthPage() {
+  const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
+  useEffect(() => {
+    fetch("/api/health").then(r => r.json()).then(() => setStatus("ok")).catch(() => setStatus("error"));
+  }, []);
   return (
     <div className="p-6">
       <h1 className="text-2xl font-semibold">Health</h1>
-      <div className="mt-4 space-y-2 text-sm">
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground">Client</span>
-          <Badge variant="outline">ok</Badge>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground">Server</span>
-          <Badge variant="outline">pending — slice 2</Badge>
-        </div>
-      </div>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Server: <span className="font-mono">{status === "loading" ? "checking…" : status === "ok" ? "ok" : "unreachable"}</span>
+      </p>
     </div>
   );
 }

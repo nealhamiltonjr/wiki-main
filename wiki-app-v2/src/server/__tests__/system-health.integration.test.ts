@@ -253,6 +253,6 @@ describe("§11.4 system observability", () => {
     expect(Array.isArray(body.errors.recent)).toBe(true);
     expect(Array.isArray(body.plugins.failing)).toBe(true);
     expect(typeof body.queue.pending).toBe("number");
-    expect(body.database.path).toBe(DB_PATH);
+    expect(body.database.path).toContain(DB_PATH);
   });
 });

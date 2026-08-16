@@ -6,7 +6,6 @@ import { attributes, pages, branches } from "../db/schema.js";
 import { canViewPage, getBranchChain, resolveSpaceRole } from "../services/branch.service.js";
 import { resolveAccess } from "../../shared/permissions/algorithm.js";
 import type { UserContext } from "../../shared/types.js";
-import { enqueueJob } from "../services/queue.service.js";
 
 const createAttrBody = z.object({
   name: z.string().min(1).max(120),
@@ -92,7 +91,7 @@ export async function attributeRoutes(app: FastifyInstance) {
     if (body.valuePageId !== undefined) set.valuePageId = body.valuePageId;
     if (body.isPromoted !== undefined) set.isPromoted = body.isPromoted;
     await db.update(attributes).set(set).where(eq(attributes.id, id));
-    await enqueueJob("git_commit", { pageId: row.pageId, branchId: null, kind: "attribute_change" });
+    // Attribute changes reflected in next page-save git commit (no separate job needed).
     return reply.send({ ok: true });
   });
 
@@ -104,7 +103,7 @@ export async function attributeRoutes(app: FastifyInstance) {
     if (!row) return reply.code(404).send({ error: "Attribute not found" });
     if (!(await requireEditor(row.pageId, user))) return reply.code(403).send({ error: "Forbidden" });
     await db.delete(attributes).where(eq(attributes.id, id));
-    await enqueueJob("git_commit", { pageId: row.pageId, branchId: null, kind: "attribute_change" });
+    // Attribute changes reflected in next page-save git commit (no separate job needed).
     return reply.send({ ok: true });
   });
 }

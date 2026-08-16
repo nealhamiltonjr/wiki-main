@@ -27,6 +27,7 @@ import { graphRoutes } from "./routes/graph.routes.js";
 import { registerPluginServerRoutes, registerPluginHookHandlers, installPluginFailureHook } from "./services/plugin.service.js";
 import { recordSystemLog } from "./services/system-logger.service.js";
 import { assertEncryptionKeyConfigured } from "./services/crypto.service.js";
+import { record as recordDebugEvent } from "./services/debug-capture.service.js";
 import { debugRoutes } from "./routes/debug.routes.js";
 import { templateRoutes } from "./routes/template.routes.js";
 import { shareRoutes } from "./routes/share.routes.js";
@@ -149,8 +150,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // (only persisted while capture is enabled). Registered after routes so the
   // hook sees the final route context; non-fatal by design.
   app.addHook("onResponse", async (request, reply) => {
-    const { record } = await import("./services/debug-capture.service.js");
-    record({
+    recordDebugEvent({
       kind: "http",
       source: `${request.method}`,
       message: request.url,

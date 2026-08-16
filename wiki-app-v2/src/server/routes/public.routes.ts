@@ -23,7 +23,7 @@ export async function publicRoutes(app: FastifyInstance) {
         `SELECT DISTINCT s.id, s.name
          FROM spaces s
          JOIN branches b ON b.space_id = s.id
-         WHERE b.visibility = 'public'
+         WHERE b.visibility = 'public' AND COALESCE(b.is_system, 0) = 0
          ORDER BY s.name`,
       )
       .all() as { id: string; name: string }[];
@@ -40,7 +40,7 @@ export async function publicRoutes(app: FastifyInstance) {
         `SELECT b.id as branchId, p.id as pageId, p.slug, p.title
          FROM branches b
          JOIN pages p ON p.id = b.page_id
-         WHERE b.space_id = ? AND b.visibility = 'public' AND p.deleted_at IS NULL
+         WHERE b.space_id = ? AND b.visibility = 'public' AND p.deleted_at IS NULL AND COALESCE(b.is_system, 0) = 0
          ORDER BY p.title`,
       )
       .all(spaceId) as { branchId: string; pageId: string; slug: string; title: string }[];

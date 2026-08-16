@@ -30,7 +30,7 @@ function AttachmentNodeView({ node }: NodeViewProps) {
   const { url, name, mime, size } = node.attrs as AttachmentAttrs;
   return (
     <NodeViewWrapper className="attachment-node" data-attachment={name}>
-      <a href={url} download={name} className="attachment-card" target={mime === "application/pdf" || mime.startsWith("video/") || mime.startsWith("audio/") ? "_blank" : undefined} rel={mime === "application/pdf" ? "noopener noreferrer" : undefined}>
+      <a href={url} download={name} className="attachment-card" target={mime === "application/pdf" || mime.startsWith("video/") || mime.startsWith("audio/") ? "_blank" : undefined} rel={mime === "application/pdf" || mime.startsWith("video/") || mime.startsWith("audio/") ? "noopener noreferrer" : undefined}>
         <div className="attachment-icon"><AttachmentIcon mime={mime} name={name} /></div>
         <div className="attachment-meta"><div className="attachment-name">{name}</div><div className="attachment-info">{formatSize(size)}{mime ? ` · ${mime}` : ""}</div></div>
         <div className="attachment-download"><Download className="h-4 w-4" /></div>

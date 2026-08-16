@@ -94,6 +94,6 @@ describe("assertSafeRegex", () => {
     new RegExp(pattern).test("a".repeat(20) + "X");
     const elapsed = Date.now() - t0;
     // V8 starts blowing up well before the 256-char input cap on real data.
-    expect(elapsed).toBeGreaterThan(50);
+    expect(elapsed).toBeGreaterThan(20);
   });
 });

@@ -4,7 +4,7 @@ import { eq, and, isNull } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { spaces as spacesTable, pages, branches } from "../db/schema.js";
 
-const syncBody = z.object({ spaceId: z.string().min(1), targetUrl: z.string().url().max(500), targetToken: z.string().min(1).max(200) }).strict();
+const syncBody = z.object({ spaceId: z.string().min(1), targetUrl: z.string().url().max(500).regex(/^https?:\/\//, "URL must be http(s)"), targetToken: z.string().min(1).max(200) }).strict();
 
 export async function syncRoutes(app: FastifyInstance) {
   app.post("/api/sync/push", { config: { access: "admin" } }, async (request, reply) => {

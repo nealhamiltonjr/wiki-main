@@ -89,7 +89,7 @@ export function useCollab(documentName: string): CollabSession {
       provider.off("synced", onSynced);
       provider.off("status", onStatus);
     };
-  }, []);
+  }, [documentName]);
 
   // React StrictMode runs the mount → cleanup → mount cycle once in dev, so a
   // naive cleanup here would destroy the just-created provider and leave the
@@ -105,7 +105,7 @@ export function useCollab(documentName: string): CollabSession {
         if (!mountedRef.current) sessionRef.current?.provider.destroy();
       }, 0);
     };
-  }, []);
+  }, [documentName]);
 
   const { doc, provider } = sessionRef.current;
   return { doc, provider, isSynced, status };

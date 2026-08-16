@@ -37,6 +37,13 @@ export function useTheme(): { theme: Theme; setTheme: (t: Theme) => void } {
   const [theme, setThemeState] = useState<Theme>(() => getStoredTheme() ?? systemTheme());
 
   useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => { if (!getStoredTheme()) setThemeState(systemTheme()); };
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  useEffect(() => {
     applyTheme(theme);
   }, [theme]);
 

@@ -117,7 +117,7 @@ describe("git flush pipeline", () => {
   it("reports repo status and log with real commits", async () => {
     await commitPageChange("p4", await createPage("p4", "vms", simpleDoc("Nodes")));
     const status = await getRepoStatus();
-    expect(status.branch).toBe("master");
+    expect(["master", "main"]).toContain(status.branch);
     expect(status.dirty).toBe(0);
     expect(status.headHash).toMatch(/^[0-9a-f]{40}$/);
     expect(status.sizeBytes).toBeGreaterThan(0);
