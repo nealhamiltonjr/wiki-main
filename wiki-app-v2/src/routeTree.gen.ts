@@ -32,6 +32,7 @@ import { Route as AuthenticatedSettingsTokensRouteImport } from './routes/_authe
 import { Route as AuthenticatedSettingsUsersRouteImport } from './routes/_authenticated/settings/users'
 import { Route as AuthenticatedTrashSpaceIdRouteImport } from './routes/_authenticated/trash/$spaceId'
 import { Route as AuthenticatedWBranchIdRouteImport } from './routes/_authenticated/w/$branchId'
+import { Route as PublicPBranchIdRouteImport } from './routes/_public/p/$branchId'
 import { Route as PublicShareBranchIdRouteImport } from './routes/_public/share.$branchId'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
@@ -162,6 +163,11 @@ const AuthenticatedWBranchIdRoute = AuthenticatedWBranchIdRouteImport.update({
   path: '/w/$branchId',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const PublicPBranchIdRoute = PublicPBranchIdRouteImport.update({
+  id: '/p/$branchId',
+  path: '/p/$branchId',
+  getParentRoute: () => PublicRoute,
+} as any)
 const PublicShareBranchIdRoute = PublicShareBranchIdRouteImport.update({
   id: '/share/$branchId',
   path: '/share/$branchId',
@@ -188,6 +194,7 @@ export interface FileRoutesByFullPath {
   '/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/p/$branchId': typeof PublicPBranchIdRoute
   '/share/$branchId': typeof PublicShareBranchIdRoute
   '/lenses/': typeof AuthenticatedLensesIndexRoute
   '/settings/': typeof AuthenticatedSettingsIndexRoute
@@ -211,6 +218,7 @@ export interface FileRoutesByTo {
   '/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/p/$branchId': typeof PublicPBranchIdRoute
   '/share/$branchId': typeof PublicShareBranchIdRoute
   '/lenses': typeof AuthenticatedLensesIndexRoute
   '/settings': typeof AuthenticatedSettingsIndexRoute
@@ -238,6 +246,7 @@ export interface FileRoutesById {
   '/_authenticated/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/_authenticated/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/_authenticated/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/_public/p/$branchId': typeof PublicPBranchIdRoute
   '/_public/share/$branchId': typeof PublicShareBranchIdRoute
   '/_authenticated/lenses/': typeof AuthenticatedLensesIndexRoute
   '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
@@ -264,6 +273,7 @@ export interface FileRouteTypes {
     | '/settings/users'
     | '/trash/$spaceId'
     | '/w/$branchId'
+    | '/p/$branchId'
     | '/share/$branchId'
     | '/lenses/'
     | '/settings/'
@@ -287,6 +297,7 @@ export interface FileRouteTypes {
     | '/settings/users'
     | '/trash/$spaceId'
     | '/w/$branchId'
+    | '/p/$branchId'
     | '/share/$branchId'
     | '/lenses'
     | '/settings'
@@ -313,6 +324,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings/users'
     | '/_authenticated/trash/$spaceId'
     | '/_authenticated/w/$branchId'
+    | '/_public/p/$branchId'
     | '/_public/share/$branchId'
     | '/_authenticated/lenses/'
     | '/_authenticated/settings/'
@@ -486,6 +498,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedWBranchIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_public/p/$branchId': {
+      id: '/_public/p/$branchId'
+      path: '/p/$branchId'
+      fullPath: '/p/$branchId'
+      preLoaderRoute: typeof PublicPBranchIdRouteImport
+      parentRoute: typeof PublicRoute
+    }
     '/_public/share/$branchId': {
       id: '/_public/share/$branchId'
       path: '/share/$branchId'
@@ -560,11 +579,13 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 
 interface PublicRouteChildren {
   PublicLoginRoute: typeof PublicLoginRoute
+  PublicPBranchIdRoute: typeof PublicPBranchIdRoute
   PublicShareBranchIdRoute: typeof PublicShareBranchIdRoute
 }
 
 const PublicRouteChildren: PublicRouteChildren = {
   PublicLoginRoute: PublicLoginRoute,
+  PublicPBranchIdRoute: PublicPBranchIdRoute,
   PublicShareBranchIdRoute: PublicShareBranchIdRoute,
 }
 

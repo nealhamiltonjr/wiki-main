@@ -57,13 +57,13 @@ function buildDecorations(
       blockRange.to,
     );
     if (from >= to) continue;
-    const selection = t.selection ?? "";
-    const preview = selection.length > 120 ? `${selection.slice(0, 120)}…` : selection;
     decos.push(
       Decoration.inline(from, to, {
         class: "comment-highlight",
         "data-thread-id": t.id,
-        title: preview ? `Comment: "${preview}"` : "Comment",
+        // No native title attribute — the CommentHoverBubble component shows
+        // a rich popup on hover. The native tooltip was a pre-Phase-4 fallback
+        // that conflicts with the popup (both show simultaneously).
       }),
     );
   }

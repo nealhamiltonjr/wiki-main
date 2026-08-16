@@ -155,7 +155,7 @@ export async function userRoutes(app: FastifyInstance) {
     if (spaceRows.length === 0) return reply.send([]);
     const spaceIds = spaceRows.map((r) => r.space_id);
     const placeholders = spaceIds.map(() => "?").join(",");
-    const rows = sqlite.prepare(`SELECT DISTINCT u.id, u.name, u.email FROM users u JOIN space_members sm ON sm.user_id = u.id WHERE sm.space_id IN (${placeholders}) AND u.id != ? AND u.suspended = 0 ORDER BY u.name LIMIT 100`).all(...spaceIds, me.id) as { id: string; name: string; email: string }[];
+    const rows = sqlite.prepare(`SELECT DISTINCT u.id, u.name, u.email FROM "user" u JOIN space_members sm ON sm.user_id = u.id WHERE sm.space_id IN (${placeholders}) AND u.id != ? AND u.suspended = 0 ORDER BY u.name LIMIT 100`).all(...spaceIds, me.id) as { id: string; name: string; email: string }[];
     return reply.send(rows);
   });
 

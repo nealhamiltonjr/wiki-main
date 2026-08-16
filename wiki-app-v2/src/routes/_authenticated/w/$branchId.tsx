@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Pencil, Eye, Loader2, MessageSquare, History, Link2, Network, Lock, LockOpen, Share2, Tags } from "lucide-react";
+import { Pencil, Eye, Loader2, MessageSquare, History, Link2, Network, Lock, LockOpen, Share2, Tags, Download } from "lucide-react";
 
 import { api, type CommentThread, type PageData } from "@/api/client";
 import { CollabEditor, PageEditor, type PageEditorHandle, type InlineCommentSelection } from "@/features/editor/Editor";
@@ -589,6 +589,17 @@ function PageHeader({
         >
           <Share2 className="h-4 w-4" />
         </button>
+        {/* Export this page as a Markdown zip — calls the real export endpoint */}
+        <a
+          href={`/api/branches/${page.branchId}/export?format=zip`}
+          className="flex h-8 w-8 items-center justify-center rounded-md border border-border transition-colors text-text-secondary hover:bg-surface-hover"
+          aria-label="Export this page"
+          title="Export as Markdown zip"
+          data-testid="export-page"
+          download
+        >
+          <Download className="h-4 w-4" />
+        </a>
         {!editMode && (page.access === "editor" || page.access === "admin") ? (
           isEncrypted && unlocked ? (
             <button

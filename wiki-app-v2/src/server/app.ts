@@ -34,6 +34,7 @@ import { attributeRoutes } from "./routes/attribute.routes.js";
 import { mcpRoutes } from "./routes/mcp.routes.js";
 import { exportRoutes } from "./routes/export.routes.js";
 import { syncRoutes } from "./routes/sync.routes.js";
+import { publicRoutes } from "./routes/public.routes.js";
 import multipart from "@fastify/multipart";
 
 /**
@@ -142,6 +143,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(mcpRoutes);
   await app.register(exportRoutes);
   await app.register(syncRoutes);
+  await app.register(publicRoutes);
 
   // Slice 35 — record every completed HTTP request for the debug capture ring
   // (only persisted while capture is enabled). Registered after routes so the

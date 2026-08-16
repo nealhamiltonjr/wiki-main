@@ -19,6 +19,7 @@ import { insertMermaidDiagram } from "./extensions/mermaidInsert.js";
 import { CommentHighlight, bumpCommentHighlights, type CommentThreadLite } from "./extensions/commentHighlight.js";
 import { SearchReplacePopup } from "./SearchReplacePopup.js";
 import { CommentHoverBubble } from "./CommentHoverBubble.js";
+import { useMentionExtension } from "./extensions/mentionExtension.jsx";
 import type { CommentThread } from "@/api/client";
 import { api } from "@/api/client";
 import { KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES, filterUnknownNodes } from "@/shared/blockIds";
@@ -83,6 +84,11 @@ export const PageEditor = forwardRef<PageEditorHandle, {
 }>(function PageEditor({ content, editable, onUpdate, branchId, onInlineComment, commentThreads, onCommentThreadClick, extensions, fullCommentThreads }, ref) {
   const registryExtensions = useTiptapExtensions();
   const toolbarItems = useToolbarItems();
+  // Phase 4 fix: wire the @mention suggestion popup. The schema-only Mention
+  // in baseExtensions has suggestion: undefined (correct for read-only/collab-
+  // seed paths). Here in the live editor we replace it with the popup-enabled
+  // version so typing @ shows a user picker.
+  const mentionExt = useMentionExtension();
 
   // Sanitize content: convert node types unknown to the current schema into
   // paragraphs so Tiptap never throws on a disabled plugin's saved nodes (§4.4).
@@ -96,8 +102,12 @@ export const PageEditor = forwardRef<PageEditorHandle, {
   }, [content, registryExtensions]);
 
   const allExtensions = useMemo(() => {
+    // Filter out the schema-only Mention from baseExtensions; replace with
+    // the popup-enabled one from useMentionExtension.
+    const base = (extensions ?? baseExtensions()).filter(e => e.name !== "mention");
     const e = [
-      ...(extensions ?? baseExtensions()),
+      ...base,
+      mentionExt,
       ...registryExtensions,
       SlashMenuExtension,
       CommentHighlight.configure({
@@ -109,7 +119,7 @@ export const PageEditor = forwardRef<PageEditorHandle, {
       ...(editable ? editingExtensions() : []),
     ];
     return e;
-  }, [extensions, registryExtensions, editable, commentThreads]);
+  }, [extensions, registryExtensions, editable, commentThreads, mentionExt]);
 
   const editor = useEditor({
     extensions: allExtensions,
@@ -297,6 +307,24 @@ function EditorToolbar({ editor, pluginItems, branchId, onOpenSearch }: {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
+  // Editor width cycle: Narrow → Default → Wide → Full → Narrow
+  const [editorWidth, setEditorWidth] = useState("72ch");
+  useEffect(() => {
+    void api.getUserSettings().then((rows) => {
+      const row = rows.find((r) => r.key === "editor.width");
+      if (row && typeof row.value === "string") setEditorWidth(row.value);
+    }).catch(() => {});
+  }, []);
+  const cycleWidth = () => {
+    const widths = ["60ch", "72ch", "90ch", "100%"];
+    const idx = widths.indexOf(editorWidth);
+    const next = widths[(idx + 1) % widths.length] ?? "72ch";
+    setEditorWidth(next);
+    document.documentElement.style.setProperty("--editor-width", next);
+    void api.setUserSetting("editor.width", next);
+  };
+  const widthLabel: Record<string, string> = { "60ch": "Narrow", "72ch": "Default", "90ch": "Wide", "100%": "Full" };
+
   const handleFile = async (file: File | undefined) => {
     if (!file || !branchId) return;
     setUploading(true);
@@ -411,6 +439,17 @@ function EditorToolbar({ editor, pluginItems, branchId, onOpenSearch }: {
       <ToolbarButton title="Find & replace (Ctrl+F)" onClick={() => onOpenSearch?.()}>
         <Search className="h-4 w-4" />
       </ToolbarButton>
+      {/* Editor width toggle — cycles Narrow → Default → Wide → Full */}
+      <button
+        type="button"
+        onClick={cycleWidth}
+        className="flex h-8 items-center gap-1 rounded-md border border-border px-2 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors"
+        title={`Editor width: ${widthLabel[editorWidth] ?? "Default"} (click to cycle)`}
+        aria-label={`Editor width: ${widthLabel[editorWidth] ?? "Default"}`}
+        data-testid="editor-width-toggle"
+      >
+        {widthLabel[editorWidth] ?? "Default"}
+      </button>
       {pluginItems.length > 0 && <span className="mx-1 h-4 w-px bg-border" aria-hidden />}
       {pluginItems.map(item => (
         <ToolbarButton

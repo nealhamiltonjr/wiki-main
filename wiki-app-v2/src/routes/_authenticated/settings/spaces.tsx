@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { request } from "@/api/client";
+import { Download } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/settings/spaces")({
   component: SpaceSettingsPage,
@@ -100,6 +101,18 @@ function SpaceSettingsPage() {
                 </select>
               </div>
               <p className="mt-1 text-xs text-text-muted">{ROLE_LABELS[s.defaultRole]}</p>
+              <div className="mt-3 flex items-center gap-3">
+                <a
+                  href={`/api/spaces/${s.id}/export?format=zip`}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover transition-colors"
+                  aria-label={`Export ${s.name} as Markdown zip`}
+                  title="Export all readable pages as a Markdown zip"
+                  download
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Export space
+                </a>
+              </div>
             </div>
           ))}
         </div>
