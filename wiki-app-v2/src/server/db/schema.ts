@@ -183,30 +183,38 @@ export const commentThreads = sqliteTable("comment_threads", {
   ...timestamps,
 });
 
-export const comments = sqliteTable("comments", {
-  id: id(),
-  threadId: text("thread_id").notNull().references(() => commentThreads.id, { onDelete: "cascade" }),
-  body: text("body").notNull(),
-  userId: text("user_id").notNull().references(() => users.id),
-  ...timestamps,
-  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
-});
+export const comments = sqliteTable(
+  "comments",
+  {
+    id: id(),
+    threadId: text("thread_id").notNull().references(() => commentThreads.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    userId: text("user_id").notNull().references(() => users.id),
+    ...timestamps,
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull().$defaultFn(() => new Date()),
+  },
+  (t) => ({ threadIdx: index("comments_thread_id_idx").on(t.threadId) }),
+);
 
 // ---------------------------------------------------------------------------
 // Files - brief §3.13a. Served with branch-context (not just file id) so a page
 // cloned into multiple security contexts can't be used to view a private file
 // via its public clone's ID.
 // ---------------------------------------------------------------------------
-export const files = sqliteTable("files", {
-  id: id(),
-  pageId: text("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
-  filename: text("filename").notNull(),
-  mimeType: text("mime_type").notNull(),
-  sizeBytes: integer("size_bytes").notNull(),
-  storagePath: text("storage_path").notNull(),
-  uploadedBy: text("uploaded_by").notNull().references(() => users.id),
-  ...timestamps,
-});
+export const files = sqliteTable(
+  "files",
+  {
+    id: id(),
+    pageId: text("page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storagePath: text("storage_path").notNull(),
+    uploadedBy: text("uploaded_by").notNull().references(() => users.id),
+    ...timestamps,
+  },
+  (t) => ({ pageIdx: index("files_page_id_idx").on(t.pageId) }),
+);
 
 // ---------------------------------------------------------------------------
 // Templates - brief §3.18, adopted from the other session as a small, low-risk
@@ -336,11 +344,18 @@ export const auditLog = sqliteTable("audit_log", {
 // page save via scan-and-upsert - no stale-link cleanup, just fresh scan each
 // write. The UI reads this table directly; no incremental maintenance.
 // ---------------------------------------------------------------------------
-export const backlinks = sqliteTable("backlinks", {
-  sourcePageId: text("source_page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
-  targetBranchId: text("target_branch_id").notNull(),
-  targetBlockId: text("target_block_id"),
-});
+export const backlinks = sqliteTable(
+  "backlinks",
+  {
+    sourcePageId: text("source_page_id").notNull().references(() => pages.id, { onDelete: "cascade" }),
+    targetBranchId: text("target_branch_id").notNull(),
+    targetBlockId: text("target_block_id"),
+  },
+  (t) => ({
+    sourceIdx: index("backlinks_source_page_id_idx").on(t.sourcePageId),
+    targetIdx: index("backlinks_target_branch_id_idx").on(t.targetBranchId),
+  }),
+);
 export const systemSettings = sqliteTable("system_settings", {
   key: text("key").primaryKey(),
   value: text("value", { mode: "json" }).notNull(),
@@ -391,25 +406,33 @@ export const attributes = sqliteTable(
 // ---------------------------------------------------------------------------
 // Notifications (§7.12d.4) — in-app feed + optional email delivery
 // ---------------------------------------------------------------------------
-export const notifications = sqliteTable("notifications", {
-  id: id(),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  kind: text("kind", { enum: ["mention", "system", "share_warning"] }).notNull().default("mention"),
-  payload: text("payload", { mode: "json" }).notNull(),
-  readAt: integer("read_at", { mode: "timestamp_ms" }),
-  emailedAt: integer("emailed_at", { mode: "timestamp_ms" }),
-  ...timestamps,
-});
+export const notifications = sqliteTable(
+  "notifications",
+  {
+    id: id(),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["mention", "system", "share_warning"] }).notNull().default("mention"),
+    payload: text("payload", { mode: "json" }).notNull(),
+    readAt: integer("read_at", { mode: "timestamp_ms" }),
+    emailedAt: integer("emailed_at", { mode: "timestamp_ms" }),
+    ...timestamps,
+  },
+  (t) => ({ userIdx: index("notifications_user_id_idx").on(t.userId) }),
+);
 
 // ---------------------------------------------------------------------------
 // Favorites (§7.12d.7) — per-user starred pages for quick access
 // ---------------------------------------------------------------------------
-export const favorites = sqliteTable("favorites", {
-  id: id(),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  branchId: text("branch_id").notNull(),
-  ...timestamps,
-});
+export const favorites = sqliteTable(
+  "favorites",
+  {
+    id: id(),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    branchId: text("branch_id").notNull(),
+    ...timestamps,
+  },
+  (t) => ({ userIdx: index("favorites_user_id_idx").on(t.userId) }),
+);
 
 // ---------------------------------------------------------------------------
 // Pinned pages — brief §12.5 "Offline readability for the pages that matter
@@ -419,12 +442,16 @@ export const favorites = sqliteTable("favorites", {
 // down). Read-only offline cache — the server still owns writes; the
 // service worker only ever serves a cached read.
 // ---------------------------------------------------------------------------
-export const pinnedPages = sqliteTable("pinned_pages", {
-  id: id(),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  branchId: text("branch_id").notNull(),
-  ...timestamps,
-});
+export const pinnedPages = sqliteTable(
+  "pinned_pages",
+  {
+    id: id(),
+    userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    branchId: text("branch_id").notNull(),
+    ...timestamps,
+  },
+  (t) => ({ userIdx: index("pinned_pages_user_id_idx").on(t.userId) }),
+);
 
 // ---------------------------------------------------------------------------
 // Lenses / saved filters (§12.4) — user-defined cross-cutting views over the

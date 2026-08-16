@@ -17,10 +17,13 @@ import { ShareDialog } from "@/features/sharing/ShareDialog";
 import { PagePropertiesPanel } from "@/features/properties/PagePropertiesPanel";
 import { ProtectPageDialog } from "@/features/encryption/ProtectPageDialog";
 import { createEnvelope, sealContent, type CryptoEnvelope } from "@/shared/cryptoEnvelope";
-import { CommentsPanel } from "@/features/comments/CommentsPanel";
-import { HistoryPanel } from "@/features/history/HistoryPanel";
-import { RelationsPanel } from "@/features/relations/RelationsPanel";
-import { GraphPanel } from "@/features/graph/GraphPanel";
+import { lazy, Suspense } from "react";
+// Phase 4.6 — Lazy-load side panels so they don't bloat the main bundle.
+// A user who only reads pages never downloads the comments/history/relations/graph code.
+const CommentsPanel = lazy(() => import("@/features/comments/CommentsPanel").then(m => ({ default: m.CommentsPanel })));
+const HistoryPanel = lazy(() => import("@/features/history/HistoryPanel").then(m => ({ default: m.HistoryPanel })));
+const RelationsPanel = lazy(() => import("@/features/relations/RelationsPanel").then(m => ({ default: m.RelationsPanel })));
+const GraphPanel = lazy(() => import("@/features/graph/GraphPanel").then(m => ({ default: m.GraphPanel })));
 import { TemplateBanner } from "@/features/templates/TemplateBanner";
 import { FavoriteButton } from "@/features/favorites/FavoriteButton";
 import { PinButton } from "@/features/offline/PinButton";
@@ -381,33 +384,41 @@ function PageView() {
           )}
         </div>
         {showComments && (
-          <CommentsPanel
-            key={page.branchId}
-            branchId={branchId}
-            canEdit={page.access === "editor" || page.access === "admin"}
-            onThreadsChanged={setCommentThreads}
-          />
+          <Suspense fallback={<div className="w-80 border-l border-border p-4 text-sm text-text-muted">Loading…</div>}>
+            <CommentsPanel
+              key={page.branchId}
+              branchId={branchId}
+              canEdit={page.access === "editor" || page.access === "admin"}
+              onThreadsChanged={setCommentThreads}
+            />
+          </Suspense>
         )}
         {showHistory && (
-          <HistoryPanel
-            pageId={page.id}
-            branchId={page.branchId}
-            canEdit={page.access === "editor" || page.access === "admin"}
-            onRestored={handleReload}
-          />
+          <Suspense fallback={<div className="w-80 border-l border-border p-4 text-sm text-text-muted">Loading…</div>}>
+            <HistoryPanel
+              pageId={page.id}
+              branchId={page.branchId}
+              canEdit={page.access === "editor" || page.access === "admin"}
+              onRestored={handleReload}
+            />
+          </Suspense>
         )}
         {showRelations && (
-          <RelationsPanel
-            key={page.id}
-            pageId={page.id}
-            canEdit={page.access === "editor" || page.access === "admin"}
-          />
+          <Suspense fallback={<div className="w-80 border-l border-border p-4 text-sm text-text-muted">Loading…</div>}>
+            <RelationsPanel
+              key={page.id}
+              pageId={page.id}
+              canEdit={page.access === "editor" || page.access === "admin"}
+            />
+          </Suspense>
         )}
         {showGraph && (
-          <GraphPanel
-            key={page.id}
-            pageId={page.id}
-          />
+          <Suspense fallback={<div className="w-80 border-l border-border p-4 text-sm text-text-muted">Loading…</div>}>
+            <GraphPanel
+              key={page.id}
+              pageId={page.id}
+            />
+          </Suspense>
         )}
         {showProperties && (
           <PagePropertiesPanel
@@ -791,6 +802,7 @@ function EditableCanvas({
         onInlineComment={onInlineComment}
         commentThreads={onCommentThreads}
         onCommentThreadClick={onCommentThreadClick}
+        fullCommentThreads={onCommentThreads}
       />
       <div className="flex items-center justify-between border-t border-border px-4 py-1 text-xs text-text-muted">
         <span>{saveStateLabel(saveState)}</span>

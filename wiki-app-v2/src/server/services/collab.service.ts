@@ -33,8 +33,35 @@ const collabSchema = getSchema(baseExtensions());
  * In-memory live-document cache (one Doc per open collaboration session).
  * `collab_documents` is the durable store; this map avoids re-decoding the
  * update binary on every reconnect.
+ *
+ * Phase 4.5 — LRU eviction. The cache is bounded to MAX_DOCS entries. When
+ * the limit is reached, the least-recently-accessed doc is evicted (its
+ * latest state is persisted to `collab_documents` via storeDocument first,
+ * so a reconnect re-seeds from the durable store without data loss).
  */
+const MAX_DOCS = 50;
 const docs = new Map<string, Doc>();
+// Track access order for LRU. Map iteration order = insertion order in JS,
+// so we delete + re-set on access to move the key to the end (most-recent).
+function touchDoc(key: string): void {
+  const doc = docs.get(key);
+  if (doc) { docs.delete(key); docs.set(key, doc); }
+}
+async function evictIfNeeded(): Promise<void> {
+  while (docs.size > MAX_DOCS) {
+    const oldest = docs.keys().next().value;
+    if (oldest === undefined) break;
+    const doc = docs.get(oldest);
+    docs.delete(oldest);
+    // Persist the evicted doc's state to the durable store so reconnect works.
+    if (doc) {
+      try {
+        const { storeDocument } = await import("./collab.service.js");
+        await storeDocument(oldest, doc);
+      } catch { /* best-effort — the next reconnect will re-seed from disk */ }
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Principal + eligibility resolution — exported separately so integration
@@ -178,7 +205,7 @@ async function seedDocFromPage(pageId: string): Promise<Doc> {
 /** Loads (or creates + seeds) the live document for a branch id. */
 export async function loadOrCreateDoc(documentName: string): Promise<Doc> {
   const cached = docs.get(documentName);
-  if (cached) return cached;
+  if (cached) { touchDoc(documentName); return cached; }
 
   const { db } = getDb();
   const [stored] = await db.select().from(collabDocuments).where(eq(collabDocuments.name, documentName));
@@ -201,6 +228,7 @@ export async function loadOrCreateDoc(documentName: string): Promise<Doc> {
 
 function cacheDoc(name: string, doc: Doc): Doc {
   docs.set(name, doc);
+  void evictIfNeeded();
   return doc;
 }
 

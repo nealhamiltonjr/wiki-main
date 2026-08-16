@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { History, RotateCcw, Camera, Loader2, CheckCircle2 } from "lucide-react";
 import { api, ApiError, type PageHistoryEntry } from "@/api/client";
 import { cn } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 /**
  * Git history sidebar panel (slice 10). Lists the page's commits (autosaves +
@@ -26,6 +27,7 @@ export function HistoryPanel({
   const [busy, setBusy] = useState(false);
   const [snapshotMsg, setSnapshotMsg] = useState<string | null>(null);
   const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
+  const [pendingRestore, setPendingRestore] = useState<string | null>(null);
 
   const refresh = async () => {
     try {
@@ -59,11 +61,16 @@ export function HistoryPanel({
   };
 
   const handleRestore = async (hash: string) => {
-    if (busy || !confirm("Restore this version? Current content will be replaced.")) return;
+    if (busy) return;
+    setPendingRestore(hash);
+  };
+
+  const confirmRestore = async () => {
+    if (!pendingRestore) return;
     setBusy(true);
     setRestoreMsg(null);
     try {
-      await api.restorePageVersion(pageId, branchId, hash);
+      await api.restorePageVersion(pageId, branchId, pendingRestore);
       setRestoreMsg("Restored — saving as a new version.");
       onRestored();
       await refresh();
@@ -78,6 +85,7 @@ export function HistoryPanel({
       }
     } finally {
       setBusy(false);
+      setPendingRestore(null);
     }
   };
 
@@ -180,6 +188,17 @@ export function HistoryPanel({
           )}
         </form>
       )}
+
+      <ConfirmDialog
+        open={pendingRestore !== null}
+        title="Restore this version?"
+        description="Current content will be replaced with the selected historical version. The current state is preserved in git history."
+        confirmLabel="Restore"
+        destructive
+        pending={busy}
+        onConfirm={() => void confirmRestore()}
+        onCancel={() => setPendingRestore(null)}
+      />
     </aside>
   );
 }

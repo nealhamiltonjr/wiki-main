@@ -37,6 +37,7 @@ declare module "fastify" {
 // be unviable. Per-process limiter is fine — a restart resets the window and
 // just lets the attacker's prior bad attempts "off the hook", which is safe.
 const SHARE_LINK_PASSWORD_LIMITER = new InMemoryRateLimiter({ windowMs: 5 * 60 * 1000, max: 10 });
+const SHARE_LINK_TOKEN_LIMITER = new InMemoryRateLimiter({ windowMs: 60 * 60 * 1000, max: 50 });
 const SHARE_LINK_PASSWORD_SWEEP_INTERVAL = 60 * 1000;
 
 export async function registerPermissionMiddleware(app: FastifyInstance) {
@@ -61,7 +62,10 @@ export async function registerPermissionMiddleware(app: FastifyInstance) {
   });
 
   app.addHook("onReady", () => {
-    const interval = setInterval(() => SHARE_LINK_PASSWORD_LIMITER.sweep(), SHARE_LINK_PASSWORD_SWEEP_INTERVAL);
+    const interval = setInterval(() => {
+      SHARE_LINK_PASSWORD_LIMITER.sweep();
+      SHARE_LINK_TOKEN_LIMITER.sweep();
+    }, SHARE_LINK_PASSWORD_SWEEP_INTERVAL);
     interval.unref();
   });
 
@@ -161,6 +165,9 @@ export async function registerPermissionMiddleware(app: FastifyInstance) {
             const pw = query?.sharePassword;
             if (!SHARE_LINK_PASSWORD_LIMITER.check(`share-pw:${request.ip}`)) {
               return reply.code(429).send({ error: "Too many attempts. Try again later." });
+            }
+            if (!SHARE_LINK_TOKEN_LIMITER.check(`share-token:${token.id}`)) {
+              return reply.code(429).send({ error: "This link has received too many attempts. Try again later." });
             }
             if (!checkTokenPassword(token, typeof pw === "string" ? pw : undefined)) {
               return reply.code(401).send({ error: "Password required" });

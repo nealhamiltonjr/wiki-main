@@ -4,6 +4,8 @@ import { createFileRoute, Outlet, useNavigate, Link } from "@tanstack/react-rout
 import { useSession } from "@/api/authClient";
 import { Tree } from "@/features/tree/Tree";
 import { NotificationBell } from "@/features/notifications/NotificationBell";
+import { CommandPalette } from "@/features/search/CommandPalette";
+import { useEditorWidthLoader } from "@/features/settings/useEditorWidthLoader";
 import { loadPlugins } from "@/plugins/loader";
 import { usePluginsLoaded } from "@/plugins/registry";
 import { seedOfflinePinCache } from "@/features/offline/sw-bridge";
@@ -26,6 +28,10 @@ function AuthenticatedLayout() {
   useEffect(() => {
     if (session) void loadPlugins();
   }, [session]);
+
+  // Phase 4.2 — load saved editor width at startup so opening a page
+  // directly reflects the user's preference without visiting Settings.
+  useEditorWidthLoader();
 
   // Brief §12.5 — seed the SW's pin cache once we know the user is
   // signed in. We deliberately do NOT fire this at app startup: an
@@ -67,6 +73,12 @@ function AuthenticatedLayout() {
                 hides admin-only sections (§7.1), and the settings layout
                 redirects non-admins away from admin URLs. The server enforces
                 admin access on those APIs regardless. */}
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
+              className="text-xs text-text-muted hover:text-foreground transition-colors"
+              aria-label="Search (Cmd+K)"
+            >Search</button>
             <Link to="/settings/plugins" className="text-xs text-text-muted hover:text-foreground transition-colors">Settings</Link>
             <Link to="/lenses" className="text-xs text-text-muted hover:text-foreground transition-colors">Saved views</Link>
             <NotificationBell />
@@ -76,6 +88,7 @@ function AuthenticatedLayout() {
           <Outlet />
         </main>
       </div>
+      <CommandPalette />
     </div>
   );
 }

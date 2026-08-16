@@ -7,6 +7,7 @@ import { CollaborationCaret } from "@tiptap/extension-collaboration-caret";
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough, Heading1, Heading2, Heading3,
   List, ListOrdered, Quote, Code, Undo2, Redo2, Workflow, Upload, Loader2, MessageSquare,
+  ListChecks, AlignLeft, AlignCenter, AlignRight, AlignJustify, Highlighter, Search,
 } from "lucide-react";
 
 import { baseExtensions, stripWordHTML } from "./editorExtensions.js";
@@ -16,6 +17,9 @@ import { useTiptapExtensions, useToolbarItems } from "@/plugins/registry";
 import { SlashMenuExtension, SlashMenu } from "./SlashMenu.js";
 import { insertMermaidDiagram } from "./extensions/mermaidInsert.js";
 import { CommentHighlight, bumpCommentHighlights, type CommentThreadLite } from "./extensions/commentHighlight.js";
+import { SearchReplacePopup } from "./SearchReplacePopup.js";
+import { CommentHoverBubble } from "./CommentHoverBubble.js";
+import type { CommentThread } from "@/api/client";
 import { api } from "@/api/client";
 import { KNOWN_BLOCK_TYPES, KNOWN_INLINE_TYPES, KNOWN_MARK_TYPES, filterUnknownNodes } from "@/shared/blockIds";
 import type { JSONBlock } from "@/shared/blockIds";
@@ -75,7 +79,8 @@ export const PageEditor = forwardRef<PageEditorHandle, {
   commentThreads?: readonly CommentThreadLite[];
   onCommentThreadClick?: (threadId: string) => void;
   extensions?: ReturnType<typeof baseExtensions>;
-}>(function PageEditor({ content, editable, onUpdate, branchId, onInlineComment, commentThreads, onCommentThreadClick, extensions }, ref) {
+  fullCommentThreads?: CommentThread[];
+}>(function PageEditor({ content, editable, onUpdate, branchId, onInlineComment, commentThreads, onCommentThreadClick, extensions, fullCommentThreads }, ref) {
   const registryExtensions = useTiptapExtensions();
   const toolbarItems = useToolbarItems();
 
@@ -132,6 +137,17 @@ export const PageEditor = forwardRef<PageEditorHandle, {
     bumpCommentHighlights(view, commentThreads ?? []);
   }, [editor, commentThreads]);
 
+  // Phase 2.8 — Ctrl/Cmd+F opens the find & replace popup.
+  const [showSearch, setShowSearch] = useState(false);
+  useEffect(() => {
+    if (!editable) return;
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") { e.preventDefault(); setShowSearch(true); }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [editable]);
+
   // Capture clicks on highlighted ranges before the editor's own click handler
   // turns them into a selection that destroys the inline decoration.
   const editorHostRef = useRef<HTMLDivElement | null>(null);
@@ -150,7 +166,7 @@ export const PageEditor = forwardRef<PageEditorHandle, {
   return (
     <div className="flex min-h-0 flex-1 flex-col relative">
       {editable && editor && (
-        <EditorToolbar editor={editor} pluginItems={toolbarItems} branchId={branchId} />
+        <EditorToolbar editor={editor} pluginItems={toolbarItems} branchId={branchId} onOpenSearch={() => setShowSearch(true)} />
       )}
       {editable && editor && (
         <BubbleMenu editor={editor}>
@@ -158,6 +174,15 @@ export const PageEditor = forwardRef<PageEditorHandle, {
         </BubbleMenu>
       )}
       {editable && editor && <SlashMenu editor={editor} />}
+      {editable && editor && showSearch && (
+        <SearchReplacePopup editor={editor} onClose={() => setShowSearch(false)} />
+      )}
+      {/* Phase 4.1 — Comment hover bubble. Shows a rich popup when hovering
+          over commented text. Only mounted when full comment threads are
+          available (the editable page view passes them; read-only doesn't). */}
+      {editable && editor && fullCommentThreads && fullCommentThreads.length > 0 && (
+        <CommentHoverBubble editor={editor} threads={fullCommentThreads} />
+      )}
       {/* The scroll container is the OUTER wrapper; .editor-canvas owns the
           border + width, the drag handle, and must NOT be overflow-clipped
           (§6.2 — the block drag handle is positioned at left:-24px so the
@@ -263,10 +288,11 @@ function ToolbarButton({
   );
 }
 
-function EditorToolbar({ editor, pluginItems, branchId }: {
+function EditorToolbar({ editor, pluginItems, branchId, onOpenSearch }: {
   editor: Editor;
   pluginItems: ReturnType<typeof useToolbarItems>;
   branchId?: string;
+  onOpenSearch?: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -282,7 +308,7 @@ function EditorToolbar({ editor, pluginItems, branchId }: {
       if (isImage) {
         editor.chain().insertContent({ type: "image", attrs: { src: url, alt: filename, title: filename } }).run();
       } else {
-        editor.chain().insertContent({ type: "text", text: filename, marks: [{ type: "link", attrs: { href: url } }] }).run();
+        editor.chain().insertContent({ type: "attachment", attrs: { url, name: filename, mime: file.type, size: file.size } }).run();
       }
     } catch {
       // The ApiError detail is surfaced via the autosave/error toast elsewhere;
@@ -360,6 +386,30 @@ function EditorToolbar({ editor, pluginItems, branchId }: {
       </ToolbarButton>
       <ToolbarButton title="Mermaid diagram" onClick={() => insertMermaidDiagram(editor)}>
         <Workflow className="h-4 w-4" />
+      </ToolbarButton>
+      <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+      <ToolbarButton title="Task list" active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}>
+        <ListChecks className="h-4 w-4" />
+      </ToolbarButton>
+      <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+      <ToolbarButton title="Align left" active={editor.isActive({ textAlign: "left" })} onClick={() => editor.chain().focus().setTextAlign("left").run()}>
+        <AlignLeft className="h-4 w-4" />
+      </ToolbarButton>
+      <ToolbarButton title="Align center" active={editor.isActive({ textAlign: "center" })} onClick={() => editor.chain().focus().setTextAlign("center").run()}>
+        <AlignCenter className="h-4 w-4" />
+      </ToolbarButton>
+      <ToolbarButton title="Align right" active={editor.isActive({ textAlign: "right" })} onClick={() => editor.chain().focus().setTextAlign("right").run()}>
+        <AlignRight className="h-4 w-4" />
+      </ToolbarButton>
+      <ToolbarButton title="Justify" active={editor.isActive({ textAlign: "justify" })} onClick={() => editor.chain().focus().setTextAlign("justify").run()}>
+        <AlignJustify className="h-4 w-4" />
+      </ToolbarButton>
+      <span className="mx-1 h-4 w-px bg-border" aria-hidden />
+      <ToolbarButton title="Highlight" active={editor.isActive("highlight")} onClick={() => editor.chain().focus().toggleHighlight().run()}>
+        <Highlighter className="h-4 w-4" />
+      </ToolbarButton>
+      <ToolbarButton title="Find & replace (Ctrl+F)" onClick={() => onOpenSearch?.()}>
+        <Search className="h-4 w-4" />
       </ToolbarButton>
       {pluginItems.length > 0 && <span className="mx-1 h-4 w-px bg-border" aria-hidden />}
       {pluginItems.map(item => (

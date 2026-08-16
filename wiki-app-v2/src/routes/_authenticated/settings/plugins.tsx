@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { request } from "@/api/client";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useSettingsPanels } from "@/plugins/registry";
 import type { PluginInfo } from "@/shared/pluginTypes";
 
@@ -40,8 +41,11 @@ function PluginSettingsPage() {
     } catch { setError("Failed to toggle plugin"); }
   }
 
-  async function uninstall(id: string) {
-    if (!confirm(`Uninstall plugin "${id}"? This removes its files permanently.`)) return;
+  const [pendingUninstall, setPendingUninstall] = useState<string | null>(null);
+
+  async function doUninstall() {
+    if (!pendingUninstall) return;
+    const id = pendingUninstall;
     try {
       await request(`/api/plugins/${id}`, { method: "DELETE" });
       setPlugins(prev => prev.filter(p => p.id !== id));
@@ -130,7 +134,7 @@ function PluginSettingsPage() {
                     <button
                       type="button"
                       className="text-xs px-2 py-0.5 rounded border border-border text-danger hover:bg-danger/10 transition-colors"
-                      onClick={() => uninstall(p.id)}
+                      onClick={() => setPendingUninstall(p.id)}
                     >
                       Uninstall
                     </button>
@@ -160,6 +164,15 @@ function PluginSettingsPage() {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={pendingUninstall !== null}
+        title={`Uninstall plugin "${pendingUninstall ?? ""}"?`}
+        description="This removes the plugin's files permanently. Any content using the plugin's node types will be converted to paragraphs."
+        confirmLabel="Uninstall"
+        destructive
+        onConfirm={() => void doUninstall()}
+        onCancel={() => setPendingUninstall(null)}
+      />
     </div>
   );
 }

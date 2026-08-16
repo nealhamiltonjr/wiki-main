@@ -32,6 +32,7 @@ import { Route as AuthenticatedSettingsTokensRouteImport } from './routes/_authe
 import { Route as AuthenticatedSettingsUsersRouteImport } from './routes/_authenticated/settings/users'
 import { Route as AuthenticatedTrashSpaceIdRouteImport } from './routes/_authenticated/trash/$spaceId'
 import { Route as AuthenticatedWBranchIdRouteImport } from './routes/_authenticated/w/$branchId'
+import { Route as PublicShareBranchIdRouteImport } from './routes/_public/share.$branchId'
 
 const AuthenticatedRoute = AuthenticatedRouteImport.update({
   id: '/_authenticated',
@@ -161,6 +162,11 @@ const AuthenticatedWBranchIdRoute = AuthenticatedWBranchIdRouteImport.update({
   path: '/w/$branchId',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const PublicShareBranchIdRoute = PublicShareBranchIdRouteImport.update({
+  id: '/share/$branchId',
+  path: '/share/$branchId',
+  getParentRoute: () => PublicRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -182,6 +188,7 @@ export interface FileRoutesByFullPath {
   '/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/share/$branchId': typeof PublicShareBranchIdRoute
   '/lenses/': typeof AuthenticatedLensesIndexRoute
   '/settings/': typeof AuthenticatedSettingsIndexRoute
 }
@@ -204,6 +211,7 @@ export interface FileRoutesByTo {
   '/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/share/$branchId': typeof PublicShareBranchIdRoute
   '/lenses': typeof AuthenticatedLensesIndexRoute
   '/settings': typeof AuthenticatedSettingsIndexRoute
 }
@@ -230,6 +238,7 @@ export interface FileRoutesById {
   '/_authenticated/settings/users': typeof AuthenticatedSettingsUsersRoute
   '/_authenticated/trash/$spaceId': typeof AuthenticatedTrashSpaceIdRoute
   '/_authenticated/w/$branchId': typeof AuthenticatedWBranchIdRoute
+  '/_public/share/$branchId': typeof PublicShareBranchIdRoute
   '/_authenticated/lenses/': typeof AuthenticatedLensesIndexRoute
   '/_authenticated/settings/': typeof AuthenticatedSettingsIndexRoute
 }
@@ -255,6 +264,7 @@ export interface FileRouteTypes {
     | '/settings/users'
     | '/trash/$spaceId'
     | '/w/$branchId'
+    | '/share/$branchId'
     | '/lenses/'
     | '/settings/'
   fileRoutesByTo: FileRoutesByTo
@@ -277,6 +287,7 @@ export interface FileRouteTypes {
     | '/settings/users'
     | '/trash/$spaceId'
     | '/w/$branchId'
+    | '/share/$branchId'
     | '/lenses'
     | '/settings'
   id:
@@ -302,6 +313,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings/users'
     | '/_authenticated/trash/$spaceId'
     | '/_authenticated/w/$branchId'
+    | '/_public/share/$branchId'
     | '/_authenticated/lenses/'
     | '/_authenticated/settings/'
   fileRoutesById: FileRoutesById
@@ -474,6 +486,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedWBranchIdRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_public/share/$branchId': {
+      id: '/_public/share/$branchId'
+      path: '/share/$branchId'
+      fullPath: '/share/$branchId'
+      preLoaderRoute: typeof PublicShareBranchIdRouteImport
+      parentRoute: typeof PublicRoute
+    }
   }
 }
 
@@ -541,10 +560,12 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 
 interface PublicRouteChildren {
   PublicLoginRoute: typeof PublicLoginRoute
+  PublicShareBranchIdRoute: typeof PublicShareBranchIdRoute
 }
 
 const PublicRouteChildren: PublicRouteChildren = {
   PublicLoginRoute: PublicLoginRoute,
+  PublicShareBranchIdRoute: PublicShareBranchIdRoute,
 }
 
 const PublicRouteWithChildren =

@@ -132,6 +132,64 @@ function IntegrationSettingsPage() {
           <p className="text-sm text-text-muted">Loading…</p>
         )}
       </section>
+
+      <SmtpSection />
     </div>
+  );
+}
+
+function SmtpSection() {
+  const [smtp, setSmtp] = useState({ host: "", port: 587, user: "", password: "", from: "" });
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const rows = await request<Array<{ key: string; value: unknown; isSecret: boolean }>>("/api/settings");
+        const get = (k: string) => { const row = rows.find((r) => r.key === k); return row ? String(row.value) : ""; };
+        setSmtp({ host: get("smtp.host"), port: Number(get("smtp.port")) || 587, user: get("smtp.user"), password: "", from: get("smtp.from") });
+      } catch { setError("Failed to load SMTP settings"); }
+      finally { setLoaded(true); }
+    })();
+  }, []);
+
+  async function save() {
+    setSaving(true); setSaved(false); setError("");
+    try {
+      const puts = [
+        request("/api/settings/smtp.host", { method: "PUT", body: JSON.stringify({ value: smtp.host }) }),
+        request("/api/settings/smtp.port", { method: "PUT", body: JSON.stringify({ value: smtp.port }) }),
+        request("/api/settings/smtp.user", { method: "PUT", body: JSON.stringify({ value: smtp.user }) }),
+        request("/api/settings/smtp.from", { method: "PUT", body: JSON.stringify({ value: smtp.from }) }),
+      ];
+      if (smtp.password) puts.push(request("/api/settings/smtp.password", { method: "PUT", body: JSON.stringify({ value: smtp.password, isSecret: true }) }));
+      await Promise.all(puts);
+      setSaved(true); setSmtp({ ...smtp, password: "" });
+    } catch (err) { setError((err as Error).message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <section className="space-y-3">
+      <h3 className="text-sm font-medium text-text-secondary">Email (SMTP)</h3>
+      <p className="text-xs text-text-muted">Optional. When configured, sends signup confirmations, share-link warnings, and mention notifications. Password is encrypted at rest.</p>
+      {!loaded ? <p className="text-sm text-text-muted">Loading…</p> : (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <input aria-label="SMTP host" placeholder="smtp.gmail.com" value={smtp.host} onChange={(e) => setSmtp({ ...smtp, host: e.target.value })} className="h-9 rounded-md border border-border bg-background px-3 text-sm" />
+            <input aria-label="SMTP port" type="number" placeholder="587" value={smtp.port} onChange={(e) => setSmtp({ ...smtp, port: Number(e.target.value) || 587 })} className="h-9 rounded-md border border-border bg-background px-3 text-sm" />
+          </div>
+          <input aria-label="SMTP username" placeholder="user@example.com" value={smtp.user} onChange={(e) => setSmtp({ ...smtp, user: e.target.value })} className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm" />
+          <input aria-label="SMTP password" type="password" placeholder="••••••••" value={smtp.password} onChange={(e) => setSmtp({ ...smtp, password: e.target.value })} className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm" />
+          <input aria-label="From address" placeholder="Wiki <wiki@example.com>" value={smtp.from} onChange={(e) => setSmtp({ ...smtp, from: e.target.value })} className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm" />
+          <Button size="sm" onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save SMTP settings"}</Button>
+          {saved && <p className="text-xs text-success">Saved.</p>}
+          {error && <p className="text-xs text-danger">{error}</p>}
+        </>
+      )}
+    </section>
   );
 }

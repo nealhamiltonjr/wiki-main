@@ -5,6 +5,9 @@ import { getDb } from "../db/index.js";
 import { systemSettings, userSettings } from "../db/schema.js";
 import { getSystemHealth } from "../services/system-health.service.js";
 import { getRecentSystemLogs } from "../services/system-logger.service.js";
+import { encryptSecret, decryptSecret } from "../services/crypto.service.js";
+import { auditLog, users } from "../db/schema.js";
+import { desc } from "drizzle-orm";
 
 // Slice-14 settings surface (§7.1 System / Integrations). `systemSettings`
 // (brief §3.9) is admin-only config; secret values are written through
@@ -31,12 +34,15 @@ export async function setSystemSetting(
   actorUserId: string
 ): Promise<void> {
   const { db } = getDb();
+  const storedValue = isSecret && typeof value === "string"
+    ? encryptSecret(value)
+    : value;
   await db
     .insert(systemSettings)
-    .values({ key, value, isSecret, updatedBy: actorUserId })
+    .values({ key, value: storedValue, isSecret, updatedBy: actorUserId })
     .onConflictDoUpdate({
       target: systemSettings.key,
-      set: { value, isSecret, updatedAt: new Date(), updatedBy: actorUserId },
+      set: { value: storedValue, isSecret, updatedAt: new Date(), updatedBy: actorUserId },
     });
 }
 
@@ -68,6 +74,33 @@ export async function getSystemSetting<T = unknown>(
   } catch {
     return fallback;
   }
+}
+
+export async function getSystemSettingSecret(
+  key: string,
+  fallback = "",
+): Promise<string> {
+  const { sqlite } = getDb();
+  const row = sqlite
+    .prepare("SELECT value, is_secret FROM system_settings WHERE key = ?")
+    .get(key) as { value: string; is_secret: number } | undefined;
+  if (!row) return fallback;
+  if (!row.is_secret) {
+    try {
+      const parsed = JSON.parse(row.value);
+      return typeof parsed === "string" ? parsed : String(parsed ?? "");
+    } catch {
+      return String(row.value ?? "");
+    }
+  }
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(row.value);
+  } catch {
+    throw new Error(`secret setting ${key} is not valid JSON — corrupt row`);
+  }
+  if (typeof envelope !== "string" || !envelope) return fallback;
+  return decryptSecret(envelope);
 }
 
 export async function settingsRoutes(app: FastifyInstance) {
@@ -194,4 +227,33 @@ export async function settingsRoutes(app: FastifyInstance) {
     await db.delete(userSettings).where(and(eq(userSettings.userId, user.id), eq(userSettings.key, key)));
     return reply.send({ ok: true });
   });
+
+  // Phase 1.5 — Audit log viewer. Admin-only.
+  app.get(
+    "/api/settings/audit-log",
+    { config: { access: "admin" } },
+    async (request, reply) => {
+      const limitRaw = (request.query as { limit?: string }).limit;
+      const parsed = limitRaw ? Number(limitRaw) : 100;
+      const limit = Number.isFinite(parsed) ? Math.min(Math.max(Math.floor(parsed), 1), 500) : 100;
+      const { db } = getDb();
+      const rows = await db
+        .select({
+          id: auditLog.id,
+          actorUserId: auditLog.actorUserId,
+          actorName: users.name,
+          actorEmail: users.email,
+          action: auditLog.action,
+          targetType: auditLog.targetType,
+          targetId: auditLog.targetId,
+          meta: auditLog.meta,
+          createdAt: auditLog.createdAt,
+        })
+        .from(auditLog)
+        .leftJoin(users, eq(auditLog.actorUserId, users.id))
+        .orderBy(desc(auditLog.createdAt))
+        .limit(limit);
+      return reply.send(rows);
+    }
+  );
 }

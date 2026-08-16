@@ -1,17 +1,10 @@
-import { useMemo } from "react";
 import { resolveCodeLanguage } from "@/shared/codeLanguages";
-import { highlightCode } from "./codeHighlight.js";
+import { useHighlightedCode } from "./useHighlightedCode.js";
 
-/**
- * Read-only renderer for a §13.6 code page — the whole page IS a
- * syntax-highlighted source/config file. Reuses the same Prism path as the
- * embedded code block so the language alias map and highlighter never drift.
- */
 export function CodePageReadOnly({ content, language }: { content: unknown; language?: string | null }) {
   const code = typeof content === "string" ? content : "";
-  const highlighted = useMemo(() => highlightCode(code, language), [code, language]);
+  const highlighted = useHighlightedCode(code, language);
   const info = resolveCodeLanguage(language);
-
   return (
     <div className="overflow-hidden rounded-md border border-border" data-testid="code-page-read-only">
       {language ? (
@@ -21,11 +14,7 @@ export function CodePageReadOnly({ content, language }: { content: unknown; lang
         </div>
       ) : null}
       <pre className="overflow-x-auto p-4 text-sm leading-relaxed font-mono">
-        {highlighted ? (
-          <code dangerouslySetInnerHTML={{ __html: highlighted }} />
-        ) : (
-          <code>{code}</code>
-        )}
+        {highlighted ? <code dangerouslySetInnerHTML={{ __html: highlighted }} /> : <code>{code}</code>}
       </pre>
     </div>
   );

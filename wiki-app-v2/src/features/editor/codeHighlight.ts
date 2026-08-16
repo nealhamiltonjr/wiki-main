@@ -1,28 +1,46 @@
 import { resolveCodeLanguage } from "@/shared/codeLanguages";
 
-/**
- * Shared Prism highlighter for §13.6 code content. Used by both the embedded
- * code block in rich text and the whole-page code view, so the language-alias
- * resolution and Prism component loading live in exactly one place.
- *
- * Returns pre-escaped HTML (Prism escapes text by construction — safe for
- * dangerouslySetInnerHTML), or null when there is no grammar to apply and the
- * caller should render plain escaped text instead.
- */
-export function highlightCode(code: string, language: string | null | undefined): string | null {
+type PrismModule = typeof import("prismjs");
+type PrismInstance = PrismModule;
+
+let prismPromise: Promise<PrismInstance> | null = null;
+const grammarPromises = new Map<string, Promise<unknown>>();
+
+async function getPrism(): Promise<PrismInstance> {
+  if (!prismPromise) { prismPromise = import("prismjs").then((m) => m); }
+  return prismPromise;
+}
+
+async function loadGrammar(prism: PrismInstance, grammarId: string): Promise<unknown> {
+  if (prism.languages[grammarId]) return prism.languages[grammarId];
+  let p = grammarPromises.get(grammarId);
+  if (!p) { p = import(/* @vite-ignore */ `prismjs/components/prism-${grammarId}.js`).then(() => prism.languages[grammarId]).catch(() => null); grammarPromises.set(grammarId, p); }
+  return p;
+}
+
+export async function highlightCode(code: string, language: string | null | undefined): Promise<string | null> {
   if (!language) return null;
   try {
+    const prism = await getPrism();
+    const grammarId = resolveCodeLanguage(language).id;
+    const grammar = await loadGrammar(prism, grammarId);
+    const resolved = grammar ?? prism.languages.plaintext;
+    if (!resolved) return null;
+    return prism.highlight(code, resolved, grammarId);
+  } catch { return null; }
+}
+
+export function highlightCodeSync(code: string, language: string | null | undefined): string | null {
+  if (!language) return null;
+  try {
+    if (!prismPromise) return null;
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Prism = require("prismjs");
     const grammarId = resolveCodeLanguage(language).id;
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require(`prismjs/components/prism-${grammarId}`);
-    } catch {
-      // Component not bundled; Prism.languages[grammarId] falls back to plaintext.
-    }
     return Prism.highlight(code, Prism.languages[grammarId] ?? Prism.languages.plaintext, grammarId);
-  } catch {
-    return null;
-  }
+  } catch { return null; }
+}
+
+export async function preloadPrismLanguage(language: string): Promise<void> {
+  const prism = await getPrism(); const grammarId = resolveCodeLanguage(language).id; await loadGrammar(prism, grammarId);
 }

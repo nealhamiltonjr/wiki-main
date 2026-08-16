@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useSession } from "@/api/authClient";
 import { ApiError, request } from "@/api/client";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/_authenticated/settings/tokens")({
@@ -87,9 +88,12 @@ function TokenSettingsPage() {
     }
   }
 
-  async function revoke(id: string) {
-    if (!confirm("Revoke this token? Anything using it will stop working immediately.")) return;
+  const [pendingRevoke, setPendingRevoke] = useState<string | null>(null);
+
+  async function doRevoke() {
+    if (!pendingRevoke) return;
     try {
+      const id = pendingRevoke;
       await request(`/api/tokens/${id}`, { method: "DELETE" });
       setTokens((prev) => prev.map((t) => (t.id === id ? { ...t, revokedAt: new Date().toISOString() } : t)));
     } catch (err) {
@@ -206,7 +210,7 @@ function TokenSettingsPage() {
                 </td>
                 <td className="py-2">
                   {!t.revokedAt && (
-                    <button type="button" className="text-xs text-danger hover:underline" onClick={() => void revoke(t.id)}>
+                    <button type="button" className="text-xs text-danger hover:underline" onClick={() => setPendingRevoke(t.id)}>
                       Revoke
                     </button>
                   )}
@@ -216,6 +220,15 @@ function TokenSettingsPage() {
           </tbody>
         </table>
       )}
+      <ConfirmDialog
+        open={pendingRevoke !== null}
+        title="Revoke this token?"
+        description="Anything using this token will stop working immediately. This cannot be undone."
+        confirmLabel="Revoke"
+        destructive
+        onConfirm={() => void doRevoke()}
+        onCancel={() => setPendingRevoke(null)}
+      />
     </div>
   );
 }

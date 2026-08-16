@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { request } from "@/api/client";
+import { request, api } from "@/api/client";
+import type { GitStatus, GitLogEntry, GitSnapshotStatus, AuditLogEntry } from "@/api/client";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/settings/system")({
@@ -62,6 +63,35 @@ function SystemSettingsPage() {
   const [healthLoading, setHealthLoading] = useState(false);
   const [logs, setLogs] = useState<SystemLogEntry[]>([]);
 
+  // Phase 1.4 — Git repo health state.
+  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  const [gitLog, setGitLog] = useState<GitLogEntry[]>([]);
+  const [snapshotStatus, setSnapshotStatus] = useState<GitSnapshotStatus | null>(null);
+  const [gitLoading, setGitLoading] = useState(false);
+  const [gitError, setGitError] = useState("");
+  const [gitActionLoading, setGitActionLoading] = useState<string | null>(null);
+
+  const loadGit = useCallback(async () => {
+    setGitLoading(true);
+    try {
+      const [status, log, snap] = await Promise.all([api.getGitStatus(), api.getGitLog(15), api.getGitSnapshotStatus()]);
+      setGitStatus(status); setGitLog(log); setSnapshotStatus(snap); setGitError("");
+    } catch { setGitError("Failed to load git status (admin only)"); }
+    finally { setGitLoading(false); }
+  }, []);
+
+  const runGitAction = useCallback(async (action: "gc" | "push" | "pull" | "snapshot") => {
+    setGitActionLoading(action);
+    try {
+      if (action === "gc") await api.runGitGc();
+      else if (action === "push") await api.gitPush();
+      else if (action === "pull") await api.gitPull();
+      else if (action === "snapshot") await api.createGitSnapshot(`Manual snapshot at ${new Date().toISOString()}`);
+      await loadGit();
+    } catch (err) { setGitError(err instanceof Error ? err.message : `Git ${action} failed`); }
+    finally { setGitActionLoading(null); }
+  }, [loadGit]);
+
   const loadLogs = useCallback(async () => {
     try {
       const rows = await request<SystemLogEntry[]>("/api/settings/system-logs");
@@ -91,6 +121,7 @@ function SystemSettingsPage() {
       .catch(() => { if (!cancelled) setError("Failed to load system info"); });
     loadHealth();
     loadLogs();
+    loadGit();
     return () => { cancelled = true; };
   }, [loadHealth, loadLogs]);
 
@@ -322,6 +353,65 @@ function SystemSettingsPage() {
           </ul>
         )}
       </section>
+
+      <GitSection gitStatus={gitStatus} gitLog={gitLog} snapshotStatus={snapshotStatus} gitLoading={gitLoading} gitError={gitError} gitActionLoading={gitActionLoading} loadGit={loadGit} runGitAction={runGitAction} />
+      <AuditLogSection />
     </div>
+  );
+}
+
+function GitSection({ gitStatus, gitLog, snapshotStatus, gitLoading, gitError, gitActionLoading, loadGit, runGitAction }: {
+  gitStatus: GitStatus | null; gitLog: GitLogEntry[]; snapshotStatus: GitSnapshotStatus | null;
+  gitLoading: boolean; gitError: string; gitActionLoading: string | null;
+  loadGit: () => void; runGitAction: (a: "gc"|"push"|"pull"|"snapshot") => void;
+}) {
+  return (
+    <section className="space-y-4 border-t border-border pt-6">
+      <div className="flex items-baseline justify-between">
+        <div><h3 className="text-sm font-medium text-text-secondary">Git repository</h3><p className="text-xs text-text-muted">Content store status, recent commits, and admin actions.</p></div>
+        <button type="button" onClick={loadGit} disabled={gitLoading} className="text-xs px-2 py-1 border border-border rounded hover:bg-bg-muted disabled:opacity-50">{gitLoading ? "Refreshing…" : "Refresh"}</button>
+      </div>
+      {gitError && <p className="text-sm text-danger">{gitError}</p>}
+      {gitStatus && (
+        <div className="grid grid-cols-2 gap-3 text-sm">
+          <div className="border border-border rounded p-3 space-y-1"><div className="text-text-muted text-xs uppercase tracking-wide">Branch</div><div className="text-text-secondary font-mono text-xs">{gitStatus.branch}</div><div className="text-text-muted text-xs">HEAD: {gitStatus.headHash.slice(0, 8)}</div></div>
+          <div className="border border-border rounded p-3 space-y-1"><div className="text-text-muted text-xs uppercase tracking-wide">Working tree</div><div className="text-text-secondary">{gitStatus.dirty === 0 ? <span className="text-success">clean</span> : <span className="text-warning">{gitStatus.dirty} uncommitted</span>}</div></div>
+          <div className="border border-border rounded p-3 space-y-1"><div className="text-text-muted text-xs uppercase tracking-wide">Remote</div><div className="text-text-secondary font-mono text-xs break-all">{gitStatus.remote.url || "(none)"}</div></div>
+          <div className="border border-border rounded p-3 space-y-1"><div className="text-text-muted text-xs uppercase tracking-wide">Last sync</div><div className="text-text-secondary text-xs">push: {gitStatus.lastPushAt ? formatAgo(gitStatus.lastPushAt) : "never"}</div><div className="text-text-secondary text-xs">pull: {gitStatus.lastPullAt ? formatAgo(gitStatus.lastPullAt) : "never"}</div></div>
+        </div>
+      )}
+      {snapshotStatus && (
+        <div className="border border-border rounded p-3 space-y-1 text-sm"><div className="text-text-muted text-xs uppercase tracking-wide">Snapshots</div><div className="text-text-secondary text-xs">{snapshotStatus.lastSnapshotAt ? `Last: ${formatAgo(snapshotStatus.lastSnapshotAt)}` : "No snapshots yet"} · {snapshotStatus.enabled ? `auto every ${snapshotStatus.intervalHours}h` : "auto disabled"}</div></div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => runGitAction("snapshot")} disabled={gitActionLoading !== null} className="text-xs px-3 py-1.5 border border-border rounded hover:bg-bg-muted disabled:opacity-50">{gitActionLoading === "snapshot" ? "Creating…" : "New snapshot"}</button>
+        <button type="button" onClick={() => runGitAction("push")} disabled={gitActionLoading !== null || !gitStatus?.remote.url} className="text-xs px-3 py-1.5 border border-border rounded hover:bg-bg-muted disabled:opacity-50">{gitActionLoading === "push" ? "Pushing…" : "Push"}</button>
+        <button type="button" onClick={() => runGitAction("pull")} disabled={gitActionLoading !== null || !gitStatus?.remote.url} className="text-xs px-3 py-1.5 border border-border rounded hover:bg-bg-muted disabled:opacity-50">{gitActionLoading === "pull" ? "Pulling…" : "Pull"}</button>
+        <button type="button" onClick={() => runGitAction("gc")} disabled={gitActionLoading !== null} className="text-xs px-3 py-1.5 border border-border rounded hover:bg-bg-muted disabled:opacity-50">{gitActionLoading === "gc" ? "Running…" : "Run gc"}</button>
+      </div>
+      {gitLog.length > 0 && (
+        <div className="space-y-2"><div className="text-text-muted text-xs uppercase tracking-wide">Recent commits</div><ul className="space-y-1 text-xs font-mono">{gitLog.map((c) => <li key={c.hash} className="border-l-2 border-border pl-2"><div className="flex items-center gap-2"><span className="text-text-muted">{c.hash.slice(0, 8)}</span><span className="text-text-muted">{formatAgo(c.date)}</span><span className="text-text-secondary">{c.author}</span></div><div className="text-text-secondary break-words">{c.message}</div></li>)}</ul></div>
+      )}
+    </section>
+  );
+}
+
+function AuditLogSection() {
+  const [entries, setEntries] = useState<AuditLogEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => { setLoading(true); try { const rows = await api.getAuditLog(100); setEntries(rows); setError(""); } catch { setError("Failed to load audit log"); } finally { setLoading(false); } }, []);
+  useEffect(() => { void load(); }, [load]);
+  return (
+    <section className="space-y-3 border-t border-border pt-6">
+      <div className="flex items-baseline justify-between">
+        <div><h3 className="text-sm font-medium text-text-secondary">Audit log</h3><p className="text-xs text-text-muted">Security-critical admin actions.</p></div>
+        <button type="button" onClick={load} disabled={loading} className="text-xs px-2 py-1 border border-border rounded hover:bg-bg-muted disabled:opacity-50">{loading ? "Refreshing…" : "Refresh"}</button>
+      </div>
+      {error && <p className="text-sm text-danger">{error}</p>}
+      {entries.length === 0 ? <p className="text-xs text-text-muted">No audit entries recorded yet.</p> : (
+        <ul className="space-y-1 text-xs font-mono">{entries.map((e) => <li key={e.id} className="border-l-2 border-border pl-2"><div className="flex items-center gap-2 flex-wrap"><span className="text-text-secondary font-semibold">{e.action}</span>{e.targetType && <span className="text-text-muted">{e.targetType}{e.targetId ? `:${e.targetId.slice(0, 8)}` : ""}</span>}<span className="text-text-muted">{formatAgo(e.createdAt)}</span><span className="text-text-muted">by {e.actorName ?? e.actorEmail ?? e.actorUserId ?? "system"}</span></div>{e.meta != null && <div className="text-text-muted break-words">{JSON.stringify(e.meta)}</div>}</li>)}</ul>
+      )}
+    </section>
   );
 }

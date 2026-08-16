@@ -78,6 +78,13 @@
       "when": 1786723808374,
       "tag": "0010_calm_beyonder",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1786898039325,
+      "tag": "0011_missing_indexes",
+      "breakpoints": true
     }
   ]
 }

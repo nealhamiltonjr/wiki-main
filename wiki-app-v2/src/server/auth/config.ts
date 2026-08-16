@@ -27,11 +27,31 @@ function getAuthDb() {
 const defaultSecret =
   "dev-only-better-auth-secret-change-me-0123456789abcdef0123456789abcdef";
 
+function resolveAuthSecret(): string {
+  const fromEnv = process.env.BETTER_AUTH_SECRET;
+  if (fromEnv) return fromEnv;
+  const nodeEnv = (process.env.NODE_ENV ?? "development").toLowerCase();
+  if (nodeEnv === "production") {
+    throw new Error(
+      "BETTER_AUTH_SECRET must be set in production. Refusing to boot with " +
+        "the publicly-known dev placeholder — anyone reading the source " +
+        "could forge session cookies.",
+    );
+  }
+  if (nodeEnv !== "test") {
+    console.warn(
+      "[auth] BETTER_AUTH_SECRET not set — using dev placeholder. " +
+        "Set BETTER_AUTH_SECRET before deploying to production.",
+    );
+  }
+  return defaultSecret;
+}
+
 export function createAuth() {
   const { adapter } = getAuthDb();
   return betterAuth({
     baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
-    secret: process.env.BETTER_AUTH_SECRET ?? defaultSecret,
+    secret: resolveAuthSecret(),
     trustedOrigins: [
       process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
       ...(process.env.BETTER_EXTRA_TRUSTED_ORIGINS

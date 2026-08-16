@@ -8,7 +8,7 @@ import {
 } from "@/shared/blockIds";
 import { MermaidRenderer } from "./extensions/MermaidRenderer.js";
 import { useEmbedTypeMap } from "@/plugins/registry";
-import { highlightCode } from "./codeHighlight.js";
+import { useHighlightedCode } from "./useHighlightedCode.js";
 
 /**
  * Simple server-rendering-safe content renderer. Walks Tiptap JSON nodes into
@@ -372,7 +372,7 @@ function childOffsetAt(arr: PMNode[], idx: number): number {
  * highlighting. In read mode, shows a language tag and highlighted code.
  */
 function CodeBlock({ code, language }: { code: string; language?: string }) {
-  const highlighted = useMemo(() => highlightCode(code, language), [code, language]);
+  const highlighted = useHighlightedCode(code, language);
 
   return (
     <div className="my-3 overflow-hidden rounded-md border border-border">

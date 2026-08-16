@@ -54,7 +54,7 @@ export async function shareRoutes(app: FastifyInstance) {
       password: body.password,
       name: body.name,
     });
-    return reply.code(201).send({ id, token: rawToken, shareUrl: `/?shareToken=${rawToken}` });
+    return reply.code(201).send({ id, token: rawToken, shareUrl: `/share/${branchId}?shareToken=${rawToken}` });
   });
 
   app.delete("/api/shares/:id", { config: { access: "authenticated" } }, async (request, reply) => {

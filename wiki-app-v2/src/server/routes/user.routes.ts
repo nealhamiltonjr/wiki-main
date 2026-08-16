@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "../db/index.js";
 import { auditLog, users } from "../db/schema.js";
+import { reassignUserContent, deleteUserContent } from "../services/user-delete.service.js";
 
 const updateUserBody = z.object({
   isAdmin: z.boolean().optional(),
@@ -144,6 +145,48 @@ export async function userRoutes(app: FastifyInstance) {
       .from(users)
       .where(eq(users.id, id));
     return reply.send(updated);
+  });
+
+  // Phase 2.5 — Mentionable users
+  app.get("/api/users/mentionable", { config: { access: "authenticated" } }, async (request, reply) => {
+    const me = (request as any).userContext as { id: string };
+    const { sqlite } = getDb();
+    const spaceRows = sqlite.prepare("SELECT DISTINCT space_id FROM space_members WHERE user_id = ?").all(me.id) as { space_id: string }[];
+    if (spaceRows.length === 0) return reply.send([]);
+    const spaceIds = spaceRows.map((r) => r.space_id);
+    const placeholders = spaceIds.map(() => "?").join(",");
+    const rows = sqlite.prepare(`SELECT DISTINCT u.id, u.name, u.email FROM users u JOIN space_members sm ON sm.user_id = u.id WHERE sm.space_id IN (${placeholders}) AND u.id != ? AND u.suspended = 0 ORDER BY u.name LIMIT 100`).all(...spaceIds, me.id) as { id: string; name: string; email: string }[];
+    return reply.send(rows);
+  });
+
+  // Phase 3.6 — Admin user deletion with content reassignment
+  app.delete("/api/users/:id", { config: { access: "admin" } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const query = request.query as { mode?: string; targetUserId?: string; fallbackUserId?: string };
+    const actor = (request as any).userContext as { id: string };
+    if (id === actor.id) return reply.code(409).send({ error: "Cannot delete your own account" });
+    const { db, sqlite } = getDb();
+    const [target] = await db.select().from(users).where(eq(users.id, id));
+    if (!target) return reply.code(404).send({ error: "User not found" });
+    const adminCount = sqlite.prepare("SELECT COUNT(*) as n FROM user WHERE is_admin = 1 AND suspended = 0").get() as { n: number };
+    if (target.isAdmin && adminCount.n <= 1) return reply.code(409).send({ error: "Cannot delete the last admin" });
+    const mode = query.mode ?? "reassign";
+    try {
+      if (mode === "reassign") {
+        if (!query.targetUserId) return reply.code(400).send({ error: "targetUserId required" });
+        const [t2] = await db.select().from(users).where(eq(users.id, query.targetUserId));
+        if (!t2) return reply.code(404).send({ error: "Target user not found" });
+        await reassignUserContent(id, query.targetUserId);
+      } else if (mode === "delete") {
+        if (!query.fallbackUserId) return reply.code(400).send({ error: "fallbackUserId required" });
+        const [fb] = await db.select().from(users).where(eq(users.id, query.fallbackUserId));
+        if (!fb) return reply.code(404).send({ error: "Fallback user not found" });
+        await deleteUserContent(id, query.fallbackUserId);
+      } else { return reply.code(400).send({ error: `Unknown mode: ${mode}` }); }
+      await db.insert(auditLog).values({ actorUserId: actor.id, action: "user_delete", targetType: "user", targetId: id, meta: { mode, targetUserId: query.targetUserId, fallbackUserId: query.fallbackUserId } });
+      await db.delete(users).where(eq(users.id, id));
+      return reply.send({ ok: true });
+    } catch (err) { return reply.code(500).send({ error: (err as Error).message }); }
   });
 }
 

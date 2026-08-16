@@ -119,6 +119,9 @@ export function Tree() {
   const [ctx, setCtx] = useState<CtxTarget | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const [showCreateSpace, setShowCreateSpace] = useState(false);
+  const [newSpaceName, setNewSpaceName] = useState("");
+  const [creatingSpace, setCreatingSpace] = useState(false);
 
   useEffect(() => {
     api.listSpaces().then((s) => {
@@ -182,6 +185,24 @@ export function Tree() {
     }
   }
 
+  async function handleCreateSpace() {
+    const name = newSpaceName.trim();
+    if (!name) return;
+    setCreatingSpace(true);
+    try {
+      const { id } = await api.createSpace(name);
+      const updated = await api.listSpaces();
+      setSpaces(updated);
+      setActiveSpace(id);
+      setShowCreateSpace(false);
+      setNewSpaceName("");
+      toast.success(`Created space "${name}"`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not create space";
+      toast.error(message);
+    } finally { setCreatingSpace(false); }
+  }
+
   const flattened = useMemo(() => flattenBranches(tree), [tree]);
 
   return (
@@ -208,6 +229,17 @@ export function Tree() {
           >
             <Plus className="h-3.5 w-3.5" />
             New
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCreateSpace(true)}
+            className="flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium hover:bg-surface-hover"
+            title="Create a new space"
+            aria-label="Create a new space"
+            data-testid="sidebar-new-space"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Space
           </button>
         </div>
       </div>
@@ -281,6 +313,23 @@ export function Tree() {
               }
             }}
           />,
+          document.body,
+        )}
+
+      {showCreateSpace &&
+        createPortal(
+          <div className="cmd-overlay" onClick={() => setShowCreateSpace(false)} role="dialog" aria-modal="true" aria-label="Create a new space">
+            <div className="cmd-palette" onClick={(e) => e.stopPropagation()} style={{ width: "min(420px, 90vw)" }}>
+              <div className="cmd-section" style={{ padding: "1rem 1rem 0.5rem" }}>Create a new space</div>
+              <div style={{ padding: "0 1rem 1rem" }}>
+                <input type="text" className="cmd-input" style={{ borderBottom: "1px solid var(--border)" }} placeholder="Space name" value={newSpaceName} onChange={(e) => setNewSpaceName(e.target.value)} autoFocus onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void handleCreateSpace(); } if (e.key === "Escape") setShowCreateSpace(false); }} disabled={creatingSpace} aria-label="Space name" data-testid="new-space-name-input" />
+                <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", justifyContent: "flex-end" }}>
+                  <button type="button" onClick={() => setShowCreateSpace(false)} className="rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-surface-hover" disabled={creatingSpace}>Cancel</button>
+                  <button type="button" onClick={() => void handleCreateSpace()} className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-50" disabled={creatingSpace || !newSpaceName.trim()} data-testid="new-space-submit">{creatingSpace ? "Creating…" : "Create"}</button>
+                </div>
+              </div>
+            </div>
+          </div>,
           document.body,
         )}
 

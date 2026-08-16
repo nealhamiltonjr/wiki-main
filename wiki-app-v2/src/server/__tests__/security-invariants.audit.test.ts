@@ -228,6 +228,7 @@ describe("§9.2 / §7.2 mechanical invariants", () => {
       "src/features/editor/extensions/MermaidRenderer.tsx",
       "src/features/editor/ReadOnlyContent.tsx",
       "src/features/editor/CodePageReadOnly.tsx",
+      "src/features/search/CommandPalette.tsx",
     ];
     const violations: AuditViolation[] = [];
     for (const file of files) {

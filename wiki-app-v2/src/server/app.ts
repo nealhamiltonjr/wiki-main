@@ -26,10 +26,14 @@ import { relationRoutes } from "./routes/relation.routes.js";
 import { graphRoutes } from "./routes/graph.routes.js";
 import { registerPluginServerRoutes, registerPluginHookHandlers, installPluginFailureHook } from "./services/plugin.service.js";
 import { recordSystemLog } from "./services/system-logger.service.js";
+import { assertEncryptionKeyConfigured } from "./services/crypto.service.js";
 import { debugRoutes } from "./routes/debug.routes.js";
 import { templateRoutes } from "./routes/template.routes.js";
 import { shareRoutes } from "./routes/share.routes.js";
 import { attributeRoutes } from "./routes/attribute.routes.js";
+import { mcpRoutes } from "./routes/mcp.routes.js";
+import { exportRoutes } from "./routes/export.routes.js";
+import { syncRoutes } from "./routes/sync.routes.js";
 import multipart from "@fastify/multipart";
 
 /**
@@ -40,6 +44,9 @@ import multipart from "@fastify/multipart";
  */
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? false });
+
+  // §0.5 hardening — fail-fast if encryption key is missing in production.
+  assertEncryptionKeyConfigured();
 
   // Day-one security headers (§3.2): CSP, nosniff, frame-options, referrer.
   registerSecurityHeaders(app);
@@ -132,6 +139,9 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(templateRoutes);
   await app.register(shareRoutes);
   await app.register(attributeRoutes);
+  await app.register(mcpRoutes);
+  await app.register(exportRoutes);
+  await app.register(syncRoutes);
 
   // Slice 35 — record every completed HTTP request for the debug capture ring
   // (only persisted while capture is enabled). Registered after routes so the

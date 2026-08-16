@@ -138,6 +138,16 @@ export interface PageSearchResponse {
   count: number;
 }
 
+export interface GitStatus {
+  branch: string; dirty: number; headHash: string;
+  remote: { url: string; branch: string };
+  lastPushAt: string | null; lastPullAt: string | null; lastError: string | null;
+}
+export interface GitLogEntry { hash: string; date: string; message: string; author: string; }
+export interface GitSnapshotEntry { hash: string; date: string; message: string; author: string; }
+export interface GitSnapshotStatus { lastSnapshotAt: string | null; lastSnapshotMessage: string | null; dirtyCount: number; enabled: boolean; intervalHours: number; }
+export interface AuditLogEntry { id: string; actorUserId: string | null; actorName: string | null; actorEmail: string | null; action: string; targetType: string | null; targetId: string | null; meta: unknown; createdAt: string; }
+
 export interface OwnedRelation {
   id: string;
   type: string;
@@ -397,4 +407,14 @@ export const api = {
   addAttribute: (pageId: string, body: { name: string; value?: string; isPromoted?: boolean }) =>
     request(`/api/pages/${pageId}/attributes`, { method: "POST", body: JSON.stringify(body) }),
   removeAttribute: (id: string) => request<{ ok: true }>(`/api/attributes/${id}`, { method: "DELETE" }),
+
+  getGitStatus: () => request<GitStatus>("/api/git/status"),
+  getGitLog: (limit = 25) => request<GitLogEntry[]>(`/api/git/log?limit=${limit}`),
+  getGitSnapshots: (limit = 20) => request<GitSnapshotEntry[]>(`/api/git/snapshots?limit=${limit}`),
+  getGitSnapshotStatus: () => request<GitSnapshotStatus>("/api/git/snapshot-status"),
+  createGitSnapshot: (message?: string) => request<{ queued: true; jobId: string }>("/api/git/snapshot", { method: "POST", body: JSON.stringify(message ? { message } : {}) }),
+  runGitGc: () => request<{ ok: true }>("/api/git/gc", { method: "POST" }),
+  gitPush: () => request<{ ok: true }>("/api/git/push", { method: "POST" }),
+  gitPull: () => request<{ ok: true }>("/api/git/pull", { method: "POST" }),
+  getAuditLog: (limit = 100) => request<AuditLogEntry[]>(`/api/settings/audit-log?limit=${limit}`),
 };

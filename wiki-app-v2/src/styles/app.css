@@ -422,3 +422,122 @@ mark.comment-highlight:hover {
 .wiki-prose .token.important,
 .wiki-prose .token.bold { font-weight: 700; }
 .wiki-prose .token.italic { font-style: italic; }
+
+/* §0.3 — ErrorBoundary fallback */
+.wiki-error-boundary {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 100vh; padding: 2rem; font-family: var(--font-sans);
+  color: var(--foreground); background: var(--background); text-align: center;
+}
+.wiki-error-boundary h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+.wiki-error-boundary p { color: var(--text-muted); margin-bottom: 1.5rem; max-width: 32rem; }
+.wiki-error-boundary pre {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 0.75rem 1rem; font-size: 0.85rem; max-width: 32rem; overflow: auto; text-align: left; margin: 0;
+}
+.wiki-error-boundary button {
+  margin-top: 1.5rem; padding: 0.5rem 1.25rem; font-size: 0.95rem;
+  background: var(--primary); color: #fff; border: none; border-radius: var(--radius-md); cursor: pointer;
+}
+
+/* Phase 1.2 — CommandPalette */
+.cmd-overlay {
+  position: fixed; inset: 0; z-index: var(--z-overlay);
+  background: var(--scrim, rgba(0, 0, 0, 0.4));
+  display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh;
+}
+.cmd-palette {
+  background: var(--background); border: 1px solid var(--border); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay); width: min(640px, 90vw); max-height: 70vh;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.cmd-input {
+  width: 100%; padding: 0.875rem 1rem; border: none; border-bottom: 1px solid var(--border);
+  background: transparent; color: var(--foreground); font-size: 1rem; outline: none;
+}
+.cmd-input:focus { box-shadow: inset 0 -2px 0 var(--primary); }
+.cmd-results { overflow-y: auto; flex: 1; min-height: 0; }
+.cmd-status { padding: 0.5rem 1rem; font-size: 0.8rem; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+.cmd-section { padding: 0.5rem 1rem 0.25rem; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.cmd-item { display: block; width: 100%; padding: 0.5rem 1rem; border: none; background: transparent; text-align: left; cursor: pointer; color: var(--foreground); font: inherit; }
+.cmd-item:hover, .cmd-item.selected { background: var(--surface); }
+.cmd-item-title { font-weight: 500; font-size: 0.9rem; margin-bottom: 0.15rem; }
+.cmd-item-snippet { font-size: 0.8rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-item-snippet mark { background: color-mix(in srgb, var(--primary) 22%, transparent); color: var(--foreground); padding: 0 1px; border-radius: 2px; }
+.cmd-footer { padding: 0.5rem 1rem; border-top: 1px solid var(--border); font-size: 0.75rem; color: var(--text-muted); display: flex; gap: 0.5rem; align-items: center; }
+.cmd-footer kbd { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1px 5px; font-size: 0.7rem; font-family: var(--font-mono); }
+
+/* Phase 2 — Task lists, text alignment, highlight, wikilinks */
+.wiki-prose ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+.wiki-prose ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 0.5rem; }
+.wiki-prose ul[data-type="taskList"] li > label { flex-shrink: 0; user-select: none; margin-top: 0.25rem; }
+.wiki-prose ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
+.wiki-prose ul[data-type="taskList"] li[data-checked="true"] > div > p { text-decoration: line-through; color: var(--text-muted); }
+.wiki-prose mark { background: color-mix(in srgb, var(--warning, #aa8d51) 35%, transparent); color: var(--foreground); padding: 0 2px; border-radius: 2px; }
+.wiki-prose a[data-wikilink] { color: var(--primary); text-decoration: underline; text-decoration-style: dashed; text-underline-offset: 2px; cursor: pointer; }
+.wiki-prose a[data-wikilink]:hover { text-decoration-style: solid; }
+
+/* Phase 2.5 — @Mention popup */
+.mention-popup-container {
+  z-index: var(--z-overlay); background: var(--background); border: 1px solid var(--border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-overlay); min-width: 220px; max-width: 320px;
+  max-height: 280px; overflow-y: auto; font-family: var(--font-sans);
+}
+.mention-popup-empty { padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--text-muted); }
+.mention-popup-item { display: block; width: 100%; padding: 0.5rem 0.75rem; border: none; background: transparent; text-align: left; cursor: pointer; color: var(--foreground); font: inherit; }
+.mention-popup-item:hover, .mention-popup-item.selected { background: var(--surface); }
+.mention-popup-name { font-weight: 500; font-size: 0.9rem; }
+.mention-popup-email { font-size: 0.75rem; color: var(--text-muted); }
+.wiki-prose .mention { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); border-radius: 3px; padding: 0 3px; cursor: pointer; font-weight: 500; }
+
+/* Phase 2.7 — Attachment node */
+.attachment-node { margin: 0.75rem 0; }
+.attachment-card { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); text-decoration: none; color: var(--foreground); transition: border-color 0.15s, box-shadow 0.15s; }
+.attachment-card:hover { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 12%, transparent); }
+.attachment-icon { flex-shrink: 0; color: var(--text-muted); }
+.attachment-meta { flex: 1; min-width: 0; }
+.attachment-name { font-weight: 500; font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attachment-info { font-size: 0.75rem; color: var(--text-muted); }
+.attachment-download { flex-shrink: 0; color: var(--text-muted); }
+.attachment-card:hover .attachment-download { color: var(--primary); }
+
+/* Phase 4.1 — Comment hover bubble */
+.comment-hover-bubble {
+  z-index: var(--z-overlay);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  max-width: 320px;
+  min-width: 200px;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  overflow: hidden;
+}
+.comment-hover-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+.comment-hover-author { font-weight: 600; color: var(--foreground); }
+.comment-hover-count { color: var(--text-muted); }
+.comment-hover-resolved { color: var(--text-muted); font-style: italic; }
+.comment-hover-body {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  color: var(--foreground);
+  max-height: 120px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.comment-hover-footer {
+  padding: 0.35rem 0.75rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-align: center;
+}

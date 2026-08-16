@@ -64,6 +64,13 @@ const BLOCK_COMMANDS: Cmd[] = [
     run: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
   {
+    name: "task-list",
+    label: "Task list",
+    icon: "☐",
+    keywords: ["todo", "checkbox", "checklist", "task", "done"],
+    run: (editor) => editor.chain().focus().toggleTaskList().run(),
+  },
+  {
     name: "quote",
     label: "Quote",
     icon: "❝",

@@ -17,6 +17,21 @@ export function getRepoRoot(): string {
   return REPO_ROOT;
 }
 
+/**
+ * §0.2 hardening — defense-in-depth path-traversal guard.
+ * Mirrors the pattern already used in page.service.ts:purgePage.
+ */
+function assertInsideRepo(fullPath: string): void {
+  const resolved = path.resolve(fullPath);
+  const root = path.resolve(REPO_ROOT);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    throw new Error(
+      `path traversal blocked: resolved path ${resolved} escapes repo root ${root}`,
+    );
+  }
+}
+
+
 // Serialize all git mutations. simple-git does NOT serialize concurrent
 // operations internally: a file-upload commit racing a page-save commit can
 // collide on `.git/index.lock` or fold one operation's staged files into the
@@ -112,6 +127,7 @@ export async function commitPageChange(pageId: string, branchId: string, oldSlug
 
   const relPath = path.join(spaceSlug, `${page.slug}.${ext}`);
   const fullPath = path.join(REPO_ROOT, relPath);
+  assertInsideRepo(fullPath);
 
   await mkdir(path.dirname(fullPath), { recursive: true });
   await writeFile(fullPath, body, "utf-8");
@@ -169,6 +185,7 @@ export async function commitManualSnapshot(pageId: string, message: string, user
     : frontmatterToMarkdown({ title: page.title, slug: page.slug, date: new Date().toISOString() }) + "\n" + tiptapToMarkdown(page.content as never);
   const relPath = path.join("_snapshots", `${page.id}.${ext}`);
   const fullPath = path.join(REPO_ROOT, relPath);
+  assertInsideRepo(fullPath);
 
   await mkdir(path.dirname(fullPath), { recursive: true });
   await writeFile(fullPath, body, "utf-8");

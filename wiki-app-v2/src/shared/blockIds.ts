@@ -60,6 +60,8 @@ export const KNOWN_BLOCK_TYPES = new Set([
   "blockquote", "codeBlock", "horizontalRule", "image", "table",
   "tableRow", "tableCell", "taskList", "taskItem", "details",
   "detailsContent", "detailsSummary", "mermaidDiagram",
+  // Phase 2.7 — rich attachment node.
+  "attachment",
 ]);
 
 export const KNOWN_INLINE_TYPES = new Set([
@@ -68,6 +70,8 @@ export const KNOWN_INLINE_TYPES = new Set([
 
 export const KNOWN_MARK_TYPES = new Set([
   "bold", "italic", "underline", "strike", "code", "link",
+  // Phase 2 — restored editor marks.
+  "highlight", "wikilink",
 ]);
 
 /**
